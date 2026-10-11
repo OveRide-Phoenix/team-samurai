@@ -12,7 +12,7 @@ from agno.skills import LocalSkills, Skills
 
 from samurai.config import Settings, create_model
 from samurai.contracts import (
-    AnalysisArtifact,
+    AnalysisDraft,
     ArtifactType,
     BuilderDraftArtifact,
     IntakeArtifact,
@@ -113,7 +113,7 @@ ROLE_SPECS: Final = (
     _RoleSpec(
         Role.ANALYST,
         "Analyst",
-        AnalysisArtifact,
+        AnalysisDraft,
         "requires_metrics",
         ArtifactType.ANALYSIS,
     ),

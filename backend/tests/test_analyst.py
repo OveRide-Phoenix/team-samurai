@@ -24,6 +24,7 @@ from samurai.analysis_workflow import (
 )
 from samurai.contracts import (
     AnalysisArtifact,
+    AnalysisDraft,
     CompanyState,
     FounderMetricInput,
     MeasuredResult,
@@ -52,11 +53,9 @@ class DeterministicAnalystModel(Model):
     def invoke(self, *_args: Never, **_kwargs: Never) -> ModelResponse:
         type(self).calls += 1
         return ModelResponse(
-            content=AnalysisArtifact(
-                metric_ids=(uuid4(),),
+            content=AnalysisDraft(
                 findings=("Four qualified leads were supplied by the founder.",),
                 recommendations=("Verify the lead count through a trusted connector.",),
-                basis="connected_measurements",
             ).model_dump_json()
         )
 
@@ -144,7 +143,7 @@ async def _run(
     db_file: pathlib.Path,
 ) -> tuple[WorkflowResult, CompanyState | None]:
     model = DeterministicAnalystModel()
-    analyst = Agent(model=model, output_schema=AnalysisArtifact, telemetry=False)
+    analyst = Agent(model=model, output_schema=AnalysisDraft, telemetry=False)
     workflow = create_analysis_workflow(SqliteDb(db_file=str(db_file)), analyst)
     session_state: dict[str, JsonValue] = {}
     result = await run_analysis(
@@ -249,7 +248,7 @@ def test_known_run_id_can_be_cancelled_natively(tmp_path: pathlib.Path) -> None:
         started = anyio.Event()
         analyst = Agent(
             model=CancellationAwareAnalystModel(started),
-            output_schema=AnalysisArtifact,
+            output_schema=AnalysisDraft,
             telemetry=False,
         )
         workflow = create_analysis_workflow(SqliteDb(db_file=str(tmp_path / "cancel.db")), analyst)

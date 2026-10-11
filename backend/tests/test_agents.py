@@ -1,4 +1,5 @@
 import re
+from typing import cast
 
 import pytest
 from agno.agent import Agent
@@ -75,6 +76,19 @@ def test_role_catalog_reports_honest_capability_states() -> None:
         Role.ANALYST: "requires_metrics",
         Role.VERIFIER: "active",
     }
+
+
+def test_analyst_model_only_owns_findings_and_recommendations() -> None:
+    analyst = create_role_catalog(Settings.model_validate({}))[Role.ANALYST].agent
+    output_schema = analyst.output_schema
+
+    assert isinstance(output_schema, type)
+    assert issubclass(output_schema, BaseModel)
+    schema = output_schema.model_json_schema()
+    properties = cast("dict[str, object]", schema["properties"])
+    assert tuple(properties) == ("findings", "recommendations")
+    assert schema["required"] == ["findings", "recommendations"]
+    assert schema["additionalProperties"] is False
 
 
 def test_model_factory_applies_budgets_to_each_fresh_model() -> None:

@@ -11,6 +11,7 @@ from pydantic import AwareDatetime  # noqa: TC002 - Pydantic resolves this field
 
 from samurai.contracts import (
     AnalysisArtifact,
+    AnalysisDraft,
     ArtifactEnvelope,
     ArtifactType,
     CompanyState,
@@ -60,8 +61,12 @@ class _PreparedAnalysis(Contract):
 
 class _AnalysisExecutionInput(Contract):
     state: CompanyState
-    metrics: tuple[FounderMetricInput, ...]
+    metrics: tuple[FounderMetricInput | MeasuredResult, ...]
     checked_at: AwareDatetime
+
+
+def _step_output(content: Contract, *, stop: bool = False) -> StepOutput:
+    return StepOutput(content=content.model_dump(mode="json"), stop=stop)
 
 
 def _eligible(metric: FounderMetricInput, *, checked_at: datetime) -> bool:
@@ -94,16 +99,16 @@ def _gate_metrics(step_input: StepInput) -> StepOutput:
         not _eligible(metric, checked_at=workflow_input.checked_at)
         for metric in workflow_input.metrics
     ):
-        return StepOutput(
-            content=WorkflowResult(
+        return _step_output(
+            WorkflowResult(
                 company_id=state.context.company_id,
                 revision=state.current_revision,
                 outcome="requires_metrics",
             ),
             stop=True,
         )
-    return StepOutput(
-        content=_PreparedAnalysis(
+    return _step_output(
+        _PreparedAnalysis(
             state=state,
             measurements=tuple(_founder_measurement(metric) for metric in workflow_input.metrics),
         )
@@ -111,7 +116,7 @@ def _gate_metrics(step_input: StepInput) -> StepOutput:
 
 
 def _complete_analysis(step_input: StepInput) -> StepOutput:
-    assessment = AnalysisArtifact.model_validate(step_input.previous_step_content)
+    assessment = AnalysisDraft.model_validate(step_input.previous_step_content)
     previous_outputs = step_input.previous_step_outputs or {}
     prepared = _PreparedAnalysis.model_validate(previous_outputs[GATE_STEP].content)
     state = prepared.state
@@ -146,8 +151,8 @@ def _complete_analysis(step_input: StepInput) -> StepOutput:
         authenticated_session_id=state.context.authenticated_session_id,
     )
     accepted = updated.artifacts[-1]
-    return StepOutput(
-        content=WorkflowResult(
+    return _step_output(
+        WorkflowResult(
             company_id=updated.context.company_id,
             revision=updated.current_revision,
             outcome="based_on_founder_supplied_metrics",
@@ -186,12 +191,13 @@ async def run_analysis(
         run_context,
         created_at=workflow_input.checked_at,
     )
+    execution_input = _AnalysisExecutionInput(
+        state=state,
+        metrics=workflow_input.metrics,
+        checked_at=workflow_input.checked_at,
+    )
     output: WorkflowRunOutput = await workflow.arun(
-        _AnalysisExecutionInput(
-            state=state,
-            metrics=workflow_input.metrics,
-            checked_at=workflow_input.checked_at,
-        ),
+        execution_input.model_dump(mode="json"),
         user_id=run_context.user_id,
         session_id=run_context.session_id,
         session_state=run_context.session_state,

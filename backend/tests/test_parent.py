@@ -29,7 +29,7 @@ from samurai.agents import ROLE_CAPABILITIES, ConfiguredRole
 from samurai.app import create_app
 from samurai.config import Settings
 from samurai.contracts import (
-    AnalysisArtifact,
+    AnalysisDraft,
     Assumption,
     CompanyBrief,
     CompanyState,
@@ -477,16 +477,14 @@ def test_complete_metric_call_remains_conditional_and_founder_supplied(
             session_data={"session_state": {"company": original_state.model_dump(mode="json")}},
         )
     )
-    assessment = AnalysisArtifact(
-        metric_ids=(UUID("00000000-0000-0000-0000-000000000201"),),
+    assessment = AnalysisDraft(
         findings=("Twelve qualified leads were founder supplied.",),
         recommendations=("Verify the lead count through a trusted connector.",),
-        basis="connected_measurements",
     )
     analyst = Agent(
         id="test-analyst",
         model=_StaticRoleModel(assessment.model_dump_json()),
-        output_schema=AnalysisArtifact,
+        output_schema=AnalysisDraft,
         telemetry=False,
     )
 

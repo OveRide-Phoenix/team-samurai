@@ -202,6 +202,11 @@ class AnalysisArtifact(Contract):
     basis: Literal["connected_measurements", "based_on_founder_supplied_metrics"]
 
 
+class AnalysisDraft(Contract):
+    findings: tuple[str, ...]
+    recommendations: tuple[str, ...]
+
+
 class VerificationArtifact(Contract):
     artifact_type: Literal[ArtifactType.VERIFICATION] = ArtifactType.VERIFICATION
     checked_artifact_ids: tuple[UUID, ...] = Field(min_length=1)
