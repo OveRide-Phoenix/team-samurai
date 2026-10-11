@@ -1,5 +1,6 @@
 """Application factory for the local AgentOS bootstrap."""
 
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, ClassVar
 
 from agno.db.postgres import PostgresDb
@@ -8,13 +9,14 @@ from agno.os import AgentOS
 from agno.os.authz import Authorization
 from agno.os.config import AgentOSConfig, ChatConfig
 from agno.os.settings import AgnoAPISettings
+from fastapi import FastAPI
 from pydantic import Field, PostgresDsn, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from samurai.foundation import STARTER_PROMPTS, WORKFLOW_ID, create_foundation
 
 if TYPE_CHECKING:
-    from fastapi import FastAPI
+    from collections.abc import AsyncGenerator
 
 
 class Settings(BaseSettings):
@@ -38,7 +40,7 @@ def create_app() -> FastAPI:
     settings = Settings.model_validate({})
     db = PostgresDb(id="samurai", db_url=str(settings.database_url))
     api_key = settings.google_api_key.get_secret_value()
-    return AgentOS(
+    runtime = AgentOS(
         id="samurai",
         name="AI Idea to Company",
         db=db,
@@ -73,3 +75,13 @@ def create_app() -> FastAPI:
         tracing=True,
         telemetry=False,
     ).get_app()
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
+        # Mounted apps do not receive startup/shutdown automatically.
+        async with runtime.router.lifespan_context(runtime):
+            yield
+
+    app = FastAPI(title="Samurai API", lifespan=lifespan, docs_url=None, redoc_url=None)
+    app.mount("/agentos", runtime, name="agentos")
+    return app

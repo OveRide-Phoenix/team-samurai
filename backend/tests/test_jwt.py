@@ -31,17 +31,17 @@ def test_jwt_mode_rejects_shared_key_and_accepts_signed_identity(
         algorithm="RS256",
     )
     with TestClient(create_app()) as client:
-        assert client.get("/config").status_code == 401
+        assert client.get("/agentos/config").status_code == 401
         assert (
             client.get(
-                "/config",
+                "/agentos/config",
                 headers={"Authorization": "Bearer test-key-0000000000000000000000000000"},
             ).status_code
             == 401
         )
         assert (
             client.get(
-                "/config",
+                "/agentos/config",
                 headers={"Authorization": f"Bearer {token}"},
             ).status_code
             == 200

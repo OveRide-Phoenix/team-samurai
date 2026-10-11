@@ -115,7 +115,7 @@ Requirements: Python 3.14, uv, Node.js 24 or 26, npm, and a running Podman machi
 
 1. Configure the root `.env` from [.env.example](.env.example), then run `uv tool run --from podman-compose podman-compose up -d` from the repository root.
 2. Follow [backend/README.md](backend/README.md) to configure the database URL and bearer key, then run `uv sync --locked` and `uv run uvicorn samurai.app:create_app --factory --app-dir src --host 127.0.0.1 --port 8000` inside `backend/`.
-3. Run `npm ci` and `npm run dev` inside `frontend/`. Check [frontend health](http://127.0.0.1:3000/api/health) and [backend health](http://127.0.0.1:8000/health).
+3. Run `npm ci` and `npm run dev` inside `frontend/`. Check [frontend health](http://127.0.0.1:3000/api/health) and [backend health](http://127.0.0.1:8000/agentos/health).
 
 Health endpoints show process liveness, not proof of Gemini access or a completed business workflow. Keep the shared backend key server-side; this local bootstrap must not be exposed as a multi-user service.
 

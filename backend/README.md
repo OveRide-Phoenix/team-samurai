@@ -33,7 +33,7 @@ uv sync --locked
 uv run uvicorn samurai.app:create_app --factory --app-dir src --host 127.0.0.1 --port 8000
 ```
 
-`GET /health` is liveness only. `GET /config` requires `Authorization: Bearer <OS_SECURITY_KEY>`. Use AgentOS's OpenAPI docs at `/docs` to inspect the actual locked API. Model calls may incur costs; the setup checks do not make them.
+`GET /agentos/health` is liveness only. `GET /agentos/config` requires `Authorization: Bearer <OS_SECURITY_KEY>`. Use AgentOS's OpenAPI docs at `/agentos/docs` to inspect the actual locked API. Model calls may incur costs; the setup checks do not make them.
 
 The runtime disables automatic database provisioning on startup so liveness/configuration checks work without a database. AgentOS creates required tables on its normal database write paths. Starting the process alone does not prove persistence. Use Cloud SQL and controlled schema management for deployment; do not expose this shared-key bootstrap publicly.
 
@@ -45,7 +45,7 @@ On 11 October 2026, the initial Mac connection timeout was resolved by restartin
 
 ## AgentOS control plane
 
-Use the in-built browser, not Chrome, for this project. Add a separate **Samurai Local** connection at `https://os.agno.com` using `http://127.0.0.1:8000`. Do not edit another project's connection.
+Use the in-built browser or a separate Chrome window for Samurai testing; preserve the Reporting test window. Add a separate **Samurai Local** connection at `https://os.agno.com` using `http://localhost:8000/agentos`. Do not edit another project's connection.
 
 The control-plane connection uses JWT authorization. Enable it for the new connection and put its **public** verification key in a quoted multiline `JWT_VERIFICATION_KEY` value in `backend/.env`, then restart the backend. The server uses RS256 verification, native Agno scope checks, and user isolation. JWT configuration replaces shared-key authentication; `OS_SECURITY_KEY` is not accepted as a JWT. Never paste the Google key into AgentOS. JWT unit checks use temporary test keys; the real control-plane key has not yet been installed.
 
@@ -65,3 +65,18 @@ uv run pytest
 ```
 
 Tests isolate configuration and verify AgentOS authentication without a Google key or running database. Report real PostgreSQL and Gemini checks separately. Settings read `.env` relative to the working directory, so run commands from `backend/`. Never commit credentials or use the service key as browser authentication.
+
+## Route isolation and Reporting reference
+
+AgentOS is mounted at `/agentos` in a parent FastAPI application. Its authentication,
+CORS, discovery, workflow/session endpoints and API docs stay inside that mount.
+The parent explicitly runs the child lifespan so startup and shutdown are preserved.
+Root-level `/config`, `/workflows`, and `/health` are no longer AgentOS endpoints.
+This uses FastAPI's [sub-application pattern](https://fastapi.tiangolo.com/advanced/sub-applications/).
+
+The active Reporting reference uses `/agentos` on port 8311, explicit child lifespan,
+custom bearer/JWT handling, private-network CORS, and domain-specific APIs. Samurai
+keeps port 8000 and native Agno authentication. Its JWT mode intentionally rejects
+the shared key. Reporting's custom authentication, queues, AG-UI integration and
+business routes are not prerequisites for this foundation and were not copied.
+The path change does not prove that Agno's hosted connection-creation 403 is fixed.

@@ -11,7 +11,7 @@ def test_discovery_rejects_request_without_bearer_key() -> None:
     # Given a configured local AgentOS instance.
     with TestClient(app.create_app()) as client:
         # When discovery is requested without authentication.
-        response = client.get("/config")
+        response = client.get("/agentos/config")
     # Then private runtime configuration is not exposed.
     assert response.status_code == 401
 
@@ -22,7 +22,7 @@ def test_discovery_accepts_configured_bearer_key() -> None:
     with TestClient(app.create_app()) as client:
         # When discovery uses the matching bearer key.
         response = client.get(
-            "/config",
+            "/agentos/config",
             headers={
                 "Authorization": f"Bearer {settings.os_security_key.get_secret_value()}",
             },
@@ -42,12 +42,14 @@ def test_config_exposes_conversational_workflow(monkeypatch: pytest.MonkeyPatch)
     settings = app.Settings.model_validate({})
     with TestClient(app.create_app()) as client:
         headers = {"Authorization": f"Bearer {settings.os_security_key.get_secret_value()}"}
-        config = ConfigResponse.model_validate_json(client.get("/config", headers=headers).content)
+        config = ConfigResponse.model_validate_json(
+            client.get("/agentos/config", headers=headers).content
+        )
         detail = WorkflowResponse.model_validate_json(
-            client.get("/workflows/company-foundation", headers=headers).content,
+            client.get("/agentos/workflows/company-foundation", headers=headers).content,
         )
         cors = client.options(
-            "/config",
+            "/agentos/config",
             headers={
                 "Origin": "https://os.agno.com",
                 "Access-Control-Request-Method": "GET",
@@ -61,3 +63,25 @@ def test_config_exposes_conversational_workflow(monkeypatch: pytest.MonkeyPatch)
     assert detail.steps is not None
     assert len(detail.steps) == 2
     assert cors.headers["access-control-allow-origin"] == "https://os.agno.com"
+
+
+def test_agentos_mount_keeps_root_routes_separate() -> None:
+    # Given the mounted runtime and a future parent-owned route.
+    application = app.create_app()
+
+    @application.get("/product-health")
+    def product_health() -> str:
+        return "ok"
+
+    # When requests address the parent and AgentOS namespaces.
+    with TestClient(application) as client:
+        parent = client.get("/product-health")
+        health = client.get("/agentos/health")
+        root_config = client.get("/config")
+        schema = client.get("/agentos/openapi.json")
+    # Then AgentOS auth and routes remain inside their mount.
+    assert parent.status_code == 200
+    assert health.status_code == 200
+    assert root_config.status_code == 404
+    assert schema.status_code == 200
+    assert schema.json()["servers"] == [{"url": "/agentos"}]

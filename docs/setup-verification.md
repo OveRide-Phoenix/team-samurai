@@ -35,3 +35,13 @@
 - In-built browser sign-in succeeded. Automated direct navigation initially reported `ERR_BLOCKED_BY_CLIENT`; the user subsequently opened `http://127.0.0.1:8000/health` manually and obtained status `ok`. A later automated CONNECT attempt still returned to the form without saving or reaching Samurai. The user then supplied DevTools evidence: `POST https://os-api.agno.com/api/v1/operating-systems/` returned **403 Forbidden**, with an HTML response and `Server: awselb/2.0`. This identifies the hosted connection-creation request as the failure; headers alone do not establish the account or infrastructure cause. The JWT public key was not obtained and UI acceptance remains blocked. JWT enablement is approved. Chrome and existing Reporting settings were untouched.
 - Live workflow error paths returned 401 without authentication and 422 for a missing message. The lockfile check passed.
 - JWT checks use temporary generated test keys, not a claim of real Agno account authorization. No long-term memory, search grounding, durable queue, or production tenant security was introduced.
+
+## AgentOS namespace verification
+
+- Read the active `Plan Fusion skills agent flow` and `Reporting — single-report workflow` sessions and inspected their referenced Reporting implementation without modifying it. Reporting mounts `/agentos` and explicitly enters the child runtime lifespan; Samurai now follows that pattern.
+- Samurai connection URL: `http://localhost:8000/agentos`. Reporting remains `http://localhost:8311/agentos`.
+- Eight tests, Ruff and basedpyright passed. Tests cover mounted bearer/JWT access, CORS, OpenAPI's `/agentos` server URL, and a parent-owned route remaining outside AgentOS authentication.
+- Real HTTP checks: `/agentos/health` 200; `/agentos/config` 401 without credentials and 200 with credentials; mounted workflow discovery 200; missing workflow message 422. Root `/config`, `/health`, and `/workflows` returned 404. Startup and shutdown completed cleanly.
+- Updated the frontend backend-base template and ignored local configuration. No credentials were staged. The temporary Samurai server was stopped; Reporting was unchanged.
+- The installed Agno OpenAPI generator emits a duplicate `get_config` operation-ID warning; the schema request succeeds. Google GenAI's existing Python deprecation warning also remains.
+- This increment did not rerun paid model generation or resolve the hosted Agno 403. The real control-plane JWT key and UI acceptance are still pending. Reporting also explicitly enables private-network CORS; that is a separate browser-access consideration, not evidence explaining the hosted 403.
