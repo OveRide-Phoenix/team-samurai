@@ -1,16 +1,23 @@
 """Application factory for the local AgentOS bootstrap."""
 
+from __future__ import annotations
+
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar, Final, Literal, final
+from typing import TYPE_CHECKING, ClassVar, Final, Literal, Protocol, cast, final, runtime_checkable
 
+from agno.agent import Agent
 from agno.db.postgres import PostgresDb
 from agno.os import AgentOS
 from agno.os.authz import Authorization
 from agno.os.config import AgentOSConfig, ChatConfig
+from agno.os.middleware.user_scope import get_scoped_user_id
 from agno.os.settings import AgnoAPISettings
-from fastapi import FastAPI
+from agno.os.utils import resolve_agent
+from agno.session.agent import AgentSession
+from fastapi import APIRouter, FastAPI, HTTPException
 from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict
 from starlette.formparsers import MultiPartException
 from starlette.requests import Request
@@ -27,10 +34,72 @@ __all__ = ["Settings"]
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable
 
+    from agno.agent.factory import AgentFactory
     from agno.db.base import BaseDb
     from agno.models.base import Model
+    from starlette.routing import BaseRoute
     from starlette.types import ASGIApp, Message, Receive, Scope, Send
 RUN_PATH: Final = f"/agentos/agents/{PARENT_AGENT_ID}/runs"
+RUN_READ_PATH: Final = "/agents/{agent_id}/runs/{run_id}"
+
+
+class _FactoryRunReadRouteMissingError(RuntimeError):
+    pass
+
+
+@runtime_checkable
+class _IncludedRouter(Protocol):
+    original_router: APIRouter
+
+
+def _find_factory_run_read_route(routes: list[BaseRoute]) -> APIRoute | None:
+    for route in routes:
+        if isinstance(route, APIRoute) and route.path == RUN_READ_PATH and route.methods == {"GET"}:
+            return route
+        if isinstance(route, _IncludedRouter):
+            nested = _find_factory_run_read_route(route.original_router.routes)
+            if nested is not None:
+                return nested
+    return None
+
+
+def _install_factory_run_read_compat(runtime: FastAPI, factory: AgentFactory) -> None:
+    async def get_factory_run(
+        request: Request,
+        agent_id: str,
+        run_id: str,
+        session_id: str,
+    ) -> dict[str, object]:
+        user_id = get_scoped_user_id(request)
+        agent = await resolve_agent(
+            agent_id,
+            [factory],
+            factory.db,
+            request=request,
+            user_id=user_id,
+            session_id=session_id,
+            published_only=False,
+        )
+        if not isinstance(agent, Agent):
+            raise HTTPException(status_code=404, detail="Agent not found")
+        session = await agent.aget_session(session_id=session_id, user_id=user_id)
+        if not isinstance(session, AgentSession) or session.agent_id != agent_id:
+            raise HTTPException(status_code=404, detail="Run not found")
+        run_output = await agent.aget_run_output(
+            run_id=run_id,
+            session_id=session_id,
+            user_id=user_id,
+        )
+        if run_output is None or run_output.agent_id != agent_id:
+            raise HTTPException(status_code=404, detail="Run not found")
+        return cast("dict[str, object]", run_output.to_dict())
+
+    route = _find_factory_run_read_route(runtime.routes)
+    if route is None:
+        raise _FactoryRunReadRouteMissingError
+    # shortcut: Remove after Agno >3.1.2 passes Request to resolve_agent on factory reads.
+    route.endpoint = get_factory_run
+    route.dependant.call = get_factory_run
 
 
 class _HttpRequestMessage(BaseModel):
@@ -96,20 +165,17 @@ def create_app(
     settings = settings or Settings.model_validate({})
     runtime_db = db or PostgresDb(id="samurai", db_url=str(settings.database_url))
     api_key = settings.google_api_key.get_secret_value()
+    parent_factory = create_parent_factory(
+        runtime_db,
+        settings,
+        model_factory=parent_model_factory,
+    )
 
     runtime = AgentOS(
         id="samurai",
         name="AI Idea to Company",
         db=runtime_db,
-        agents=[
-            create_parent_factory(
-                runtime_db,
-                settings,
-                model_factory=parent_model_factory,
-            )
-        ]
-        if api_key or parent_model_factory is not None
-        else [],
+        agents=[parent_factory] if api_key or parent_model_factory is not None else [],
         workflows=[],
         config=AgentOSConfig(chat=ChatConfig(quick_prompts={PARENT_AGENT_ID: STARTER_PROMPTS})),
         settings=AgnoAPISettings(os_security_key=settings.os_security_key.get_secret_value()),
@@ -134,6 +200,8 @@ def create_app(
     async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         # Mounted apps do not receive startup/shutdown automatically.
         async with runtime.router.lifespan_context(runtime):
+            if api_key or parent_model_factory is not None:
+                _install_factory_run_read_compat(runtime, parent_factory)
             yield
 
     app = FastAPI(title="Samurai API", lifespan=lifespan, docs_url=None, redoc_url=None)

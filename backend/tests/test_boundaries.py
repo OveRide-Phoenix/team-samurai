@@ -9,7 +9,6 @@ import socket
 import subprocess
 import sys
 import threading
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Never, cast, final, override
@@ -20,13 +19,9 @@ from uuid import uuid4
 import anyio
 import jwt
 import pytest
-from agno.agent import Agent
 from agno.db.sqlite import SqliteDb
 from agno.models.base import Model
 from agno.models.response import ModelResponse
-from agno.os import AgentOS
-from agno.os.authz import Authorization
-from agno.os.settings import AgnoAPISettings
 from agno.run import RunContext
 from agno.run.base import RunStatus
 from agno.session.agent import AgentSession
@@ -36,7 +31,6 @@ from agno.workflow import Step, StepInput, StepOutput, Workflow
 from agno.workflow.types import StepProgress
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import HttpUrl
 
@@ -69,7 +63,9 @@ if TYPE_CHECKING:
     from collections import abc
     from http.client import HTTPResponse
 
+    from agno.agent import Agent
     from agno.models.message import Message
+    from fastapi import FastAPI
 
 
 @final
@@ -158,33 +154,11 @@ def _token(private_key: rsa.RSAPrivateKey, subject: str) -> str:
 
 
 def _test_app(db: SqliteDb, model: Model, public_key: str) -> FastAPI:
-    agent = Agent(
-        id="samurai",
+    return create_app(
         db=db,
-        model=model,
-        add_history_to_context=True,
-        telemetry=False,
+        settings=Settings.model_validate({"jwt_verification_key": public_key}),
+        parent_model_factory=lambda: model,
     )
-    runtime = AgentOS(
-        id="boundary-test",
-        db=db,
-        agents=[agent],
-        settings=AgnoAPISettings(os_security_key="test-key-0000000000000000000000000000"),
-        authorization=Authorization(verification_keys=[public_key], algorithm="RS256"),
-        user_isolation=True,
-        auto_provision_dbs=True,
-        tracing=False,
-        telemetry=False,
-    ).get_app()
-
-    @asynccontextmanager
-    async def lifespan(_app: FastAPI) -> abc.AsyncGenerator[None]:
-        async with runtime.router.lifespan_context(runtime):
-            yield
-
-    app = FastAPI(lifespan=lifespan)
-    app.mount("/agentos", runtime)
-    return app
 
 
 def create_restart_app() -> FastAPI:
@@ -359,9 +333,8 @@ def test_nonadmin_jwt_user_isolation_covers_run_lifecycle(tmp_path: Path) -> Non
     user_a = {"Authorization": f"Bearer {_token(private_key, 'user-a')}"}
     user_b = {"Authorization": f"Bearer {_token(private_key, 'user-b')}"}
     model = DeterministicTextModel()
-    with TestClient(
-        _test_app(SqliteDb(db_file=str(tmp_path / "isolation.db")), model, public_key)
-    ) as client:
+    db = SqliteDb(db_file=str(tmp_path / "isolation.db"))
+    with TestClient(_test_app(db, model, public_key)) as client:
         created = client.post(
             "/agentos/agents/samurai/runs",
             headers=user_a,
@@ -409,7 +382,25 @@ def test_nonadmin_jwt_user_isolation_covers_run_lifecycle(tmp_path: Path) -> Non
         )
         assert owner_read.status_code == 200
         assert owner_read.json()["status"] == "COMPLETED"
+
+        missing_auth = client.get(f"/agentos/agents/samurai/runs/{run_id}?session_id=company-a")
+        missing_run = client.get(
+            "/agentos/agents/samurai/runs/unknown-run?session_id=company-a", headers=user_a
+        )
+        missing_session = client.get(
+            f"/agentos/agents/samurai/runs/{run_id}?session_id=unknown-session", headers=user_a
+        )
+        wrong_agent = client.get(
+            f"/agentos/agents/other/runs/{run_id}?session_id=company-a", headers=user_a
+        )
+        assert [
+            missing_auth.status_code,
+            missing_run.status_code,
+            missing_session.status_code,
+            wrong_agent.status_code,
+        ] == [401, 404, 404, 404]
         assert model.calls == 1
+        assert db.get_session("unknown-session", user_id="user-a") is None
 
 
 def test_same_user_company_sessions_are_isolated(tmp_path: Path) -> None:
@@ -657,11 +648,21 @@ def test_timeout_is_terminal_and_sanitized(tmp_path: Path) -> None:
             headers={"Authorization": f"Bearer {_token(private_key, 'timeout-user')}"},
             data={"message": "hello", "session_id": "timeout-session", "stream": "false"},
         )
+        response_payload = cast("dict[str, object]", response.json())
+        run_id = response_payload["run_id"]
+        assert isinstance(run_id, str)
+        persisted = client.get(
+            f"/agentos/agents/samurai/runs/{run_id}?session_id=timeout-session",
+            headers={"Authorization": f"Bearer {_token(private_key, 'timeout-user')}"},
+        )
 
     # Then the persisted run is terminal and the HTTP result exposes no provider detail.
     assert response.status_code == 200
     assert response.json()["status"] == "ERROR"
+    assert persisted.status_code == 200
+    assert persisted.json()["status"] == "ERROR"
     assert "secret-marker" not in response.text
+    assert "secret-marker" not in persisted.text
     assert model.calls == 1
 
 
