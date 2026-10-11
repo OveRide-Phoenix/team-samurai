@@ -26,12 +26,23 @@ def test_role_catalog_builds_nine_typed_agents_with_fresh_models() -> None:
     assert tuple(first) == tuple(Role)
     assert len({id(role.agent.model) for role in first.values()}) == len(Role)
     assert all(first[role].agent.model is not second[role].agent.model for role in Role)
+    preloaded_skill_roles = {
+        Role.INTAKE,
+        Role.STRATEGIST,
+        Role.PRODUCT_MANAGER,
+        Role.VERIFIER,
+    }
     for role, configured in first.items():
         assert isinstance(configured.agent, Agent)
         if role is Role.RESEARCHER:
             assert configured.agent.output_schema is None
             assert configured.agent.skills is None
             assert configured.capability.tools == ("google_search",)
+        elif role in preloaded_skill_roles:
+            assert configured.agent.skills is None
+            assert configured.capability.tools == ()
+            assert "Founder statements belong in supplied_context" in configured.instructions
+            assert "Drafting content or configuration does not authorize" in configured.instructions
         else:
             assert isinstance(configured.agent.output_schema, type)
             assert issubclass(configured.agent.output_schema, BaseModel)

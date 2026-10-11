@@ -1,8 +1,10 @@
 """Company journey state-machine acceptance scenarios. # noqa: SIZE_OK."""
 
+import json
 from dataclasses import replace
 from datetime import UTC, datetime
 from functools import partial
+from pathlib import Path
 from typing import TYPE_CHECKING, Never, final, override
 from uuid import uuid4
 
@@ -14,8 +16,8 @@ from agno.models.base import Model
 from agno.models.response import ModelResponse
 from agno.run import RunContext
 from agno.run.workflow import WorkflowRunOutput
-from agno.workflow import StepOutput
-from pydantic import HttpUrl, JsonValue, ValidationError
+from agno.workflow import Step, StepInput, StepOutput, Workflow
+from pydantic import HttpUrl, JsonValue, TypeAdapter, ValidationError
 
 from samurai.agents import ROLE_CAPABILITIES, ConfiguredRole
 from samurai.company_workflow import (
@@ -44,13 +46,13 @@ from samurai.contracts import (
 )
 from samurai.research import ResearchAgent, ResearchResult
 from samurai.workflow_state import WorkflowContextError, load_company_state, save_company_state
+from scripts.smoke_company_journey import SmokeArguments, SmokeError, run_smoke
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterator, Mapping
-    from pathlib import Path
 
+    from agno.db.base import BaseDb
     from agno.models.message import Message
-    from agno.workflow import Workflow
 
 
 def _run_context(
@@ -612,6 +614,53 @@ def test_conflicting_grounded_research_reaches_provisional_final_rework(
     assert models[Role.STRATEGIST].calls == 1
     assert models[Role.PRODUCT_MANAGER].calls == 1
     assert models[Role.VERIFIER].calls == 1
+
+
+def test_smoke_timeout_retains_sanitized_progress(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Given a workflow step that never reaches a provider terminal response.
+    async def hang(_step_input: StepInput) -> StepOutput:
+        await anyio.sleep_forever()
+        raise AssertionError
+
+    workflow = Workflow(
+        id="timeout-fixture",
+        name="Timeout fixture",
+        steps=[Step(name="Intake", executor=hang)],
+    )
+
+    def workflow_factory(_db: BaseDb, _settings: Settings) -> Workflow:
+        return workflow
+
+    monkeypatch.setattr(
+        "scripts.smoke_company_journey.create_company_workflow",
+        workflow_factory,
+    )
+    monkeypatch.setenv("OS_SECURITY_KEY", "x" * 32)
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://samurai:test@localhost:5432/samurai")
+    arguments = SmokeArguments()
+    arguments.idea = "Timeout fixture"
+    arguments.customer = "Test customer"
+    arguments.geography = "India"
+    arguments.budget = "INR 1"
+    arguments.skills = "Python"
+    arguments.goal = "Test timeout"
+    arguments.timeout_seconds = 0.01
+
+    # When the standalone smoke reaches its total wall-time boundary.
+    with pytest.raises(SmokeError):
+        anyio.run(run_smoke, arguments)
+
+    # Then it emits a sanitized incomplete result and retains the progress artifact.
+    payload = TypeAdapter(dict[str, JsonValue]).validate_python(json.loads(capsys.readouterr().out))
+    assert payload["outcome"] == "incomplete"
+    assert payload["reason"] == "workflow_timeout"
+    assert payload["artifacts"] == []
+    progress_path = payload["progress_path"]
+    assert isinstance(progress_path, str)
+    assert Path(progress_path).is_file()
 
 
 def test_unsupported_strategy_number_requires_rework(

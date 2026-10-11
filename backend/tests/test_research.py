@@ -8,7 +8,7 @@ from agno.models.message import Citations, UrlCitation
 from agno.run.agent import RunOutput
 from pydantic import ValidationError
 
-from samurai.agents import create_role_catalog
+from samurai.agents import PRELOADED_SKILL_ROLES, create_role_catalog
 from samurai.config import Settings
 from samurai.contracts import CompanyBrief, ResearchArtifact, Role
 from samurai.research import ResearchInputError, run_research
@@ -77,7 +77,7 @@ def test_only_researcher_enables_native_google_search() -> None:
     assert all(
         isinstance(configured.agent.model, Gemini)
         and configured.agent.model.search is False
-        and configured.agent.skills is not None
+        and (configured.agent.skills is None) == (role in PRELOADED_SKILL_ROLES)
         for role, configured in catalog.items()
         if role is not Role.RESEARCHER
     )

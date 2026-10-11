@@ -9,21 +9,28 @@ import sys
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
-from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, override
+from typing import TYPE_CHECKING, cast, override
+from uuid import uuid4
 
 import anyio
 from agno.db.sqlite import SqliteDb
+from agno.run.workflow import WorkflowCompletedEvent, WorkflowRunEvent
 from agno.utils.log import set_log_level_to_error
-from agno.workflow import StepOutput
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from samurai.company_workflow import CompanyJourneyRequest, create_company_workflow
 from samurai.config import Settings
-from samurai.contracts import ArtifactType, ResearchArtifact, WorkflowResult
+from samurai.contracts import (
+    ArtifactEnvelope,
+    ArtifactType,
+    CompanyState,
+    ResearchArtifact,
+    WorkflowResult,
+)
 
 if TYPE_CHECKING:
+    from agno.run.workflow import StepCompletedEvent
     from pydantic import JsonValue
 
 
@@ -35,23 +42,50 @@ class SmokeError(Exception):
         return "live company journey did not produce complete ordered lineage"
 
 
-class _Arguments(argparse.Namespace):
+class SmokeArguments(argparse.Namespace):
+    """Validated command arguments for one bounded live smoke run."""
+
     idea: str = ""
     customer: str = ""
     geography: str = ""
     budget: str = ""
     skills: str = ""
     goal: str = ""
+    timeout_seconds: float = 420
 
 
-def _arguments() -> _Arguments:
+def _arguments() -> SmokeArguments:
     parser = argparse.ArgumentParser()
     for name in ("idea", "customer", "geography", "budget", "skills", "goal"):
         _ = parser.add_argument(f"--{name}", required=True)
-    return parser.parse_args(namespace=_Arguments())
+    _ = parser.add_argument("--timeout-seconds", type=float, default=420)
+    return parser.parse_args(namespace=SmokeArguments())
 
 
-async def _run(arguments: _Arguments) -> None:
+def _artifact_record(artifact: ArtifactEnvelope) -> JsonValue:
+    return {
+        "type": artifact.artifact_type,
+        "artifact_id": str(artifact.artifact_id),
+        "revision": artifact.revision,
+        "input_revision": artifact.input_revision,
+        "status": artifact.status,
+        "findings": [finding.model_dump(mode="json") for finding in artifact.verification_findings],
+        "source_count": len(artifact.sources),
+        "source_urls": [str(source.url) for source in artifact.sources],
+        "claim_count": len(artifact.claims),
+        "claim_verification": [claim.verification_status for claim in artifact.claims],
+        "conflicts": list(ResearchArtifact.model_validate(artifact.payload).conflicts)
+        if artifact.artifact_type == ArtifactType.RESEARCH
+        else [],
+    }
+
+
+def _write_json(path: Path, payload: JsonValue) -> None:
+    _ = path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+async def run_smoke(arguments: SmokeArguments) -> None:
+    """Run one bounded journey and retain sanitized progress evidence."""
     _ = set_log_level_to_error()
     settings = Settings.model_validate(
         {
@@ -61,42 +95,80 @@ async def _run(arguments: _Arguments) -> None:
             "gemini_model": os.environ.get("GEMINI_MODEL", "gemini-3.8-flash"),
         }
     )
-    with TemporaryDirectory(prefix="samurai-company-smoke-") as directory:
-        workflow = create_company_workflow(
-            SqliteDb(db_file=str(Path(directory) / "journey.db")), settings
-        )
-        session_state: dict[str, JsonValue] = {}
-        request = CompanyJourneyRequest(
-            company_id=None,
-            expected_revision=0,
-            idea=arguments.idea,
-            target_customer=arguments.customer,
-            geography=arguments.geography,
-            budget=arguments.budget,
-            founder_skills=arguments.skills,
-            goal=arguments.goal,
-        )
+    evidence_dir = Path(__file__).parents[1] / ".omo" / "evidence"
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    run_token = str(uuid4())
+    database_path = evidence_dir / f"task-6-company-smoke-{run_token}.db"
+    progress_path = evidence_dir / f"task-6-company-smoke-{run_token}-progress.json"
+    workflow = create_company_workflow(SqliteDb(db_file=str(database_path)), settings)
+    session_state: dict[str, JsonValue] = {}
+    request = CompanyJourneyRequest(
+        company_id=None,
+        expected_revision=0,
+        idea=arguments.idea,
+        target_customer=arguments.customer,
+        geography=arguments.geography,
+        budget=arguments.budget,
+        founder_skills=arguments.skills,
+        goal=arguments.goal,
+    )
+    progress: list[JsonValue] = [{"event": "workflow_started", "step": None}]
+    completed_steps: list[str] = []
+    _write_json(progress_path, progress)
+    completed: WorkflowCompletedEvent | None = None
+    try:
         with redirect_stdout(StringIO()):
-            output = await workflow.arun(
-                request,
-                stream=False,
-                user_id="live-smoke-founder",
-                session_id="live-smoke-child",
-                session_state=session_state,
-                dependencies={
-                    "trusted_parent_session_id": "live-smoke-parent",
-                    "trusted_user_id": "live-smoke-founder",
-                    "child_session_id": "live-smoke-child",
+            with anyio.fail_after(arguments.timeout_seconds):
+                events = workflow.arun(
+                    request,
+                    stream=True,
+                    stream_events=True,
+                    user_id="live-smoke-founder",
+                    session_id="live-smoke-child",
+                    session_state=session_state,
+                    dependencies={
+                        "trusted_parent_session_id": "live-smoke-parent",
+                        "trusted_user_id": "live-smoke-founder",
+                        "child_session_id": "live-smoke-child",
+                    },
+                )
+                async for event in events:
+                    if event.event == WorkflowRunEvent.step_completed.value:
+                        step_event = cast("StepCompletedEvent", event)
+                        step_name = step_event.step_name
+                        progress.append({"event": event.event, "step": step_name})
+                        if step_name is not None:
+                            completed_steps.append(step_name)
+                        _write_json(progress_path, progress)
+                    if event.event == WorkflowRunEvent.workflow_completed.value:
+                        completed = cast("WorkflowCompletedEvent", event)
+    except TimeoutError:
+        state_data = session_state.get("company")
+        state = CompanyState.model_validate(state_data) if state_data is not None else None
+        _ = sys.stdout.write(
+            json.dumps(
+                {
+                    "outcome": "incomplete",
+                    "reason": "workflow_timeout",
+                    "timeout_seconds": arguments.timeout_seconds,
+                    "steps": completed_steps,
+                    "artifacts": [_artifact_record(artifact) for artifact in state.artifacts]
+                    if state is not None
+                    else [],
+                    "database_path": str(database_path),
+                    "progress_path": str(progress_path),
                 },
+                indent=2,
             )
-    result = WorkflowResult.model_validate(output.content)
+            + "\n"
+        )
+        raise SmokeError from None
+    if completed is None:
+        raise SmokeError
+    result = WorkflowResult.model_validate(completed.content)
     expected_types = ["intake", "research", "strategy", "product_plan", "verification"]
     artifacts = list(result.artifacts)
-    step_names: list[str] = []
-    for step in output.step_results or ():
-        if not isinstance(step, StepOutput):
-            raise SmokeError
-        step_names.append(step.step_name or "")
+    step_names = [step.step_name or "" for step in completed.step_results]
     terminal = (
         result.outcome in {"verified", "needs_rework"}
         and [artifact.artifact_type for artifact in artifacts] == expected_types
@@ -115,31 +187,9 @@ async def _run(arguments: _Arguments) -> None:
                 "company_id": str(result.company_id),
                 "revision": result.revision,
                 "steps": step_names,
-                "artifacts": [
-                    {
-                        "type": artifact.artifact_type,
-                        "artifact_id": str(artifact.artifact_id),
-                        "revision": artifact.revision,
-                        "input_revision": artifact.input_revision,
-                        "status": artifact.status,
-                        "findings": [
-                            finding.model_dump(mode="json")
-                            for finding in artifact.verification_findings
-                        ],
-                        "source_count": len(artifact.sources),
-                        "source_urls": [str(source.url) for source in artifact.sources],
-                        "claim_count": len(artifact.claims),
-                        "claim_verification": [
-                            claim.verification_status for claim in artifact.claims
-                        ],
-                        "conflicts": list(
-                            ResearchArtifact.model_validate(artifact.payload).conflicts
-                        )
-                        if artifact.artifact_type == ArtifactType.RESEARCH
-                        else [],
-                    }
-                    for artifact in artifacts
-                ],
+                "artifacts": [_artifact_record(artifact) for artifact in artifacts],
+                "database_path": str(database_path),
+                "progress_path": str(progress_path),
             },
             indent=2,
         )
@@ -150,4 +200,4 @@ async def _run(arguments: _Arguments) -> None:
 
 
 if __name__ == "__main__":
-    anyio.run(_run, _arguments())
+    anyio.run(run_smoke, _arguments())
