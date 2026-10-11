@@ -12,6 +12,11 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v7.0.1
+      - name: Install Task
+        uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e
+        with:
+          version: "3.48.0"
+      - run: task --version
       - uses: astral-sh/setup-uv@v10.3.0
         with:
           version: "0.13.0"
