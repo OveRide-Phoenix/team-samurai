@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Annotated, Literal, Self, override
 from uuid import uuid4
 
 from agno.workflow import Step, StepInput, StepOutput, Workflow
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, JsonValue, TypeAdapter, ValidationError, model_validator
 from pydantic_core import PydanticCustomError
 
 from samurai.agents import create_role_catalog
@@ -64,6 +64,8 @@ JOURNEY_TYPES = (
 )
 type ArtifactStatus = Literal["complete", "insufficient_evidence", "needs_input", "needs_rework"]
 type FailureCode = Literal["invalid_context", "invalid_revision", "invalid_company_input"]
+RESEARCH_RESULT_ADAPTER = TypeAdapter(ResearchResult)
+JSON_VALUE_ADAPTER = TypeAdapter(JsonValue)
 
 
 class CompanyJourneyRequest(WorkflowRequest):
@@ -125,6 +127,13 @@ class JourneyInputError(Exception):
     @override
     def __str__(self) -> str:
         return self.reason
+
+
+def _step_output(content: BaseModel, *, stop: bool = False) -> StepOutput:
+    return StepOutput(
+        content=JSON_VALUE_ADAPTER.validate_python(content.model_dump(mode="json")),
+        stop=stop,
+    )
 
 
 def _latest(state: CompanyState, artifact_type: ArtifactType) -> ArtifactEnvelope | None:
@@ -322,18 +331,18 @@ class _Journey:
             StaleRevisionError,
             WorkflowContextError,
         ) as error:
-            return StepOutput(content=_boundary_failure(error), stop=True)
+            return _step_output(_boundary_failure(error), stop=True)
         verified = _latest(state, ArtifactType.VERIFICATION)
         if verified is not None and verified.status == "complete":
-            return StepOutput(content=_result(state, "verified"), stop=True)
+            return _step_output(_result(state, "verified"), stop=True)
         prior = _latest(state, ArtifactType.INTAKE)
         existing = IntakeArtifact.model_validate(prior.payload).brief if prior is not None else None
         try:
             brief = _brief(request, existing)
         except JourneyInputError as error:
-            return StepOutput(content=_boundary_failure(error), stop=True)
+            return _step_output(_boundary_failure(error), stop=True)
         if existing == brief and prior is not None:
-            return StepOutput(content=prior)
+            return _step_output(prior)
         proposed = await _agent_payload(
             self.intake_agent,
             brief.model_dump_json(),
@@ -372,7 +381,7 @@ class _Journey:
             ),
         )
         _ = _save(state, envelope, context)
-        return StepOutput(content=envelope)
+        return _step_output(envelope)
 
     def brief_check(
         self, _step_input: StepInput, run_context: RunContext | None = None
@@ -382,15 +391,15 @@ class _Journey:
         brief = IntakeArtifact.model_validate(intake.payload if intake is not None else None).brief
         missing = tuple(name for name in REQUIRED_CONTEXT if getattr(brief, name) is None)
         if missing:
-            return StepOutput(
-                content=_result(
+            return _step_output(
+                _result(
                     state,
                     "needs_input",
                     questions=tuple(QUESTIONS[name] for name in missing),
                 ),
                 stop=True,
             )
-        return StepOutput(content=intake)
+        return _step_output(ArtifactEnvelope.model_validate(intake))
 
     async def research(
         self, _step_input: StepInput, run_context: RunContext | None = None
@@ -398,22 +407,33 @@ class _Journey:
         state = _state(_context(run_context))
         prior = _latest(state, ArtifactType.RESEARCH)
         if prior is not None and prior.status == "complete":
-            return StepOutput(content=prior)
+            return _step_output(prior)
         intake = _latest(state, ArtifactType.INTAKE)
         brief = IntakeArtifact.model_validate(intake.payload if intake is not None else None).brief
-        return StepOutput(content=await run_research(self.research_agent, brief))
+        result = await run_research(self.research_agent, brief)
+        return StepOutput(content=RESEARCH_RESULT_ADAPTER.dump_json(result).decode())
 
     def evidence_check(
         self, step_input: StepInput, run_context: RunContext | None = None
     ) -> StepOutput:
         context = _context(run_context)
         state = _state(context)
-        if isinstance(step_input.previous_step_content, ArtifactEnvelope):
-            return StepOutput(content=step_input.previous_step_content)
-        research = step_input.previous_step_content
-        if not isinstance(research, ResearchResult):
+        previous = step_input.previous_step_content
+        try:
+            prior = ArtifactEnvelope.model_validate(previous)
+        except ValidationError:
+            prior = None
+        if prior is not None:
+            return _step_output(prior)
+        try:
+            research = (
+                RESEARCH_RESULT_ADAPTER.validate_json(previous)
+                if isinstance(previous, str)
+                else RESEARCH_RESULT_ADAPTER.validate_python(previous)
+            )
+        except ValidationError as error:
             message = "research result is missing"
-            raise JourneyInputError(message)
+            raise JourneyInputError(message) from error
         mapped = _has_retained_mappings(research)
         outcome = (
             "complete" if research.status == "complete" and mapped else "insufficient_evidence"
@@ -460,8 +480,8 @@ class _Journey:
             ),
         )
         updated = _save(state, envelope, context)
-        return StepOutput(
-            content=envelope if outcome == "complete" else _result(updated, outcome),
+        return _step_output(
+            envelope if outcome == "complete" else _result(updated, outcome),
             stop=outcome != "complete",
         )
 
@@ -472,7 +492,7 @@ class _Journey:
         state = _state(context)
         prior = _latest(state, ArtifactType.STRATEGY)
         if prior is not None:
-            return StepOutput(content=prior)
+            return _step_output(prior)
         research = _research_lineage(state)
         draft = await _agent_payload(
             self.strategy_agent,
@@ -512,7 +532,7 @@ class _Journey:
             ),
         )
         _ = _save(state, envelope, context)
-        return StepOutput(content=envelope)
+        return _step_output(envelope)
 
     async def product(
         self, _step_input: StepInput, run_context: RunContext | None = None
@@ -521,7 +541,7 @@ class _Journey:
         state = _state(context)
         prior = _latest(state, ArtifactType.PRODUCT_PLAN)
         if prior is not None:
-            return StepOutput(content=prior)
+            return _step_output(prior)
         research = _research_lineage(state)
         draft = await _agent_payload(
             self.product_agent,
@@ -557,7 +577,7 @@ class _Journey:
             ),
         )
         _ = _save(state, envelope, context)
-        return StepOutput(content=envelope)
+        return _step_output(envelope)
 
     async def verify(
         self, _step_input: StepInput, run_context: RunContext | None = None
@@ -641,7 +661,7 @@ class _Journey:
             if outcome == "needs_input"
             else ()
         )
-        return StepOutput(content=_result(updated, outcome, questions=questions))
+        return _step_output(_result(updated, outcome, questions=questions))
 
 
 def create_company_workflow(db: BaseDb, settings: Settings) -> Workflow:

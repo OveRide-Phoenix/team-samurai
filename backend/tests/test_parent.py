@@ -12,6 +12,8 @@ from agno.db.base import SessionType
 from agno.db.sqlite import SqliteDb
 from agno.models.base import Model
 from agno.models.response import ModelResponse
+from agno.run import RunContext
+from agno.run.agent import CustomEvent
 from agno.run.base import RunStatus
 from agno.run.cancel import aget_active_runs
 from agno.session.agent import AgentSession
@@ -37,6 +39,7 @@ from samurai.contracts import (
     StrategyArtifact,
     VerificationArtifact,
     VerificationFinding,
+    WorkflowResult,
 )
 from samurai.parent import (
     PARENT_AGENT_ID,
@@ -393,9 +396,19 @@ def test_native_http_parent_runs_real_company_workflow_to_five_artifacts(
     assert len(sessions) == 1
     child = sessions[0]
     assert isinstance(child, WorkflowSession)
+    assert child.runs is not None
+    assert len(child.runs) == 1
+    child_run = child.runs[0]
+    assert child_run.status == RunStatus.completed
+    assert child_run.session_id == child.session_id
+    assert child_run.workflow_id == "company-journey"
+    persisted_result = WorkflowResult.model_validate(child_run.content)
+    assert len(child_run.step_results or ()) == 7
     assert child.session_data is not None
     session_state = cast("dict[str, object]", child.session_data["session_state"])
     state = CompanyState.model_validate(session_state["company"])
+    assert persisted_result.company_id == state.context.company_id
+    assert persisted_result.revision == state.current_revision
     assert [artifact.artifact_type for artifact in state.artifacts] == [
         "intake",
         "research",
@@ -409,6 +422,70 @@ def test_native_http_parent_runs_real_company_workflow_to_five_artifacts(
         for artifact in state.artifacts
         for claim in artifact.claims
     )
+
+
+def test_parent_tool_emits_progress_before_blocked_research_and_closes_cross_task(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog = _deterministic_catalog()
+
+    def catalog_factory(_settings: Settings) -> dict[Role, ConfiguredRole]:
+        return catalog
+
+    entered_research = anyio.Event()
+    research_finished = anyio.Event()
+
+    async def blocked_research(
+        agent: ResearchAgent,
+        brief: CompanyBrief,
+        *,
+        max_sources: int = 5,
+    ) -> ResearchResult:
+        entered_research.set()
+        await anyio.sleep_forever()
+        research_finished.set()
+        return await _mapped_research(agent, brief, max_sources=max_sources)
+
+    monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
+    monkeypatch.setattr("samurai.company_workflow.run_research", blocked_research)
+    database = SqliteDb(db_file=str(tmp_path / "parent-progress-close.db"))
+    agent = create_parent_agent(database, Settings.model_validate({}), model=_ToolSequenceModel())
+    raw_tools = cast("list[object]", agent.tools)
+    tool = next(
+        item
+        for item in raw_tools
+        if isinstance(item, Function) and item.name == "run_company_journey"
+    )
+    entrypoint = cast("Callable[..., abc.AsyncGenerator[CustomEvent | str]]", tool.entrypoint)
+
+    async def scenario() -> None:
+        stream = entrypoint(
+            run_context=RunContext(
+                run_id="parent-progress-run",
+                session_id="parent-progress-session",
+                user_id="founder",
+                session_state={},
+            ),
+            idea="AI receptionist for Indian dental clinics",
+            target_customer="Independent Indian dental clinics",
+            geography="India",
+            budget="INR 50000",
+            founder_skills="Python and Next.js",
+            goal="Validate demand in 30 days",
+        )
+        first = await anext(stream)
+        assert isinstance(first, CustomEvent)
+        with anyio.fail_after(1):
+            while not entered_research.is_set():
+                _ = await anext(stream)
+        assert not research_finished.is_set()
+
+        async with anyio.create_task_group() as tasks:
+            _ = tasks.start_soon(stream.aclose)
+
+    anyio.run(scenario)
+    assert anyio.run(aget_active_runs) == {}
 
 
 def test_child_failure_is_sanitized_and_parent_is_terminal_error(

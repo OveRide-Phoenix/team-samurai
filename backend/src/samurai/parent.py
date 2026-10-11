@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections import abc  # noqa: TC003 - Agno resolves tool annotations at runtime.
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum, unique
@@ -26,6 +28,7 @@ from agno.run.agent import CustomEvent, RunOutput
 from agno.run.cancel import acancel_run, acleanup_run, ais_cancelled
 from agno.run.workflow import (
     StepProgressEvent,
+    StepStartedEvent,
     WorkflowCancelledEvent,
     WorkflowCompletedEvent,
     WorkflowErrorEvent,
@@ -546,23 +549,25 @@ async def _stream_with_cancel_watch[T](
     run_context: RunContext,
     child_run_id: str,
     timeout_seconds: float,
-) -> abc.AsyncIterator[T]:
+) -> abc.AsyncGenerator[T]:
     done = anyio.Event()
     timed_out = anyio.Event()
     operation_scope = anyio.CancelScope()
     errors: list[Exception] = []
-    buffered: list[T] = []
+    send, receive = anyio.create_memory_object_stream[T](max_buffer_size=1)
 
     async def produce() -> None:
         with operation_scope:
             try:
-                buffered.extend([event async for event in events])
+                async with send:
+                    async for event in events:
+                        await send.send(event)
             except Exception as error:  # noqa: BLE001 - re-raised after sibling tasks drain.
                 errors.append(error)
             finally:
                 done.set()
 
-    try:
+    async def supervise() -> None:
         async with anyio.create_task_group() as tasks:
             _ = tasks.start_soon(
                 _cancel_children_when_parent_stops,
@@ -581,14 +586,24 @@ async def _stream_with_cancel_watch[T](
             _ = tasks.start_soon(produce)
             await done.wait()
             tasks.cancel_scope.cancel()
+
+    supervisor = asyncio.create_task(supervise())
+    try:
+        async with receive:
+            async for event in receive:
+                yield event
     finally:
-        await acleanup_run(child_run_id)
+        with anyio.move_on_after(1, shield=True):
+            if not supervisor.done():
+                await _cancel_children((child_run_id,))
+                _ = supervisor.cancel()
+            with suppress(asyncio.CancelledError):
+                await supervisor
+            await acleanup_run(child_run_id)
     if timed_out.is_set():
         raise _ChildWorkflowError
     if errors:
         raise errors[0]
-    for event in buffered:
-        yield event
 
 
 def _child_workflow_timeout(settings: Settings) -> float:
@@ -749,13 +764,20 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
             stream=True,
             stream_events=True,
         )
+        watched_events = _stream_with_cancel_watch(
+            events,
+            run_context,
+            child_run_id,
+            _child_workflow_timeout(settings),
+        )
         try:
-            async for event in _stream_with_cancel_watch(
-                events,
-                run_context,
-                child_run_id,
-                _child_workflow_timeout(settings),
-            ):
+            async for event in watched_events:
+                if isinstance(event, StepStartedEvent):
+                    yield _progress(
+                        run_context,
+                        child_id,
+                        f"{event.step_name or 'Workflow step'} started",
+                    )
                 if isinstance(event, StepProgressEvent):
                     yield _progress(run_context, child_id, str(event.content))
                 if isinstance(event, WorkflowCancelledEvent):
@@ -769,6 +791,8 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
                     yield TOOL_RESULT_MARKER + result.model_dump_json()
         except _ChildWorkflowError:
             yield TOOL_ERROR_MARKER + _ChildWorkflowFailure().model_dump_json()
+        finally:
+            await watched_events.aclose()
 
     async def create_launch_drafts(
         run_context: RunContext,
