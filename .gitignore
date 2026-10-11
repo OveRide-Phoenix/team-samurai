@@ -20,3 +20,12 @@ __pycache__/
 *.key
 service-account*.json
 firebase-adminsdk*.json
+
+# Application caches and local state
+.next/
+next-env.d.ts
+*.tsbuildinfo
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+*.db

@@ -1,0 +1,49 @@
+[project]
+name = "samurai-backend"
+version = "0.1.0"
+description = "AI Idea to Company — Agno AgentOS backend"
+readme = "README.md"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "agno[google,os,postgres]==3.1.2",
+    "fastapi==0.143.0",
+    "google-genai==2.29.0",
+    "psycopg[binary]==3.3.6",
+    "pydantic==2.14.0",
+    "pydantic-settings==2.15.0",
+    "python-multipart==0.0.32",
+    "sqlalchemy[asyncio]==2.1.4",
+    "uvicorn[standard]==0.54.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.basedpyright]
+typeCheckingMode = "all"
+pythonVersion = "3.14"
+include = ["src", "tests"]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = ["COM812", "D203", "D213", "CPY001"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "PLR2004", "D"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = ["--strict-config", "--strict-markers"]
+
+[dependency-groups]
+dev = [
+    "basedpyright==1.40.2",
+    "httpx2[brotli,http2,zstd]==2.13.1",
+    "pytest==9.1.1",
+    "ruff==0.17.0",
+]
