@@ -37,6 +37,7 @@ SKILL_TOOL_NAMES: Final = (
     "get_skill_reference",
     "get_skill_script",
 )
+RESEARCH_TOOL_NAMES: Final = ("google_search",)
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,7 +129,7 @@ def _capability(spec: _RoleSpec) -> RoleCapability:
         role=spec.role,
         status=spec.capability_status,
         output_artifact=spec.output_artifact,
-        tools=SKILL_TOOL_NAMES,
+        tools=RESEARCH_TOOL_NAMES if spec.role is Role.RESEARCHER else SKILL_TOOL_NAMES,
     )
 
 
@@ -175,7 +176,7 @@ def create_role_catalog(settings: Settings) -> Mapping[Role, ConfiguredRole]:
                 id=spec.agent_id,
                 name=spec.name,
                 model=model,
-                skills=_skills(),
+                skills=None if spec.role is Role.RESEARCHER else _skills(),
                 instructions=instructions,
                 output_schema=spec.output_schema,
                 tool_call_limit=settings.agent_tool_call_limit,

@@ -30,16 +30,20 @@ def test_role_catalog_builds_nine_typed_agents_with_fresh_models() -> None:
         assert isinstance(configured.agent, Agent)
         if role is Role.RESEARCHER:
             assert configured.agent.output_schema is None
+            assert configured.agent.skills is None
+            assert configured.capability.tools == ("google_search",)
         else:
             assert isinstance(configured.agent.output_schema, type)
             assert issubclass(configured.agent.output_schema, BaseModel)
+            assert configured.agent.skills is not None
+            assert configured.agent.skills.get_skill_names() == [
+                "evidence-discipline",
+                "action-boundaries",
+            ]
+            assert (
+                tuple(tool.name for tool in configured.agent.skills.get_tools()) == SKILL_TOOL_NAMES
+            )
         assert configured.agent.tool_call_limit == settings.agent_tool_call_limit
-        assert configured.agent.skills is not None
-        assert configured.agent.skills.get_skill_names() == [
-            "evidence-discipline",
-            "action-boundaries",
-        ]
-        assert tuple(tool.name for tool in configured.agent.skills.get_tools()) == SKILL_TOOL_NAMES
         assert configured.capability == ROLE_CAPABILITIES[role]
         assert re.findall(r"<([a-z-]+)(?: [^>]*)?>", configured.instructions) == [
             "evidence-boundary",

@@ -72,8 +72,12 @@ def test_only_researcher_enables_native_google_search() -> None:
     assert isinstance(researcher_model, Gemini)
     assert researcher_model.search is True
     assert catalog[Role.RESEARCHER].agent.output_schema is None
+    assert catalog[Role.RESEARCHER].agent.skills is None
+    assert catalog[Role.RESEARCHER].capability.tools == ("google_search",)
     assert all(
-        isinstance(configured.agent.model, Gemini) and configured.agent.model.search is False
+        isinstance(configured.agent.model, Gemini)
+        and configured.agent.model.search is False
+        and configured.agent.skills is not None
         for role, configured in catalog.items()
         if role is not Role.RESEARCHER
     )
