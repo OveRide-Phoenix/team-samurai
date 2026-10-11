@@ -14,7 +14,11 @@ Owns the server-side behavior for **AI Idea → Company**. Read the root [AGENTS
 
 Python 3.14, Agno AgentOS, Gemini, Pydantic, and PostgreSQL. See [the architecture decision](../docs/architecture.md) and [backend contributor instructions](AGENTS.md). Exact versions are pinned in `pyproject.toml` and `uv.lock`.
 
-The bootstrap exposes AgentOS health and authenticated runtime APIs. A `researcher` agent is registered only when `GOOGLE_API_KEY` is non-empty. It has no research tools yet and does not claim grounded research. The company workflow, verifier, business schemas, Cloud Storage integration, and end-user/company authorization are planned.
+The runtime exposes one conversational workflow, `company-foundation`, named **Samurai — Build My Business**, when `GOOGLE_API_KEY` is configured. Its native Agno `WorkflowAgent` routes new ideas and revisions through two ordered steps: draft a typed company brief, then deterministically check its structure and missing context. Follow-ups can use stored workflow history without rerunning the steps.
+
+The internal brief agent loads the instruction-only `company-intake` and `evidence-discipline` skills from `src/samurai/skills/`. Prompts live in `src/samurai/prompts/`; AgentOS exposes three starter prompts. These runtime skills are separate from contributor OMo/Ponytail skills. The main agent and brief agent have independent model instances for nested streaming.
+
+The result always reports `evidence_status=unverified`: schema validation is not research or market validation. Grounded research, strategy, launch kits, business record schemas, Cloud Storage, and production company authorization remain later phases. See [the foundation plan](../docs/agentos-foundation-plan.md).
 
 ## Local setup
 
@@ -35,9 +39,17 @@ The runtime disables automatic database provisioning on startup so liveness/conf
 
 Stop only this project's database with `uv tool run --from podman-compose podman-compose stop` from the root. Do not use `down -v` unless deleting this project's local database is intended.
 
-### Current Mac verification limit
+### Podman connection verification
 
-On 11 October 2026, PostgreSQL 18.6 was healthy in Podman 6.0.2/libkrun and accepted authenticated TCP queries inside its container. Connections from this Mac through `127.0.0.1:54329` timed out, so host-to-database persistence is **not verified**. The mapping remains localhost-only, and no shared VM or unrelated containers were restarted. Resolve the local forwarding issue before running database-backed agent work. Process health and authentication checks remain usable independently.
+On 11 October 2026, the initial Mac connection timeout was resolved by restarting only `team-samurai_postgres_1`. Host queries, persisted workflow sessions, and a history-aware follow-up after an application restart passed. The shared Podman VM and unrelated containers were not changed. If the same forwarding issue recurs, inspect the named project container before changing shared infrastructure.
+
+## AgentOS control plane
+
+Use the in-built browser, not Chrome, for this project. Add a separate **Samurai Local** connection at `https://os.agno.com` using `http://127.0.0.1:8000`. Do not edit another project's connection.
+
+The control-plane connection uses JWT authorization. Enable it for the new connection and put its **public** verification key in a quoted multiline `JWT_VERIFICATION_KEY` value in `backend/.env`, then restart the backend. The server uses RS256 verification, native Agno scope checks, and user isolation. JWT configuration replaces shared-key authentication; `OS_SECURITY_KEY` is not accepted as a JWT. Never paste the Google key into AgentOS. JWT unit checks use temporary test keys; the real control-plane key has not yet been installed.
+
+Automated direct navigation previously reported `ERR_BLOCKED_BY_CLIENT`; the user then verified a successful local health response manually. The subsequent control-plane CONNECT attempt returned to the form without saving or reaching Samurai. User-supplied DevTools evidence identifies HTTP 403 from Agno's hosted `POST /api/v1/operating-systems/` connection-creation endpoint. Resolve that hosted access failure before JWT/UI acceptance; it is separate from the working local health endpoint. No public tunnel or security bypass was added. Once connected, select the workflow, try a starter prompt, inspect Sessions, reload, and ask a history question. Backend API proof is separate from UI proof.
 
 ## Frontend boundary
 

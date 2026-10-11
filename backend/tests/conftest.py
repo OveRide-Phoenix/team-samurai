@@ -12,3 +12,4 @@ def isolated_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     monkeypatch.setenv("OS_SECURITY_KEY", "test-key-0000000000000000000000000000")
     monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://test:test@127.0.0.1:1/test")
     monkeypatch.setenv("GOOGLE_API_KEY", "")
+    monkeypatch.delenv("JWT_VERIFICATION_KEY", raising=False)

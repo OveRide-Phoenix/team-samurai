@@ -15,10 +15,23 @@
 
 ## Limits and observations
 
-- The Mac-to-Podman database connection through `127.0.0.1:54329` timed out. A real AgentOS session write/read could not complete through that path. Container health is not persistence proof.
-- Gemini model discovery and one small generation request passed. Search grounding, the AgentOS/database workflow, and Google Cloud deployment remain unverified.
+- The initial Mac-to-Podman timeout was resolved during foundation work by restarting only Samurai's PostgreSQL container. Host queries and actual workflow persistence now pass.
+- Gemini model discovery, generation, and the foundation workflow passed. Search grounding and Google Cloud deployment remain unverified.
 - The frontend has no product screen yet. shadcn/ui and React visual-development tooling are documented for the next UI phase, not installed or presented as implemented UI.
 - GitHub Actions and Dependabot configuration were prepared locally, not run or activated on GitHub. Setup changes are being committed on `Kalyan/project-setup`; no push or deployment was performed.
 - Google GenAI emitted an upstream Python deprecation warning concerning `_UnionGenericAlias`; tests passed. Next.js noted an unrelated ancestor lockfile outside this repository and correctly ignored it.
 - Editor LSP servers were unavailable; project-local type checkers and linters were run instead.
 - Temporary app servers were stopped after checks. The project PostgreSQL container and its named volume remain available; existing Reporting containers and the shared Podman VM were left running.
+
+## AgentOS foundation verification
+
+- The initial setup was fast-forward merged into local `main`; foundation work is on `Kalyan/agentos-foundation`. No push occurred.
+- Seven offline tests pass, covering bearer authentication, invalid configuration, workflow discovery/starter prompts/CORS, invalid brief rejection, unverified evidence retention, and JWT mode rejecting the shared key while accepting a signed test identity. Ruff and strict basedpyright pass.
+- A live non-streaming Gemini-backed AgentOS request completed both ordered steps. Stored executor data shows both native skill instruction calls succeeded.
+- After an application restart, the same session recalled the supplied INR 50,000 budget and 30-day goal with zero steps rerun.
+- A live SSE run with separate model instances completed `WorkflowAgentStarted → WorkflowStarted → StepStarted/StepCompleted → WorkflowCompleted → WorkflowAgentCompleted`. The partial brief identified missing budget, skills, and goal and retained `evidence_status=unverified`.
+- A final streaming run with tracing enabled also completed both steps and persisted run `5ea062e9-292e-4777-a4a0-3d16c591eaa9`. Earlier shared-model streaming attempts stalled and were cancelled; independent model instances are retained for the nested agents.
+- Native tracing stores HTTP trace records, but no session-linked workflow traces were observed. Stored run events and executor outputs provide the verified workflow evidence; complete trace correlation remains unverified.
+- In-built browser sign-in succeeded. Automated direct navigation initially reported `ERR_BLOCKED_BY_CLIENT`; the user subsequently opened `http://127.0.0.1:8000/health` manually and obtained status `ok`. A later automated CONNECT attempt still returned to the form without saving or reaching Samurai. The user then supplied DevTools evidence: `POST https://os-api.agno.com/api/v1/operating-systems/` returned **403 Forbidden**, with an HTML response and `Server: awselb/2.0`. This identifies the hosted connection-creation request as the failure; headers alone do not establish the account or infrastructure cause. The JWT public key was not obtained and UI acceptance remains blocked. JWT enablement is approved. Chrome and existing Reporting settings were untouched.
+- Live workflow error paths returned 401 without authentication and 422 for a missing message. The lockfile check passed.
+- JWT checks use temporary generated test keys, not a claim of real Agno account authorization. No long-term memory, search grounding, durable queue, or production tenant security was introduced.

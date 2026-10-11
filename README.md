@@ -8,9 +8,9 @@ Software generation is a supporting capability when the company needs it. The pr
 
 Product direction, UI principles, and competition requirements are documented in [AGENTS.md](AGENTS.md). Samurai brand assets are available in [assets/samurai-logo](assets/samurai-logo).
 
-The repository has an Agno AgentOS backend bootstrap, a Next.js application with a health endpoint, local PostgreSQL configuration for Podman, environment templates, and locked dependencies. Configuring a Google API key registers a starter Gemini researcher; the company workflow, grounded research, designed UI, end-user authentication, and cloud deployment are still to be built.
+The repository has a conversational Agno AgentOS foundation workflow, a Next.js application with a health endpoint, local PostgreSQL in Podman, environment templates, and locked dependencies. Samurai drafts a typed company brief, identifies missing context, and retains unverified assumptions. Native runtime skills, starter prompts, persisted sessions, and history-aware follow-ups are configured. Grounded research, strategy, the designed frontend, production company authorization, and cloud deployment remain later phases.
 
-The selected stack and phased implementation plan are in [docs/architecture.md](docs/architecture.md). This setup is not yet a functional company-building prototype.
+The selected stack and phased implementation plan are in [docs/architecture.md](docs/architecture.md), with the [AgentOS foundation plan](docs/agentos-foundation-plan.md) covering the current increment. This foundation is not yet the complete company-building product.
 
 ## The idea: “Build my business.”
 
@@ -119,7 +119,7 @@ Requirements: Python 3.14, uv, Node.js 24 or 26, npm, and a running Podman machi
 
 Health endpoints show process liveness, not proof of Gemini access or a completed business workflow. Keep the shared backend key server-side; this local bootstrap must not be exposed as a multi-user service.
 
-Current Mac limitation: the PostgreSQL container is healthy, but Podman host-port connections timed out during verification. See the [backend setup notes](backend/README.md#current-mac-verification-limit). [Setup verification](docs/setup-verification.md) distinguishes passing checks from unverified integrations.
+PostgreSQL sessions and restart follow-ups now pass after restarting only Samurai's container. Manual navigation to the local health endpoint works in the in-built browser, but the `os.agno.com` connection remains incomplete. [Setup verification](docs/setup-verification.md) distinguishes passing API checks from pending browser acceptance.
 
 ## Contributing
 

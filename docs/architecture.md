@@ -7,14 +7,14 @@ The owner's Agno proposal selects a workflow-first implementation of AI Idea →
 | Layer | Choice | Status |
 |---|---|---|
 | Founder workspace | Next.js App Router, TypeScript, Tailwind; shadcn/ui after the design system | Runtime and health endpoint configured; no product screens |
-| Agent runtime | Python, Agno AgentOS, FastAPI | Local secured bootstrap; optional Gemini researcher registration |
-| Orchestration | Explicit Agno Workflow stages, with bounded branching/parallelism | Planned |
+| Agent runtime | Python, Agno AgentOS, FastAPI | Secured WorkflowAgent entry point; native skills and starter prompts |
+| Orchestration | Explicit Agno Workflow stages, with bounded branching/parallelism | Foundation brief → deterministic structural verification implemented; research/strategy stages planned |
 | Intelligence | Gemini API initially; Vertex AI is a future deployment choice | Model configuration present; live access requires credentials |
 | Research | Google Search grounding with retained source evidence | Planned |
 | Records | PostgreSQL locally through Podman; Cloud SQL in production | Local database configuration and Agno database adapter |
 | Artifacts | Cloud Storage with metadata/revision references in PostgreSQL | Planned |
 | Hosting | Cloud Run for the Python service and server-capable Next.js | Planned |
-| Identity | End-user authentication plus company-scoped backend authorization | Planned; a local shared bearer key is only service access control |
+| Identity | JWT authentication plus company-scoped backend authorization | Optional RS256 JWT/scope enforcement and user isolation configured and tested; actual control-plane key and company authorization remain pending |
 
 Agno agents are reasoning roles, not independent services. Workflow state connects their inputs and outputs. Deterministic code must own validation, authorization, calculations, and execution controls. Preserve the root README's product story and architecture map.
 

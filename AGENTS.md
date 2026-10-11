@@ -8,7 +8,7 @@ This is the parent repository for **AI Idea → Company**, a general-purpose com
 - Always use the applicable **OMo and Ponytail skills for planning, coding, and execution**. Read their instructions before acting. OMo supplies the relevant development workflow; Ponytail keeps changes small, complete, and verified. These are contributor tools, not application runtime dependencies.
 - If the required skills are unavailable, report that limitation before implementation; do not claim to have followed a skill you could not read.
 - Preserve existing work and product decisions. Do not replace the README, brand assets, or established UI direction as part of unrelated changes.
-- Continue this setup work on `Kalyan/project-setup`, committing verified changes locally as work progresses. Push only when Kalyan explicitly requests it.
+- Continue the AgentOS foundation on `Kalyan/agentos-foundation`, committing verified changes locally as work progresses. The initial setup was merged into local `main`. Push only when Kalyan explicitly requests it.
 
 ## Repository ownership and architecture
 
