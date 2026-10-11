@@ -44,4 +44,3 @@ the suspected configuration was not toggled against the provider failure.
   same focused pytest command.
 - Observable: all static checks exited 0 and 20 tests passed.
 - Provider calls: none. The company-journey owner retains the single authorized live call.
-

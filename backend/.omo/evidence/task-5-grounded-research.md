@@ -46,4 +46,3 @@ count because the code deduplicates and applies `max_sources` after provider gro
 - Concurrent Task 6 files and edits were preserved and excluded from this Task 5 commit.
 - The live `.env` copy was mode 600 and removed immediately. No browser, server, database, or
   background automation process was opened.
-
