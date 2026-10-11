@@ -126,6 +126,19 @@ def _input_fields_for_path(path: str) -> tuple[str, ...] | None:
     return None
 
 
+def _replay_body_once(payload: bytes, receive: Receive) -> Receive:
+    replayed = False
+
+    async def replay() -> Message:
+        nonlocal replayed
+        if not replayed:
+            replayed = True
+            return {"type": "http.request", "body": payload, "more_body": False}
+        return await receive()
+
+    return replay
+
+
 @final
 @dataclass(frozen=True, slots=True)
 class _ParentInputBoundary:
@@ -164,17 +177,14 @@ class _ParentInputBoundary:
             more_body = message.more_body
         payload = bytes(body)
 
-        async def replay() -> Message:
-            return {"type": "http.request", "body": payload, "more_body": False}
-
         try:
             headers = cast("list[tuple[bytes, bytes]]", scope.get("headers", []))
             if b"application/x-www-form-urlencoded" in dict(headers).get(b"content-type", b""):
                 _ = payload.decode("utf-8")
-            form = await Request(scope, replay).form()
+            form = await Request(scope, _replay_body_once(payload, receive)).form()
         except MultiPartException, UnicodeDecodeError:
             response = JSONResponse(status_code=422, content={"detail": "invalid request body"})
-            await response(scope, replay, send)
+            await response(scope, receive, send)
             return
         input_values = [value for field in input_fields for value in form.getlist(field)]
         invalid_encoding = any(
@@ -194,9 +204,9 @@ class _ParentInputBoundary:
                 status_code=422,
                 content={"detail": detail},
             )
-            await response(scope, replay, send)
+            await response(scope, receive, send)
             return
-        await self.app(scope, replay, send)
+        await self.app(scope, _replay_body_once(payload, receive), send)
 
 
 def create_app(

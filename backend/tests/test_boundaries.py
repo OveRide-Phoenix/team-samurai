@@ -77,6 +77,7 @@ class DeterministicTextModel(Model):
         repeat_tool: bool = False,
         tool_name: str | None = None,
         tool_arguments: str = "{}",
+        stream_delay: float = 0,
     ) -> None:
         super().__init__(id="boundary-model", name="Boundary model", provider="test")
         self.id: str = "boundary-model"
@@ -85,6 +86,7 @@ class DeterministicTextModel(Model):
         self.repeat_tool: bool = repeat_tool
         self.tool_name: str | None = tool_name
         self.tool_arguments: str = tool_arguments
+        self.stream_delay = stream_delay
 
     @override
     def invoke(self, *_args: Never, **_kwargs: Never) -> ModelResponse:
@@ -119,9 +121,11 @@ class DeterministicTextModel(Model):
 
     @override
     async def ainvoke_stream(
-        self, *_args: Never, **_kwargs: Never
+        self, messages: list[Message], **kwargs: Never
     ) -> abc.AsyncIterator[ModelResponse]:
-        yield ModelResponse()
+        if self.stream_delay:
+            await anyio.sleep(self.stream_delay)
+        yield await self.ainvoke(messages, **kwargs)
 
     @override
     def _parse_provider_response(self, response: ModelResponse, **_kwargs: Never) -> ModelResponse:
@@ -181,7 +185,10 @@ def create_restart_app() -> FastAPI:
     return create_app(
         db=SqliteDb(db_file=db_file),
         settings=settings,
-        parent_model_factory=lambda: DeterministicTextModel(tool_name="read_company_state"),
+        parent_model_factory=lambda: DeterministicTextModel(
+            tool_name="read_company_state",
+            stream_delay=float(os.environ.get("BOUNDARY_STREAM_DELAY", "0")),
+        ),
     )
 
 
@@ -255,6 +262,48 @@ def _post_run(port: int, token: str, message: str) -> dict[str, object]:
         payload = cast("object", json.loads(response.read()))
     assert isinstance(payload, dict)
     return cast("dict[str, object]", payload)
+
+
+def _post_stream(port: int, token: str, *, close_after_started: bool = False) -> str:
+    boundary = "samurai-stream-boundary"
+    body = (
+        b"".join(
+            (
+                f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'
+            ).encode()
+            for name, value in (
+                ("message", "read my retained company"),
+                ("session_id", "stream-session"),
+                ("stream", "true"),
+                ("background", "false"),
+            )
+        )
+        + f"--{boundary}--\r\n".encode()
+    )
+    http_request = request.Request(
+        f"http://127.0.0.1:{port}/agentos/agents/samurai/runs",
+        data=body,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+        },
+        method="POST",
+    )
+    response = cast(
+        "HTTPResponse",
+        request.urlopen(http_request, timeout=10),  # noqa: S310 - loopback only.
+    )
+    with response:
+        assert response.status == 200
+        if not close_after_started:
+            return response.read().decode()
+        lines: list[str] = []
+        while "RunStarted" not in "".join(lines):
+            line = response.readline().decode()
+            if not line:
+                break
+            lines.append(line)
+        return "".join(lines)
 
 
 def _read_company_state_tool(agent: Agent) -> abc.Callable[..., CompanyStateSummary]:
@@ -961,3 +1010,56 @@ def test_completed_session_restart_recall_uses_actual_process_restart(tmp_path: 
     persisted_child = database.get_session(child_id, user_id="restart-user")
     assert isinstance(persisted_child, WorkflowSession)
     assert persisted_child.runs in (None, [])
+
+
+def test_streaming_parent_run_replays_body_once_and_handles_disconnect(tmp_path: Path) -> None:
+    # Given a retained company and the production middleware under a real uvicorn server.
+    private_key, public_key = _key_pair()
+    token = _token(private_key, "stream-user")
+    database_file = tmp_path / "stream.db"
+    database = SqliteDb(db_file=str(database_file))
+    state = _accepted_company_state("stream-session")
+    _ = database.upsert_session(
+        WorkflowSession(
+            session_id=child_session_id("stream-user", "stream-session"),
+            user_id="stream-user",
+            workflow_id="company-journey",
+            session_data={"session_state": {"company": state.model_dump(mode="json")}},
+        )
+    )
+    backend = str(Path(__file__).parent.parent)
+    environment = {
+        **os.environ,
+        "BOUNDARY_DB_FILE": str(database_file),
+        "BOUNDARY_PUBLIC_KEY": public_key,
+        "PYTHONPATH": os.pathsep.join((str(Path(backend) / "src"), backend)),
+    }
+
+    # When one client reads the terminal stream and another disconnects after RunStarted.
+    terminal_port = _free_port()
+    terminal_process = _start_uvicorn(terminal_port, environment)
+    try:
+        terminal_stream = _post_stream(terminal_port, token)
+    finally:
+        _stop_uvicorn(terminal_process)
+    assert terminal_process.stdout is not None
+    terminal_logs = cast("str", terminal_process.stdout.read())
+
+    disconnect_port = _free_port()
+    disconnect_process = _start_uvicorn(
+        disconnect_port,
+        {**environment, "BOUNDARY_STREAM_DELAY": "5"},
+    )
+    try:
+        partial_stream = _post_stream(disconnect_port, token, close_after_started=True)
+    finally:
+        _stop_uvicorn(disconnect_process)
+    assert disconnect_process.stdout is not None
+    disconnect_logs = cast("str", disconnect_process.stdout.read())
+
+    # Then the healthy stream terminates and neither receive path raises an ASGI protocol error.
+    assert "RunStarted" in terminal_stream
+    assert "RunCompleted" in terminal_stream
+    assert "RunStarted" in partial_stream
+    assert "Unexpected message received: http.request" not in terminal_logs
+    assert "Unexpected message received: http.request" not in disconnect_logs
