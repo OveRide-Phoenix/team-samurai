@@ -230,6 +230,7 @@ def test_supplied_run_id_reaches_ongoing_native_child_cancellation(tmp_path: Pat
         db = SqliteDb(db_file=str(tmp_path / "cancel.db"))
         workflow = Workflow(
             id="samurai-builder-draft",
+            name="Samurai Builder Draft",
             db=db,
             steps=[Step(name="Create builder draft", executor=build)],
             telemetry=False,
