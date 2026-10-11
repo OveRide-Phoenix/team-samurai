@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum, unique
 from functools import wraps
-from inspect import isasyncgenfunction, iscoroutinefunction, isgeneratorfunction
+from inspect import isasyncgenfunction, iscoroutinefunction, isgeneratorfunction, signature
 from pathlib import Path
 from time import time
 from types import MethodType
@@ -227,45 +227,72 @@ def _sanitize_async_model_failures(model: Model, *, max_calls: int | None = None
 
 
 def _sanitize_step_executor(executor: StepExecutor) -> StepExecutor:  # noqa: C901
+    accepts_run_context = "run_context" in signature(executor).parameters
     if isasyncgenfunction(executor):
-        async_executor = cast("Callable[[StepInput], AsyncIterator[object]]", executor)
+        async_executor = cast("Callable[..., AsyncIterator[object]]", executor)
 
         @wraps(executor)
-        async def safe_async_generator(step_input: StepInput) -> abc.AsyncIterator[object]:
+        async def safe_async_generator(
+            step_input: StepInput,
+            run_context: RunContext | None = None,
+        ) -> abc.AsyncIterator[object]:
             try:
-                async for output in async_executor(step_input):
+                iterator = (
+                    async_executor(step_input, run_context=run_context)
+                    if accepts_run_context
+                    else async_executor(step_input)
+                )
+                async for output in iterator:
                     yield output
             except Exception:  # noqa: BLE001 - child details must stop before Agno logs them.
                 raise _ChildWorkflowError from None
 
         return cast("StepExecutor", safe_async_generator)
     if iscoroutinefunction(executor):
-        async_executor = cast("Callable[[StepInput], Awaitable[object]]", executor)
+        async_executor = cast("Callable[..., Awaitable[object]]", executor)
 
         @wraps(executor)
-        async def safe_coroutine(step_input: StepInput) -> object:
+        async def safe_coroutine(
+            step_input: StepInput,
+            run_context: RunContext | None = None,
+        ) -> object:
             try:
+                if accepts_run_context:
+                    return await async_executor(step_input, run_context=run_context)
                 return await async_executor(step_input)
             except Exception:  # noqa: BLE001 - child details must stop before Agno logs them.
                 raise _ChildWorkflowError from None
 
         return cast("StepExecutor", safe_coroutine)
     if isgeneratorfunction(executor):
-        generator_executor = cast("Callable[[StepInput], Iterator[object]]", executor)
+        generator_executor = cast("Callable[..., Iterator[object]]", executor)
 
         @wraps(executor)
-        def safe_generator(step_input: StepInput) -> abc.Iterator[object]:
+        def safe_generator(
+            step_input: StepInput,
+            run_context: RunContext | None = None,
+        ) -> abc.Iterator[object]:
             try:
-                yield from generator_executor(step_input)
+                iterator = (
+                    generator_executor(step_input, run_context=run_context)
+                    if accepts_run_context
+                    else generator_executor(step_input)
+                )
+                yield from iterator
             except Exception:  # noqa: BLE001 - child details must stop before Agno logs them.
                 raise _ChildWorkflowError from None
 
         return cast("StepExecutor", safe_generator)
-    sync_executor = cast("Callable[[StepInput], object]", executor)
+    sync_executor = cast("Callable[..., object]", executor)
 
     @wraps(executor)
-    def safe_sync(step_input: StepInput) -> object:
+    def safe_sync(
+        step_input: StepInput,
+        run_context: RunContext | None = None,
+    ) -> object:
         try:
+            if accepts_run_context:
+                return sync_executor(step_input, run_context=run_context)
             return sync_executor(step_input)
         except Exception:  # noqa: BLE001 - child details must stop before Agno logs them.
             raise _ChildWorkflowError from None
@@ -524,14 +551,12 @@ async def _stream_with_cancel_watch[T](
     timed_out = anyio.Event()
     operation_scope = anyio.CancelScope()
     errors: list[Exception] = []
-    send, receive = anyio.create_memory_object_stream[T]()
+    buffered: list[T] = []
 
     async def produce() -> None:
         with operation_scope:
             try:
-                async with send:
-                    async for event in events:
-                        await send.send(event)
+                buffered.extend([event async for event in events])
             except Exception as error:  # noqa: BLE001 - re-raised after sibling tasks drain.
                 errors.append(error)
             finally:
@@ -554,9 +579,7 @@ async def _stream_with_cancel_watch[T](
                 timed_out,
             )
             _ = tasks.start_soon(produce)
-            async with receive:
-                async for event in receive:
-                    yield event
+            await done.wait()
             tasks.cancel_scope.cancel()
     finally:
         await acleanup_run(child_run_id)
@@ -564,6 +587,8 @@ async def _stream_with_cancel_watch[T](
         raise _ChildWorkflowError
     if errors:
         raise errors[0]
+    for event in buffered:
+        yield event
 
 
 def _child_workflow_timeout(settings: Settings) -> float:

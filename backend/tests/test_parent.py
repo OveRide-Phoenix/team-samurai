@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 from collections import abc  # noqa: TC003 - Agno resolves model annotations at runtime.
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Never, cast, final, override
 from uuid import UUID
 
 import anyio
+from agno.agent import Agent
 from agno.db.base import SessionType
 from agno.db.sqlite import SqliteDb
 from agno.models.base import Model
@@ -17,21 +19,37 @@ from agno.session.workflow import WorkflowSession
 from agno.tools.function import Function
 from agno.workflow import Step, StepInput, StepOutput, Workflow
 from fastapi.testclient import TestClient
+from pydantic import HttpUrl
 
+from samurai.agents import ROLE_CAPABILITIES, ConfiguredRole
 from samurai.app import create_app
 from samurai.config import Settings
+from samurai.contracts import (
+    Assumption,
+    CompanyBrief,
+    CompanyState,
+    IntakeArtifact,
+    ProductPlanArtifact,
+    ResearchArtifact,
+    Role,
+    SourcedClaim,
+    SourceReference,
+    StrategyArtifact,
+    VerificationArtifact,
+    VerificationFinding,
+)
 from samurai.parent import (
     PARENT_AGENT_ID,
     child_session_id,
     create_parent_agent,
 )
+from samurai.research import ResearchAgent, ResearchResult
 
 if TYPE_CHECKING:
     import pathlib
     from collections.abc import Awaitable, Callable
 
     import pytest
-    from agno.agent import Agent
     from agno.models.message import Message
     from agno.run.agent import RunOutput
 
@@ -73,7 +91,7 @@ class _ToolSequenceModel(Model):
             arguments = self.arguments.get(name, "{}")
             if name.startswith("get_skill"):
                 arguments = '{"skill_name":"evidence-discipline"}'
-            if name == "run_company_journey":
+            if name == "run_company_journey" and name not in self.arguments:
                 arguments = '{"idea":"offline failure probe"}'
             return ModelResponse(
                 tool_calls=[
@@ -92,6 +110,45 @@ class _ToolSequenceModel(Model):
 
     @override
     async def ainvoke_stream(
+        self,
+        messages: list[Message],
+        *,
+        tools: list[dict[str, object]] | None = None,
+        **_kwargs: Never,
+    ) -> abc.AsyncIterator[ModelResponse]:
+        yield await self.ainvoke(messages, tools=tools)
+
+    @override
+    def _parse_provider_response(self, response: ModelResponse, **_kwargs: Never) -> ModelResponse:
+        return response
+
+    @override
+    def _parse_provider_response_delta(self, response: ModelResponse) -> ModelResponse:
+        return response
+
+
+@final
+class _StaticRoleModel(Model):
+    def __init__(self, content: str) -> None:
+        super().__init__(id="role-test", name="Role test", provider="test")
+        self.id: str = "role-test"
+        self.content = content
+
+    @override
+    def invoke(self, *_args: Never, **_kwargs: Never) -> ModelResponse:
+        return ModelResponse()
+
+    @override
+    async def ainvoke(self, messages: list[Message], **_kwargs: Never) -> ModelResponse:
+        assert messages
+        return ModelResponse(content=self.content)
+
+    @override
+    def invoke_stream(self, *_args: Never, **_kwargs: Never) -> abc.Iterator[ModelResponse]:
+        return iter(())
+
+    @override
+    async def ainvoke_stream(
         self, *_args: Never, **_kwargs: Never
     ) -> abc.AsyncIterator[ModelResponse]:
         yield ModelResponse()
@@ -103,6 +160,108 @@ class _ToolSequenceModel(Model):
     @override
     def _parse_provider_response_delta(self, response: ModelResponse) -> ModelResponse:
         return response
+
+
+def _deterministic_catalog() -> dict[Role, ConfiguredRole]:
+    outputs = {
+        Role.INTAKE: IntakeArtifact(
+            brief=CompanyBrief(
+                idea="retained founder idea",
+                target_customer="retained target",
+                geography="retained geography",
+                budget="retained budget",
+                founder_skills="retained skills",
+                goal="retained goal",
+                supplied_context=[],
+                assumptions=[],
+                open_questions=[],
+                next_actions=["Interview clinic owners."],
+            )
+        ),
+        Role.RESEARCHER: ResearchArtifact(summary="unused", conflicts=()),
+        Role.STRATEGIST: StrategyArtifact(
+            ideal_customer_profile="Independent Indian dental clinics",
+            positioning="Recover missed patient calls",
+            offer="A managed receptionist pilot",
+            pricing_assumptions=("Validate willingness to pay.",),
+        ),
+        Role.PRODUCT_MANAGER: ProductPlanArtifact(
+            minimum_viable_offering=("Answer and route clinic calls",),
+            delivery_requirements=("Clinic call-forwarding access",),
+            user_stories=("As a clinic owner, I can review captured enquiries.",),
+            roadmap=("Pilot with one clinic",),
+        ),
+        Role.VERIFIER: VerificationArtifact(
+            checked_artifact_ids=(UUID("00000000-0000-0000-0000-000000000104"),),
+            outcome="verified",
+        ),
+    }
+    catalog: dict[Role, ConfiguredRole] = {}
+    for role, output in outputs.items():
+        raw = output.model_dump_json()
+        if role is Role.INTAKE:
+            raw = raw.replace('"artifact_type":"intake"', '"artifact_type":"founder_intake"')
+        agent = Agent(
+            id=f"test-{role.value}",
+            model=_StaticRoleModel(raw),
+            output_schema=None if role is Role.RESEARCHER else type(output),
+            telemetry=False,
+        )
+        catalog[role] = ConfiguredRole(
+            agent_id=f"test-{role.value}",
+            agent=agent,
+            capability=ROLE_CAPABILITIES[role],
+            instructions="test",
+        )
+    return catalog
+
+
+async def _mapped_research(
+    _agent: ResearchAgent,
+    _brief: CompanyBrief,
+    *,
+    max_sources: int = 5,
+) -> ResearchResult:
+    assert max_sources == 5
+    source_id = UUID("00000000-0000-0000-0000-000000000101")
+    segment = "Clinics report missed calls and compare monthly services."
+    return ResearchResult(
+        status="complete",
+        payload=ResearchArtifact(summary=segment, conflicts=()),
+        sources=(
+            SourceReference(
+                source_id=source_id,
+                url=HttpUrl("https://example.com/clinic-study"),
+                title="Clinic study",
+                retrieved_at=datetime(2026, 10, 11, tzinfo=UTC),
+                search_query="India dental clinic missed calls",
+                excerpt=segment,
+            ),
+        ),
+        claims=(
+            SourcedClaim(
+                claim_id=UUID("00000000-0000-0000-0000-000000000102"),
+                text=segment,
+                source_ids=(source_id,),
+                support_status="mapped",
+                support_segments=(segment,),
+                verification_status="unverified",
+            ),
+        ),
+        assumptions=(
+            Assumption(
+                assumption_id=UUID("00000000-0000-0000-0000-000000000103"),
+                text="Clinics may adopt the service.",
+            ),
+        ),
+        verification_findings=(
+            VerificationFinding(
+                code="research_lineage_retained",
+                message="Source lineage retained.",
+                severity="info",
+            ),
+        ),
+    )
 
 
 async def _run_agent(agent: Agent, message: str, session_id: str) -> RunOutput:
@@ -183,6 +342,75 @@ def test_repeated_skill_reads_end_at_parent_model_budget(tmp_path: pathlib.Path)
     assert model.calls == settings.agent_tool_call_limit + 1
 
 
+def test_native_http_parent_runs_real_company_workflow_to_five_artifacts(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog = _deterministic_catalog()
+
+    def catalog_factory(_settings: Settings) -> dict[Role, ConfiguredRole]:
+        return catalog
+
+    monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
+    monkeypatch.setattr("samurai.company_workflow.run_research", _mapped_research)
+    arguments = json.dumps(
+        {
+            "idea": "AI receptionist for Indian dental clinics",
+            "target_customer": "Independent Indian dental clinics",
+            "geography": "India",
+            "budget": "INR 50000",
+            "founder_skills": "Python and Next.js",
+            "goal": "Validate demand in 30 days",
+        }
+    )
+    database = SqliteDb(db_file=str(tmp_path / "parent-real-core.db"))
+    settings = Settings.model_validate({})
+    with TestClient(
+        create_app(
+            db=database,
+            settings=settings,
+            parent_model_factory=lambda: _ToolSequenceModel(
+                "run_company_journey",
+                arguments={"run_company_journey": arguments},
+            ),
+        )
+    ) as client:
+        response = client.post(
+            "/agentos/agents/samurai/runs",
+            headers={"Authorization": f"Bearer {settings.os_security_key.get_secret_value()}"},
+            data={
+                "message": "Start the fictional company journey.",
+                "session_id": "real-core-parent-session",
+                "user_id": "founder",
+                "stream": "false",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == RunStatus.completed.value
+    sessions = database.get_sessions(session_type=SessionType.WORKFLOW, user_id="founder")
+    assert isinstance(sessions, list)
+    assert len(sessions) == 1
+    child = sessions[0]
+    assert isinstance(child, WorkflowSession)
+    assert child.session_data is not None
+    session_state = cast("dict[str, object]", child.session_data["session_state"])
+    state = CompanyState.model_validate(session_state["company"])
+    assert [artifact.artifact_type for artifact in state.artifacts] == [
+        "intake",
+        "research",
+        "strategy",
+        "product_plan",
+        "verification",
+    ]
+    assert [artifact.revision for artifact in state.artifacts] == [1, 2, 3, 4, 5]
+    assert all(
+        claim.verification_status == "unverified"
+        for artifact in state.artifacts
+        for claim in artifact.claims
+    )
+
+
 def test_child_failure_is_sanitized_and_parent_is_terminal_error(
     tmp_path: pathlib.Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -234,6 +462,7 @@ def test_child_failure_is_sanitized_and_parent_is_terminal_error(
         "error_code": "child_workflow_failed",
     }
     assert provider_marker not in caplog.text
+    assert "Attempted to exit cancel scope in a different task" not in caplog.text
     assert provider_marker not in response.text
     assert attempts == 1
     session = db.get_session("failure-session", user_id="founder")
