@@ -258,13 +258,35 @@ class ArtifactEnvelope(Contract):
             raise PydanticCustomError(
                 "unknown_claim_source", "every claim source must be retained in the artifact"
             )
+        if error := _artifact_evidence_error(self):
+            raise PydanticCustomError("invalid_artifact_evidence", "{error}", {"error": error})
         return self
 
 
-def _contains_connected_measurement(artifact: ArtifactEnvelope) -> bool:
-    return any(
+def _artifact_evidence_error(artifact: ArtifactEnvelope) -> str | None:
+    error: str | None = None
+    if any(
         measurement.provenance == "connected_measurement" for measurement in artifact.measurements
-    )
+    ):
+        error = "connected measurements require trusted backend connector validation"
+    elif isinstance(artifact.payload, AnalysisArtifact):
+        metric_ids = artifact.payload.metric_ids
+        retained_ids = tuple(measurement.metric_id for measurement in artifact.measurements)
+        if artifact.payload.basis == "connected_measurements":
+            error = "connected analysis requires trusted backend connector validation"
+        elif (
+            len(metric_ids) != len(set(metric_ids))
+            or len(retained_ids) != len(set(retained_ids))
+            or set(metric_ids) != set(retained_ids)
+        ):
+            error = "analysis metric IDs must exactly reference retained measurements"
+        elif any(
+            measurement.provenance != "founder_supplied" for measurement in artifact.measurements
+        ):
+            error = "founder-supplied analysis requires founder-supplied measurements"
+        elif artifact.status != "based_on_founder_supplied_metrics":
+            error = "founder-supplied analysis must remain conditional"
+    return error
 
 
 class CompanyState(Contract):
@@ -286,10 +308,11 @@ class CompanyState(Contract):
                 raise PydanticCustomError(
                     "rejected_canonical_state", "canonical state accepts accepted artifacts only"
                 )
-            if _contains_connected_measurement(artifact):
+            if error := _artifact_evidence_error(artifact):
                 raise PydanticCustomError(
-                    "untrusted_connected_measurement",
-                    "connected measurements require trusted backend connector validation",
+                    "invalid_artifact_evidence",
+                    "{error}",
+                    {"error": error},
                 )
             revision = artifact.revision
         if self.current_revision != revision:
@@ -377,10 +400,8 @@ def accept_artifact(
         )
     if any(finding.severity == "error" for finding in artifact.verification_findings):
         raise InvalidArtifactTransitionError("accepted artifacts cannot contain error findings")
-    if _contains_connected_measurement(artifact):
-        raise InvalidArtifactTransitionError(
-            "connected measurements require trusted backend connector validation"
-        )
+    if error := _artifact_evidence_error(artifact):
+        raise InvalidArtifactTransitionError(error)
     accepted_artifact = artifact.model_copy(update={"acceptance_status": "accepted"})
     return CompanyState(
         context=state.context,

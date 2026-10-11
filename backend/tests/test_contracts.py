@@ -1,3 +1,5 @@
+"""Contract boundary scenarios kept together for lineage coverage. # noqa: SIZE_OK."""
+
 from datetime import UTC, datetime
 from typing import Literal
 from uuid import UUID, uuid4
@@ -6,6 +8,7 @@ import pytest
 from pydantic import HttpUrl, ValidationError
 
 from samurai.contracts import (
+    AnalysisArtifact,
     ArtifactEnvelope,
     ArtifactType,
     Assumption,
@@ -304,3 +307,132 @@ def test_preserves_untrusted_metric_labels(
 
     assert updated.artifacts[0].measurements[0].provenance == provenance
     assert updated.artifacts[0].status == status
+
+
+def test_rejects_connected_analysis_basis_without_measurements() -> None:
+    # Given a pending analysis that claims connected evidence using an arbitrary metric ID.
+    state = create_company_state("session-1", created_at=NOW)
+    artifact = _artifact(state).model_copy(
+        update={
+            "artifact_type": ArtifactType.ANALYSIS,
+            "producer": Role.ANALYST,
+            "payload": AnalysisArtifact(
+                metric_ids=(uuid4(),),
+                findings=("Conversion improved",),
+                recommendations=("Continue",),
+                basis="connected_measurements",
+            ),
+        }
+    )
+
+    # When canonical acceptance runs, then the unsupported promotion fails closed.
+    with pytest.raises(InvalidArtifactTransitionError):
+        _ = accept_artifact(state, artifact, authenticated_session_id="session-1")
+
+
+def test_rejects_connected_analysis_basis_when_loading_canonical_json() -> None:
+    # Given accepted canonical JSON that claims connected evidence without retained metrics.
+    state = create_company_state("session-1", created_at=NOW)
+    artifact = _artifact(state).model_copy(
+        update={
+            "acceptance_status": "accepted",
+            "artifact_type": ArtifactType.ANALYSIS,
+            "producer": Role.ANALYST,
+            "payload": AnalysisArtifact(
+                metric_ids=(uuid4(),),
+                findings=("Conversion improved",),
+                recommendations=("Continue",),
+                basis="connected_measurements",
+            ),
+        }
+    )
+    raw = {
+        "context": state.context.model_dump(mode="json"),
+        "current_revision": 1,
+        "artifacts": [artifact.model_dump(mode="json")],
+    }
+
+    # When restored through CompanyState, then the unsupported promotion fails closed.
+    with pytest.raises(ValidationError):
+        _ = CompanyState.model_validate(raw)
+
+
+def test_accepts_conditional_analysis_linked_to_exact_founder_metrics() -> None:
+    # Given conditional analysis linked to one retained founder-supplied metric.
+    state = create_company_state("session-1", created_at=NOW)
+    metric = MeasuredResult(
+        metric_id=uuid4(),
+        name="qualified_leads",
+        value=4,
+        unit="leads",
+        window_start=datetime(2026, 10, 1, tzinfo=UTC),
+        window_end=datetime(2026, 10, 8, tzinfo=UTC),
+        source_label="Founder spreadsheet",
+        collected_at=datetime(2026, 10, 8, 1, tzinfo=UTC),
+        provenance="founder_supplied",
+    )
+    raw = _artifact(state).model_dump(mode="json")
+    raw.update(
+        {
+            "artifact_type": ArtifactType.ANALYSIS,
+            "producer": Role.ANALYST,
+            "status": "based_on_founder_supplied_metrics",
+            "measurements": [metric.model_dump(mode="json")],
+            "payload": AnalysisArtifact(
+                metric_ids=(metric.metric_id,),
+                findings=("Four leads were supplied",),
+                recommendations=("Verify through a connector before claiming impact",),
+                basis="based_on_founder_supplied_metrics",
+            ).model_dump(mode="json"),
+        }
+    )
+    artifact = ArtifactEnvelope.model_validate(raw)
+
+    # When accepted and restored, then the exact metric and conditional basis remain intact.
+    updated = accept_artifact(state, artifact, authenticated_session_id="session-1")
+    restored = CompanyState.model_validate_json(updated.model_dump_json())
+
+    assert restored.artifacts[0].measurements == (metric,)
+    assert restored.artifacts[0].payload == artifact.payload
+
+
+@pytest.mark.parametrize("case", ["unretained_id", "demo_provenance", "complete_status"])
+def test_rejects_conditional_analysis_with_inconsistent_metric_evidence(case: str) -> None:
+    # Given conditional analysis whose metric linkage, provenance, or status is inconsistent.
+    state = create_company_state("session-1", created_at=NOW)
+    metric = MeasuredResult(
+        metric_id=uuid4(),
+        name="qualified_leads",
+        value=4,
+        unit="leads",
+        window_start=datetime(2026, 10, 1, tzinfo=UTC),
+        window_end=datetime(2026, 10, 8, tzinfo=UTC),
+        source_label="Founder spreadsheet",
+        collected_at=datetime(2026, 10, 8, 1, tzinfo=UTC),
+        provenance="founder_supplied",
+    )
+    raw = _artifact(state).model_dump(mode="json")
+    raw.update(
+        {
+            "artifact_type": ArtifactType.ANALYSIS,
+            "producer": Role.ANALYST,
+            "status": "based_on_founder_supplied_metrics",
+            "measurements": [metric.model_dump(mode="json")],
+            "payload": AnalysisArtifact(
+                metric_ids=(metric.metric_id,),
+                findings=("Four leads were supplied",),
+                recommendations=("Verify with a connector",),
+                basis="based_on_founder_supplied_metrics",
+            ).model_dump(mode="json"),
+        }
+    )
+    if case == "unretained_id":
+        raw["payload"]["metric_ids"] = [str(uuid4())]
+    elif case == "demo_provenance":
+        raw["measurements"][0]["provenance"] = "demo_fixture"
+    else:
+        raw["status"] = "complete"
+
+    # When parsed at the envelope boundary, then the inconsistent evidence is rejected.
+    with pytest.raises(ValidationError):
+        _ = ArtifactEnvelope.model_validate(raw)
