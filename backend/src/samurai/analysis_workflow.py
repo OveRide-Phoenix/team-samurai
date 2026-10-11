@@ -36,6 +36,15 @@ MAX_METRIC_AGE: Final = timedelta(days=30)
 GATE_STEP: Final = "Check metric eligibility"
 
 
+class AnalysisCancelledError(RuntimeError):
+    """Native analysis workflow cancellation."""
+
+    def __init__(self, run_id: str) -> None:
+        """Identify the cancelled child run."""
+        self.run_id: str = run_id
+        super().__init__(f"Analysis run {run_id} was cancelled")
+
+
 class AnalysisWorkflowInput(Contract):
     """Trusted request time and founder metric input for one analysis run."""
 
@@ -164,10 +173,12 @@ def create_analysis_workflow(db: BaseDb, analyst: Agent) -> Workflow:
     )
 
 
-def run_analysis(
+async def run_analysis(
     workflow: Workflow,
     workflow_input: AnalysisWorkflowInput,
     run_context: RunContext,
+    *,
+    run_id: str | None = None,
 ) -> WorkflowResult:
     """Run analysis inside validated company context and persist only an accepted artifact."""
     state = load_company_state(
@@ -175,7 +186,7 @@ def run_analysis(
         run_context,
         created_at=workflow_input.checked_at,
     )
-    output: WorkflowRunOutput = workflow.run(
+    output: WorkflowRunOutput = await workflow.arun(
         _AnalysisExecutionInput(
             state=state,
             metrics=workflow_input.metrics,
@@ -185,8 +196,12 @@ def run_analysis(
         session_id=run_context.session_id,
         session_state=run_context.session_state,
         dependencies=run_context.dependencies,
+        run_id=run_id,
         stream=False,
     )
+    if output.is_cancelled:
+        cancelled_run_id = output.run_id or run_id or "unknown"
+        raise AnalysisCancelledError(cancelled_run_id)
     result = WorkflowResult.model_validate(output.content)
     if result.artifacts:
         updated = CompanyState(
@@ -195,7 +210,7 @@ def run_analysis(
             artifacts=(*state.artifacts, *result.artifacts),
         )
         save_company_state(updated, run_context)
-        _ = workflow.update_session_state(
+        _ = await workflow.aupdate_session_state(
             {"company": updated.model_dump(mode="json")},
             session_id=run_context.session_id,
         )
