@@ -508,3 +508,18 @@ h1,h2,h3,p { margin: 0; }
 .company-intake .intake-send { position: absolute; inset-inline-end: 9px; top: 9px; width: 40px; height: 40px; }
 :root[data-mode="dark"] .transition-grain { mix-blend-mode: soft-light; filter: blur(.4px); }
 @media (max-width:760px) { .landing .landing-content { padding-top: 130px; } }
+
+.agent-activity { min-width: 0; }
+.agent-activity > summary { cursor: pointer; list-style: none; }
+.agent-activity > summary::-webkit-details-marker { display: none; }
+.agent-activity > summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 5px; border-radius: 10px; }
+.agent-history { padding: 10px 4px 0 40px; font-size: 12px; color: var(--secondary-text); }
+.agent-history p { margin: 0 0 10px; }
+.agent-history ol { padding-left: 14px; margin: 0; }
+.agent-history li { padding-bottom: 8px; }
+.agent-history li span { display: block; color: var(--foreground); font-weight: 600; }
+
+@media(max-width:760px) {
+  .company-workspace.dashboard-open .home-pane > .team-panel:has(details[open]) { position: static; }
+  .company-workspace.dashboard-open .agent-activity[open] { grid-column: 1 / -1; }
+}

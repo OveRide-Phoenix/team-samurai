@@ -215,3 +215,33 @@ describe('AgentOS transport wire boundary', () => {
     await expect(readAgentosRun('session-1', 'run-1')).rejects.toThrow('another session');
   });
 });
+
+
+it('retains real start and completion events from saved runs after reload', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ run_id: 'run-1', session_id: 'session-1', agent_id: 'samurai', status: 'COMPLETED', content: 'Research needs sources', events: [wire('CustomEvent', { kind: 'workflow_progress', content: 'Research started' }), wire('CustomEvent', { kind: 'workflow_progress', content: 'Research completed' })] }))));
+  const recovered = await readAgentosRun('session-1', 'run-1');
+  expect(recovered.events.slice(0, 2)).toEqual([
+    { type: 'activity', agent: 'Researcher', state: 'working', detail: 'Research started' },
+    { type: 'activity', agent: 'Researcher', state: 'done', detail: 'Research completed' },
+  ]);
+});
+
+
+it('reads progress from native serialized content when Agno drops custom top-level fields', async () => {
+  serve(frame(wire('RunStarted')) + frame(wire('CustomEvent', { content: { kind: 'workflow_progress', detail: 'Research started' } })) + frame(wire('CustomEvent', { content: { kind: 'workflow_progress', detail: 'Research completed' } })) + frame(wire('RunCompleted', { content: 'Insufficient evidence' })));
+  expect((await collect(createAgentosTransport('session-1')('Synthetic test', new AbortController().signal))).slice(0, 2)).toEqual([
+    { type: 'activity', agent: 'Researcher', state: 'working', detail: 'Research started' },
+    { type: 'activity', agent: 'Researcher', state: 'done', detail: 'Research completed' },
+  ]);
+});
+
+
+it('shows evidence gates as waiting instead of inventing strategy completion', async () => {
+  serve(frame(wire('RunStarted')) + frame(wire('RunCompleted', { content: { ...result, outcome: 'insufficient_evidence' } })));
+  const events = await collect(createAgentosTransport('session-1')('Synthetic test', new AbortController().signal));
+  expect(events.filter(event => event.type === 'activity')).toEqual([
+    { type: 'activity', agent: 'Researcher', state: 'waiting', detail: 'Research finished without sufficient source evidence.' },
+    { type: 'activity', agent: 'Verifier', state: 'waiting', detail: 'Evidence review blocked: source support is missing.' },
+    { type: 'activity', agent: 'Strategist', state: 'waiting', detail: 'Waiting for source evidence before strategy can start.' },
+  ]);
+});

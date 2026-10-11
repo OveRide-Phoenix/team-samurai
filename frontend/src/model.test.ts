@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { toggleSavedSelection, applyBackendEvent, recordBackendRun, initialCompanyPrompt, companyBriefSchema, chooseWorkflow, orderedPanels, movePanel, latestPanels, emptyWorkspace, eventSchema, panelSchema, portfolioSchema, restorePortfolio, workspaceSchema } from './model';
+import { finishActivities, toggleSavedSelection, applyBackendEvent, recordBackendRun, initialCompanyPrompt, companyBriefSchema, chooseWorkflow, orderedPanels, movePanel, latestPanels, emptyWorkspace, eventSchema, panelSchema, portfolioSchema, restorePortfolio, workspaceSchema } from './model';
 import { onboardingPreview, demoTransport, initialWorkspace, offer, pricing, prospects, evidence, launchPlan } from './demo';
 
 describe('backend-facing UI contract', () => {
@@ -164,5 +164,30 @@ describe('saved selection limits', () => {
     expect(restored.companies[0].workspace.approvedOffers).toEqual(Array.from({ length: 20 }, (_, index) => `offer-${index + 90}`));
     expect(restored.companies[0].workspace.shortlist).toHaveLength(100);
     expect(toggleSavedSelection(['one', 'two'], 'one', 20)).toEqual(['two']);
+  });
+});
+
+
+it('preserves legacy briefs and includes explicitly supplied skills in the live prompt', () => {
+  const brief = { idea: 'Cycle repair business', customer: 'Local cyclists', location: 'Pune', budget: '1000 INR', goal: 'First paid pilot' };
+  expect(companyBriefSchema.parse(brief).founderSkills).toBeUndefined();
+  const prompt = initialCompanyPrompt({ ...brief, founderSkills: 'No technical skills yet; delivery help needed' });
+  expect(prompt).toContain('"founder_skills":"No technical skills yet; delivery help needed"');
+  expect(workspaceSchema.parse({ ...emptyWorkspace(), activityLog: undefined }).activityLog).toEqual([]);
+});
+
+describe('terminal team activity', () => {
+  it('settles only unfinished roles after backend cancellation and preserves completed history', () => {
+    const history = eventSchema.array().parse([
+      { type: 'activity', agent: 'Researcher', state: 'working', detail: 'Research started' },
+      { type: 'activity', agent: 'Researcher', state: 'done', detail: 'Research completed' },
+      { type: 'activity', agent: 'Verifier', state: 'working', detail: 'Verify evidence started' },
+    ]).filter(event => event.type === 'activity');
+    const cancelled = finishActivities(history, 'cancelled');
+    expect(cancelled.slice(0, 3)).toEqual(history);
+    expect(cancelled.slice(3)).toMatchObject([{ agent: 'Verifier', state: 'stopped' }]);
+    expect(finishActivities(cancelled, 'cancelled')).toEqual(cancelled);
+    expect(finishActivities(history, 'running')).toEqual(history);
+    expect(finishActivities(history, 'completed').at(-1)).toMatchObject({ agent: 'Verifier', state: 'waiting' });
   });
 });

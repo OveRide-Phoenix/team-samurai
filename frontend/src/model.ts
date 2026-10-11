@@ -25,8 +25,9 @@ export const messageSchema = z.object({
 export type Message = z.infer<typeof messageSchema>;
 export const agents = ['Researcher', 'Strategist', 'Verifier', 'Sales'] as const;
 export type Agent = typeof agents[number];
+export const activitySchema = z.object({ type: z.literal('activity'), agent: z.enum(agents), state: z.enum(['working', 'done', 'waiting', 'stopped']), detail: z.string().max(2000) });
 export const eventSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('activity'), agent: z.enum(agents), state: z.enum(['working', 'done', 'waiting', 'stopped']), detail: z.string() }),
+  activitySchema,
   z.object({ type: z.literal('message'), text: z.string(), panel: panelSchema.optional() }),
 ]);
 export type WorkEvent = z.infer<typeof eventSchema>;
@@ -37,6 +38,7 @@ export const companyBriefSchema = z.object({
   location: z.string().trim().min(2).max(120),
   budget: z.string().trim().min(1).max(120),
   goal: z.string().trim().min(3).max(500),
+  founderSkills: z.string().trim().min(3).max(500).optional(),
 });
 export type CompanyBrief = z.infer<typeof companyBriefSchema>;
 export const backendRunSchema = z.object({ runId: z.string().min(1), status: z.enum(['running', 'completed', 'cancelled', 'failed']), companyId: z.string().uuid().optional(), revision: z.number().int().min(0).optional() });
@@ -44,6 +46,7 @@ export type BackendRun = z.infer<typeof backendRunSchema>;
 export const workspaceSchema = z.object({
   executionMode: z.enum(['preview', 'live']).default('preview'), backendRun: backendRunSchema.optional(),
   brief: companyBriefSchema.optional(),
+  activityLog: z.array(activitySchema).max(100).default([]),
   version: z.literal(1), messages: z.array(messageSchema).max(200), pinned: z.array(panelSchema).max(12),
   completedTasks: z.array(z.string()).max(300).default([]),
   panelOrder: z.array(z.string()).max(212).default([]),
@@ -60,7 +63,7 @@ export const portfolioSchema = z.object({
   (value.activeId === null || value.companies.some(company => company.id === value.activeId)));
 export type Portfolio = z.infer<typeof portfolioSchema>;
 export function emptyWorkspace(): Workspace {
-  return { executionMode: 'preview', version: 1, messages: [], pinned: [], completedTasks: [], panelOrder: [], shortlist: [], approvedOffers: [], theme: 'sky' };
+  return { executionMode: 'preview', activityLog: [], version: 1, messages: [], pinned: [], completedTasks: [], panelOrder: [], shortlist: [], approvedOffers: [], theme: 'sky' };
 }
 export function restorePortfolio(saved: string | null, legacy: string | null): Portfolio {
   if (saved) {
@@ -124,9 +127,18 @@ export function applyBackendEvent(workspace: Workspace, runId: string, event: Ex
   return { ...workspace, messages: [...workspace.messages, message].slice(-200), pinned: event.panel ? workspace.pinned.map(panel => panel.id === event.panel?.id ? event.panel : panel) : workspace.pinned };
 }
 export function initialCompanyPrompt(brief: CompanyBrief): string {
-  return `Build my company from this founder-supplied brief. These are inputs and hypotheses, not verified facts. Preserve missing evidence and request clarification when needed.\n${JSON.stringify({ idea: brief.idea, target_customer: brief.customer, geography: brief.location, budget: brief.budget, goal: brief.goal })}`;
+  return `Build my company from this founder-supplied brief. These are inputs and hypotheses, not verified facts. Preserve missing evidence and request clarification when needed.\n${JSON.stringify({ idea: brief.idea, target_customer: brief.customer, geography: brief.location, budget: brief.budget, founder_skills: brief.founderSkills, goal: brief.goal })}`;
 }
 
 export function toggleSavedSelection(ids: readonly string[], id: string, limit: number): string[] {
   return ids.includes(id) ? ids.filter(item => item !== id) : [...ids, id].slice(-limit);
+}
+
+export function finishActivities(history: Workspace['activityLog'], status: BackendRun['status']): Workspace['activityLog'] {
+  if (status === 'running') return history;
+  const latest = Object.values(Object.fromEntries(history.map(activity => [activity.agent, activity])));
+  const pending = latest.filter(activity => activity.state === 'working');
+  const state = status === 'cancelled' || status === 'failed' ? 'stopped' : 'waiting';
+  const detail = status === 'cancelled' ? 'The backend acknowledged cancellation.' : status === 'failed' ? 'The backend run failed.' : 'The run finished without a completion event for this step.';
+  return [...history, ...pending.map(activity => ({ ...activity, state, detail } satisfies z.infer<typeof activitySchema>))].slice(-100);
 }

@@ -8,9 +8,10 @@ from agno.db.sqlite import SqliteDb
 from agno.os.routers.agents.schema import AgentResponse
 from agno.os.schema import ConfigResponse
 from fastapi.testclient import TestClient
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from samurai import app
+from samurai.intake import IntakePage
 from samurai.parent import create_parent_agent
 
 if TYPE_CHECKING:
@@ -124,3 +125,13 @@ def test_agentos_mount_keeps_root_routes_separate(tmp_path: pathlib.Path) -> Non
     assert root_config.status_code == 404
     assert schema.status_code == 200
     assert schema.json()["servers"] == [{"url": "/agentos"}]
+
+
+def test_prerequisites_cover_the_required_journey_context(tmp_path: pathlib.Path) -> None:
+    with TestClient(app.create_app(db=SqliteDb(db_file=str(tmp_path / "intake.db")))) as client:
+        response = client.get("/api/company/intake")
+    assert response.status_code == 200
+    pages = TypeAdapter(tuple[IntakePage, ...]).validate_json(response.text)
+    ids = [question.id for page in pages for question in page.questions]
+    assert ids == ["idea", "customer", "location", "budget", "founderSkills", "goal"]
+    assert len(ids) == len(set(ids))

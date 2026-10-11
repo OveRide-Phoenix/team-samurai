@@ -18,7 +18,7 @@ import {
 import { GenerativePanelBody } from './GenerativePanelBody';
 import { demoTransport, onboardingPreview } from './demo';
 import { createAgentosTransport, readAgentosRun, cancelAgentosRun, type AgentosRun } from './agentos';
-import { toggleSavedSelection, applyBackendEvent, recordBackendRun, initialCompanyPrompt, eventSchema, panelSchema, latestPanels, orderedPanels, movePanel, type Agent, type Message, type Panel, type Workspace, type Portfolio, type Transport, type WorkEvent }  from './model';
+import { finishActivities, toggleSavedSelection, applyBackendEvent, recordBackendRun, initialCompanyPrompt, eventSchema, panelSchema, latestPanels, orderedPanels, movePanel, type Agent, type Message, type Panel, type Workspace, type Portfolio, type Transport, type WorkEvent }  from './model';
 
 type WorkspaceContextValue = {
   workspace: Workspace;
@@ -99,7 +99,7 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
   const recoveringRef = useRef(live && Boolean(workspace.backendRun));
   const [recovering, setRecovering] = useState(recoveringRef.current);
   const [isRunning, setRunning] = useState(recoveringRef.current);
-  const [activities, setActivities] = useState<Partial<Record<Agent, Activity>>>({});
+  const [activities, setActivities] = useState<Partial<Record<Agent, Activity>>>(() => Object.fromEntries(workspace.activityLog.map(activity => [activity.agent, activity])));
   const [view, setView] = useState<'chat' | 'company'>('chat');
   const [dialog, setDialog] = useState<'panels' | null>(null);
   const [editingOrder, setEditingOrder] = useState(false);
@@ -114,7 +114,8 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
   const recordRun = (run: AgentosRun) => {
     const checked = recordBackendRun({ ...workspace, backendRun: backendRunRef.current }, run);
     backendRunRef.current = checked.backendRun;
-    setWorkspace(current => recordBackendRun(current, run));
+    setWorkspace(current => ({ ...recordBackendRun(current, run), activityLog: finishActivities(current.activityLog, run.status) }));
+    if (run.status !== 'running') setActivities(current => Object.fromEntries(finishActivities(Object.values(current).filter((activity): activity is Activity => Boolean(activity)), run.status).map(activity => [activity.agent, activity])));
   };
   if (live && !transportRef.current) transportRef.current = createAgentosTransport(company.id, recordRun);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -141,6 +142,7 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
     let finish: (() => void) | undefined;
     completionRef.current = new Promise<void>(resolve => { finish = resolve; });
     setRunning(true); setRunError(''); setActivities({});
+    setWorkspace(current => ({ ...current, activityLog: [] }));
     append({ id: crypto.randomUUID(), role: 'user', text: input });
     if (!live && workspace.messages.length === 0 && !workspace.brief && !/sample/i.test(input)) {
       append({ id: crypto.randomUUID(), role: 'assistant', text: 'This preview can explore sample dental customers, offers, pricing, evidence and launch plans. Start a new company from Home for a live workflow.' });
@@ -157,7 +159,10 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
       for await (const raw of events) {
         if (controller.signal.aborted) break;
         const event = eventSchema.parse(raw);
-        if (event.type === 'activity') setActivities(current => ({ ...current, [event.agent]: event }));
+        if (event.type === 'activity') {
+          setActivities(current => ({ ...current, [event.agent]: event }));
+          setWorkspace(current => ({ ...current, activityLog: [...current.activityLog, event].slice(-100) }));
+        }
         else if (live) {
           const runId = backendRunRef.current?.runId;
           if (!runId) throw new Error('The backend omitted the run identity.');
@@ -169,7 +174,7 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
     } catch (error) {
       if (!live && controller.signal.aborted) append({ id: crypto.randomUUID(), role: 'assistant', text: 'Stopped the preview. Nothing was sent or published.' });
       else setRunError(error instanceof Error ? error.message : 'Samurai could not complete this request.');
-    } finally { controllerRef.current = null; setRunning(live && backendRunning()); setActivities({}); finish?.(); completionRef.current = null; }
+    } finally { controllerRef.current = null; setRunning(live && backendRunning()); finish?.(); completionRef.current = null; }
   };
   const onCancel = async () => {
     if (recoveringRef.current) return;
@@ -181,7 +186,7 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
         await cancelAgentosRun(company.id, saved.runId);
         recordRun({ ...saved, status: 'cancelled' });
         append({ id: crypto.randomUUID(), role: 'assistant', text: 'The backend acknowledged cancellation of the saved run.' });
-        setRunning(false); setActivities({});
+        setRunning(false);
       } catch (error) { setRunError(error instanceof Error ? error.message : 'Cancellation was not acknowledged.'); }
     }
   };
@@ -196,6 +201,11 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
         if (controller.signal.aborted) return;
         // Check authoritative company binding before applying any recovered artifact.
         recordRun(recovered.run);
+        const history = recovered.events.filter((event): event is Activity => event.type === 'activity');
+        if (history.length) {
+          setActivities(Object.fromEntries(finishActivities(history, recovered.run.status).map(activity => [activity.agent, activity])));
+          setWorkspace(current => ({ ...current, activityLog: finishActivities(history, recovered.run.status) }));
+        }
         for (const event of recovered.events) if (event.type === 'message') setWorkspace(current => applyBackendEvent(current, saved.runId, event));
         setRunning(recovered.run.status === 'running');
         if (recovered.run.status === 'running') setRunError('The saved backend run is still running. Stop it or reopen this company later to check its saved result.');
@@ -265,7 +275,7 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
           {panels.some(panel => panel.kind === 'offer') && <button className="action-card" onClick={() => openPanel(panels.find(panel => panel.kind === 'offer')!)}><Compass size={18} /><span>Review offer</span><ArrowRight size={16} className="action-arrow" /></button>}
           <button className="action-card" onClick={() => ask(live ? 'Research our target customers and qualification criteria' : 'Show sample dental customer prospects')} disabled={isRunning}><Users size={18} /><span>{live ? 'Research customers' : 'Explore sample customers'}</span><ArrowRight size={16} className="action-arrow" /></button>
         </div>}
-        <TeamPanel activities={activities} expanded={view === 'company'} executionMode={workspace.executionMode} />
+        <TeamPanel activities={activities} history={workspace.activityLog} expanded={view === 'company'} executionMode={workspace.executionMode} />
         {view === 'chat' && <div className="pinned-label"><span>Pinned</span><button className="icon-button" onClick={() => setDialog('panels')} aria-label="Add a business panel"><Plus size={17} /></button></div>}
         <div className="home-panels">{(view === 'company' ? dashboardPanels : [...workspace.pinned, ...(expandedPanel && !workspace.pinned.some(panel => panel.id === expandedPanel.id) ? [expandedPanel] : [])]).map((panel, index) => <div className="home-panel-item" id={`home-panel-${panel.id}`} key={panel.id} onDragOver={event => { if (view === 'company' && editingOrder) event.preventDefault(); }} onDrop={event => { if (view !== 'company' || !editingOrder) return; event.preventDefault(); reorder(event.dataTransfer.getData('text/plain'), panel.id); }}>
           {view === 'company' && editingOrder && <div className="panel-reorder"><button className="icon-button drag-handle" draggable onDragStart={event => { event.dataTransfer.setData('text/plain', panel.id); event.dataTransfer.effectAllowed = 'move'; }} aria-label={`Drag ${panel.title} to reorder`}><GripVertical size={15} /></button><span /><button className="icon-button" disabled={index === 0} aria-label={`Move ${panel.title} earlier`} onClick={() => reorder(panel.id, dashboardPanels[index - 1].id)}><ArrowUp size={14} /></button><button className="icon-button" disabled={index === dashboardPanels.length - 1} aria-label={`Move ${panel.title} later`} onClick={() => reorder(panel.id, dashboardPanels[index + 1].id)}><ArrowDown size={14} /></button></div>}

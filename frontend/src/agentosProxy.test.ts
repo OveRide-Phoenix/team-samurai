@@ -65,3 +65,11 @@ describe('actual local AgentOS proxy', () => {
     expect(upstream).toHaveBeenCalledTimes(2);
   });
 });
+
+
+it('forwards prerequisite definitions only to their fixed backend route', async () => {
+  const { request, upstream } = await fixture();
+  expect((await request('/api/agentos/intake')).status).toBe(200);
+  expect(upstream.mock.calls[0][0]).toBe('http://127.0.0.1:8000/api/company/intake');
+  expect((await request('/api/agentos/intake?session_id=a')).status).toBe(404);
+});

@@ -27,6 +27,7 @@ from agno.run import RunContext
 from agno.run.agent import CustomEvent, RunOutput
 from agno.run.cancel import acancel_run, acleanup_run, ais_cancelled
 from agno.run.workflow import (
+    StepCompletedEvent,
     StepProgressEvent,
     StepStartedEvent,
     WorkflowCancelledEvent,
@@ -526,7 +527,7 @@ def _progress(run_context: RunContext, child_id: str, content: str) -> CustomEve
         agent_name=PARENT_AGENT_NAME,
         run_id=run_context.run_id,
         session_id=run_context.session_id,
-        content=content,
+        content={"kind": "workflow_progress", "detail": content},
         kind="workflow_progress",
         child_session_id=child_id,
     )
@@ -891,6 +892,10 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
                         run_context,
                         child_id,
                         f"{event.step_name or 'Workflow step'} started",
+                    )
+                if isinstance(event, StepCompletedEvent):
+                    yield _progress(
+                        run_context, child_id, f"{event.step_name or 'Workflow step'} completed"
                     )
                 if isinstance(event, StepProgressEvent):
                     yield _progress(run_context, child_id, str(event.content))

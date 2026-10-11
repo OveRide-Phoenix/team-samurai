@@ -46,7 +46,7 @@ task frontend:setup
 task frontend:dev
 ```
 
-The founder UI runs at `http://127.0.0.1:4173/` from `frontend/`. It includes onboarding, chat, panels, and the company dashboard with labelled preview data. Frontend setup only needs Node/npm and does not start the backend or database. The former Next.js `/api/health` scaffold is removed. Authenticated backend integration remains pending.
+The founder UI runs at `http://127.0.0.1:4173/` from `frontend/`. It includes onboarding, chat, panels, and the company dashboard with labelled preview data. Frontend setup only needs Node/npm and does not start the backend or database. The former Next.js `/api/health` scaffold is removed. New companies use authenticated native AgentOS through the local Vite proxy; existing/sample companies remain Preview. Prerequisites come from the backend, and Team shows actual workflow step history. Live Gemini intake/research and saved-result recovery were exercised locally, with research stopping at missing source evidence. Production auth/proxy, source-supported live strategy and launch drafts remain pending.
 
 ## Planned frontend-to-AgentOS contract
 

@@ -46,14 +46,15 @@ export function agentosProxy(root, fetchImpl = fetch) {
       return res.end(JSON.stringify({ backend: BACKEND, configured, auth: 'jwt' }));
     }
     if (!configured) return reject(res, 503, 'Samurai AgentOS is not configured.');
+    const isIntake = url.pathname === '/api/agentos/intake' && req.method === 'GET' && !url.search;
     const match = url.pathname.match(RUN) ?? url.pathname.match(RUN_ID) ?? url.pathname.match(CANCEL);
     const isRun = RUN.test(url.pathname) && req.method === 'POST';
     const isRead = RUN_ID.test(url.pathname) && req.method === 'GET';
     const isCancel = CANCEL.test(url.pathname) && req.method === 'POST';
-    if (!match || (!isRun && !isRead && !isCancel)) return reject(res, 404, 'route not available');
+    if (!isIntake && (!match || (!isRun && !isRead && !isCancel))) return reject(res, 404, 'route not available');
     const sessions = url.searchParams.getAll('session_id');
-    if ([...url.searchParams.keys()].some(key => key !== 'session_id') || (isRun && url.search) || (!isRun && (sessions.length !== 1 || !/^[A-Za-z0-9_-]{1,200}$/.test(sessions[0])))) return reject(res, 400, 'query not allowed');
-    const target = `${BACKEND}/agentos${url.pathname.slice('/api/agentos'.length)}${url.search}`;
+    if ([...url.searchParams.keys()].some(key => key !== 'session_id') || (isRun && url.search) || (!isRun && !isIntake && (sessions.length !== 1 || !/^[A-Za-z0-9_-]{1,200}$/.test(sessions[0])))) return reject(res, 400, 'query not allowed');
+    const target = isIntake ? `${BACKEND}/api/company/intake` : `${BACKEND}/agentos${url.pathname.slice('/api/agentos'.length)}${url.search}`;
     const headers = { authorization: `Bearer ${token}`, 'x-samurai-client': '1' };
     if (req.headers['content-type']) headers['content-type'] = req.headers['content-type'];
     const controller = new AbortController();

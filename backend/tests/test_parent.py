@@ -1254,3 +1254,57 @@ def test_nonstreaming_child_failures_share_sanitized_terminal_boundary(
         caplog.clear()
 
     assert attempts == len(cases)
+
+
+def test_parent_stream_reports_start_and_completion_for_real_workflow_steps(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    catalog = _deterministic_catalog()
+
+    def catalog_factory(_settings: Settings) -> dict[Role, ConfiguredRole]:
+        return catalog
+
+    monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
+    monkeypatch.setattr("samurai.company_workflow.run_research", _mapped_research)
+    database = SqliteDb(db_file=str(tmp_path / "step-completion.db"))
+    agent = create_parent_agent(database, Settings.model_validate({}), model=_ToolSequenceModel())
+    raw_tools = cast("list[object]", agent.tools)
+    tool = next(
+        item
+        for item in raw_tools
+        if isinstance(item, Function) and item.name == "run_company_journey"
+    )
+    entrypoint = cast("Callable[..., abc.AsyncGenerator[CustomEvent | str]]", tool.entrypoint)
+
+    async def scenario() -> list[str]:
+        return [
+            cast("dict[str, str]", event.to_dict()["content"])["detail"]
+            async for event in entrypoint(
+                run_context=RunContext(
+                    run_id="completion-run",
+                    session_id="completion-session",
+                    user_id="founder",
+                    session_state={},
+                ),
+                idea="Synthetic test business",
+                target_customer="Test customers",
+                geography="Test market",
+                budget="No budget",
+                founder_skills="Test delivery skills",
+                goal="Validate a test offer",
+            )
+            if isinstance(event, CustomEvent)
+        ]
+
+    progress = anyio.run(scenario)
+    for step in (
+        "Intake",
+        "Research",
+        "Verify evidence",
+        "Strategy",
+        "Product plan",
+        "Verify journey",
+    ):
+        assert f"{step} started" in progress
+        assert f"{step} completed" in progress
+        assert progress.index(f"{step} started") < progress.index(f"{step} completed")

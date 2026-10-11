@@ -10,7 +10,7 @@ The local founder UI adapts the installed Agno native SSE API using `src/agentos
 type Transport = (input: string, signal: AbortSignal) => AsyncIterable<WorkEvent>;
 ```
 
-The first backend flow can adapt SSE, NDJSON, or a durable-job subscription into this interface without changing the visual components. Add company/session/run identity and authentication to the adapter when the server contract is agreed. Live cancellation posts to the scoped native cancel endpoint and waits for acknowledgement. A rejected cancellation retains the running identity so the founder can retry.
+The adapter consumes native AgentOS SSE and checks session/run/company scope before accepting results. Live cancellation posts to the scoped native cancel endpoint and waits for acknowledgement. A rejected cancellation retains the running identity so the founder can retry.
 
 ## Activity event
 
@@ -54,8 +54,8 @@ Supported panel kinds are `offer`, `pricing`, `prospects`, `evidence`, and `laun
 ## State ownership and current limits
 
 - Chat, pins, shortlisted IDs, and reviewed drafts currently live in browser localStorage. They are UI preferences, not durable backend approvals, researched prospects, or sent outreach.
-- The UI fixtures use one dental receptionist scenario. New-company creation and arbitrary-idea generation belong to a later connected flow.
-- Backend evidence, source citations, streamed text chunks, error/retry events, and server-confirmed approvals need explicit agreed fields before live use.
+- Preview fixtures use a dental scenario. New companies submit their validated brief to the real backend.
+- Backend artifacts retain validated evidence, citations, assumptions and lineage. Token-by-token prose, server-confirmed approvals and connected measurements are not implemented.
 - The verifier in the demo validates structure only. Never interpret it as verification of market facts.
 - Provider credentials belong on the backend. The frontend must not contain a Gemini API key or Firebase Admin credential.
 
@@ -63,7 +63,7 @@ Supported panel kinds are `offer`, `pricing`, `prospects`, `evidence`, and `laun
 
 `Portfolio` version 2 stores a company list, the active company ID, and a global light/dark mode. Each company contains an independent `Workspace`; the old single-workspace preview migrates without losing its conversation or panels. New companies start empty. Company IDs must be included in live requests, events, persistence, authorisation, and cancellation so concurrent runs cannot update another company. The old `Workspace.theme` field is retained solely for legacy compatibility; current visual mode is portfolio-level.
 
-Gemini can populate the existing validated panel catalog. assistant-ui already renders known tool results. An AG-UI transport is a candidate if Kalyan's AgentOS API exposes it; this has not been connected or verified. No Gemini credentials are configured in this UI task.
+Gemini outputs are mapped into the validated panel catalog through native AgentOS SSE. assistant-ui renders known panel components; model-generated code is never executed.
 
 ## Generative UI catalog
 
@@ -73,11 +73,15 @@ The existing assistant-ui `business_panel` tool renders validated panel objects 
 - `launch-plan`: `tasks` with unique `id`, `title`, `owner`, `timing`, and `detail`. Checkmarks and progress are local founder controls, not execution by an agent. Completion is stored per company in `completedTasks` using serialized `[panelId, taskId]` pairs.
 - Reuse a panel ID for a revised result. The dashboard deduplicates it and pinned content updates to the latest payload. Keep task IDs stable when preserving completed steps; use a new ID when replacing a task.
 
-Existing saved workspaces migrate with an empty `completedTasks` list. The evidence and launch samples are deterministic previews, not outputs from a connected model. The stream continues to use activity and message events; no server API was introduced or connected.
+Existing saved workspaces migrate with an empty `completedTasks` list. The evidence and launch samples are deterministic previews, not outputs from a connected model. Live runs use the native server API; template streams remain limited to Preview companies.
 
-## Prerequisite intake proposal
+## Server-owned prerequisite intake
 
-`src/Onboarding.tsx` contains placeholder `intakePages`; these are not fetched from a server. Required answers are validated by `companyBriefSchema` and stored in `workspace.brief` per company. Creating a company is deferred until all pages pass. The initial run uses `onboardingPreview`, an abortable template workflow over that brief, not Gemini or market research. Coordinate server-owned question IDs/types/validation and a real first-run endpoint before replacing these placeholders. Reloading a company with existing messages does not replay the initial preview.
+`GET /api/agentos/intake` forwards to the public metadata-only `/api/company/intake`. It returns three pages covering six supported question IDs exactly once: idea, customer, location, budget, founderSkills and goal. The UI validates both metadata and required answers, then persists the brief per company. Founder skills are included in the first structured prompt so the backend can proceed beyond Intake. No private founder data is exposed by the metadata endpoint. Leaving/reloading unfinished onboarding discards that draft.
+
+## Native workflow progress
+
+Backend CustomEvents serialize their payload as `content: {kind: "workflow_progress", detail: "Research started"}`. Agno drops arbitrary fields outside its declared event schema, so the adapter reads the preserved content object and also accepts historical string events. Real StepStarted/StepCompleted events drive activity; early evidence stops derive explicit waiting states from the validated workflow outcome. Clicking a Team role expands its history. History survives local reload and is reconstructed from scoped saved-run events without rerunning the workflow. Cancellation/failure settles only unfinished roles; completed roles retain their history. No completion percentage or model reasoning is invented.
 
 ## Native local wire
 

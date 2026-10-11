@@ -44,7 +44,7 @@ export const launchPlan: Panel = {
   ],
 };
 export const initialWorkspace: Workspace = {
-  executionMode: 'preview',
+  executionMode: 'preview', activityLog: [],
   version: 1, theme: 'sky', pinned: [offer], completedTasks: [], panelOrder: [], shortlist: [], approvedOffers: [],
   messages: [
     { id: 'intro-user', role: 'user', text: 'I want to build an AI receptionist for Indian dental clinics.' },

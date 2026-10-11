@@ -107,6 +107,15 @@ function resultEvents(result: WorkflowResult, seen: Set<string>): WorkEvent[] {
     }
     for (const panel of panels) events.push({ type: 'message', text: `${item.artifact_type.replaceAll('_', ' ')}: ${item.status}`, panel: panelSchema.parse({ ...panel, provenance: item }) });
   }
+  const outcomeKey = `outcome:${result.company_id}:${result.revision}:${result.outcome}`;
+  if (result.outcome === 'insufficient_evidence' && !seen.has(outcomeKey)) {
+    seen.add(outcomeKey);
+    events.push(
+      { type: 'activity', agent: 'Researcher', state: 'waiting', detail: 'Research finished without sufficient source evidence.' },
+      { type: 'activity', agent: 'Verifier', state: 'waiting', detail: 'Evidence review blocked: source support is missing.' },
+      { type: 'activity', agent: 'Strategist', state: 'waiting', detail: 'Waiting for source evidence before strategy can start.' },
+    );
+  }
   const questionsKey = `questions:${JSON.stringify(result.questions)}`;
   if (result.questions.length && !seen.has(questionsKey)) {
     seen.add(questionsKey);
@@ -125,6 +134,19 @@ function envelope(raw: string) {
   const parsed = envelopeSchema.safeParse({ event: value.event, run_id: value.run_id, session_id: value.session_id, agent_id: value.agent_id, content: value.content, tool: value.tool, kind: value.kind });
   if (!parsed.success) throw new AgentosError('protocol', 'AgentOS returned an invalid event envelope.');
   return parsed.data;
+}
+function progressEvent(content: unknown): Extract<WorkEvent, { type: 'activity' }> | undefined {
+  if (typeof content !== 'string') {
+    const parsed = z.strictObject({ kind: z.literal('workflow_progress'), detail: z.string().max(2000) }).safeParse(content);
+    if (!parsed.success) return undefined;
+    content = parsed.data.detail;
+  }
+  if (typeof content !== 'string' || content.length > 2000) return undefined;
+  const agent = agents.find(name => new RegExp(`^${name}\\b`, 'i').test(content))
+    ?? (/^Research (started|completed)\b/i.test(content) ? 'Researcher'
+      : /^Strategy (started|completed)\b/i.test(content) ? 'Strategist'
+        : /^Verify (brief|evidence|journey) (started|completed)\b/i.test(content) ? 'Verifier' : undefined);
+  return agent ? { type: 'activity', agent, state: /\b(completed|finished|done)\b/i.test(content) ? 'done' : 'working', detail: content } : undefined;
 }
 async function* frames(body: ReadableStream<Uint8Array>): AsyncIterable<string> {
   const reader = body.getReader();
@@ -196,13 +218,9 @@ export function createAgentosTransport(sessionId: string, onRun?: (run: AgentosR
           runId = event.run_id; notify('running');
         }
         if (signal.aborted) { cancel(); if (cancellation) { await cancellation; return; } }
-        if (event.event === 'CustomEvent' && event.kind === 'workflow_progress' && typeof event.content === 'string') {
-          const detail = event.content;
-          const agent = agents.find(name => new RegExp(`^${name}\\b`, 'i').test(detail))
-            ?? (/^Research (started|completed)\b/i.test(detail) ? 'Researcher'
-              : /^Strategy (started|completed)\b/i.test(detail) ? 'Strategist'
-                : /^Verify (brief|evidence|journey) (started|completed)\b/i.test(detail) ? 'Verifier' : undefined);
-          if (agent) yield { type: 'activity', agent, state: /\b(completed|finished|done)\b/i.test(event.content) ? 'done' : 'working', detail: event.content };
+        if (event.event === 'CustomEvent' && (event.kind === 'workflow_progress' || event.kind === undefined)) {
+          const activity = progressEvent(event.content);
+          if (activity) yield activity;
         }
         if (event.event === 'ToolCallCompleted' || event.event === 'RunCompleted') {
           const tool = event.tool === undefined ? undefined : recordSchema.parse(event.tool);
@@ -240,5 +258,16 @@ export async function readAgentosRun(sessionId: string, runId: string, signal?: 
   if (run.run_id !== runId || run.session_id !== sessionId) throw new AgentosError('scope', 'AgentOS returned another session or run.');
   const status = run.status === 'COMPLETED' ? 'completed' : run.status === 'CANCELLED' ? 'cancelled' : run.status === 'ERROR' ? 'failed' : 'running';
   const result = status === 'completed' ? workflow(run.content) : undefined;
-  return { run: { runId, status, ...(result ? { companyId: result.company_id, revision: result.revision } : {}) }, events: result ? resultEvents(result, new Set()) : status === 'completed' && typeof run.content === 'string' ? [{ type: 'message', text: run.content }] : [] };
+  return { run: { runId, status, ...(result ? { companyId: result.company_id, revision: result.revision } : {}) }, events: [...recoveredActivities(wire.events, sessionId, runId), ...(result ? resultEvents(result, new Set()) : status === 'completed' && typeof run.content === 'string' ? [{ type: 'message' as const, text: run.content }] : [])] };
+}
+
+function recoveredActivities(value: unknown, sessionId: string, runId: string): WorkEvent[] {
+  if (value === undefined || value === null) return [];
+  const saved = z.array(recordSchema).max(1000).parse(value);
+  return saved.flatMap(event => {
+    if (event.event !== 'CustomEvent' || (event.kind !== undefined && event.kind !== 'workflow_progress')) return [];
+    if (event.session_id !== sessionId || event.run_id !== runId || event.agent_id !== 'samurai') throw new AgentosError('scope', 'Saved activity belongs to another session or run.');
+    const activity = progressEvent(event.content);
+    return activity ? [activity] : [];
+  }).slice(-100);
 }

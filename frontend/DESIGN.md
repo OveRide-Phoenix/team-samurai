@@ -28,3 +28,6 @@ Keep named controls, visible keyboard focus, required input validation, responsi
 
 ## Refinement — 12 October 2026
 Landing omits the team and dental-demo shortcut. Company-name intake is one floating pill with an inset circular upward-arrow submit (same send primitive), 40px target, disabled empty state. Pointer focus has no outline; a surface/shadow change retains visible input focus, and the send button keeps keyboard focus. Company workspaces retain the team. Dark content surfaces become lighter taupe: card rgba(76,65,57,.97), glass rgba(75,64,56,.88), supporting surface rgba(83,69,57,.90); atmosphere remains unchanged. Dark reveal grain peaks at .045, fades through .02, blends soft-light, and blurs by .4px. Light reveal remains .22/.12; both last 850ms and reduced motion removes grain.
+
+## Live journey activity
+Prerequisite pages come from the backend and cover every required founder context field. Team roles expand in place with native details/summary controls to show retained step events. Completed details remain visible. No invented percentage or simulated worker. Existing theme tokens and card geometry apply.
