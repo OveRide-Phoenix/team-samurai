@@ -536,14 +536,14 @@ async def _cancel_children_when_parent_stops(
     parent_run_id: str,
     child_run_ids: tuple[str, ...],
     done: anyio.Event,
+    operation_scope: anyio.CancelScope,
 ) -> None:
     while not done.is_set():
         if await ais_cancelled(parent_run_id):
-            cancelled = False
             for child_run_id in child_run_ids:
-                cancelled = await acancel_run(child_run_id) or cancelled
-            if cancelled:
-                return
+                _ = await acancel_run(child_run_id)
+            operation_scope.cancel()
+            return
         await anyio.sleep(0.01)
 
 
@@ -599,6 +599,7 @@ async def _await_with_cancel_watch[T](
             run_context.run_id,
             child_run_ids,
             done,
+            operation_scope,
         )
         _ = tasks.start_soon(
             _cancel_children_after_timeout,
@@ -650,6 +651,7 @@ async def _stream_with_cancel_watch[T](
                 run_context.run_id,
                 (child_run_id,),
                 done,
+                operation_scope,
             )
             _ = tasks.start_soon(
                 _cancel_children_after_timeout,

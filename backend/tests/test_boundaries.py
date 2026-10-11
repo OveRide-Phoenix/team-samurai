@@ -11,12 +11,14 @@ import sys
 import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from time import monotonic
 from typing import TYPE_CHECKING, Never, cast, final, override
 from urllib import request
 from urllib.parse import urlencode
 from uuid import uuid4
 
 import anyio
+import httpx
 import jwt
 import pytest
 from agno.db.sqlite import SqliteDb
@@ -24,6 +26,7 @@ from agno.models.base import Model
 from agno.models.response import ModelResponse
 from agno.run import RunContext
 from agno.run.base import RunStatus
+from agno.run.cancel import aget_active_runs
 from agno.session.agent import AgentSession
 from agno.session.workflow import WorkflowSession
 from agno.tools.function import Function
@@ -34,6 +37,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 from pydantic import HttpUrl
 
+from samurai import company_workflow
 from samurai.app import Settings, create_app
 from samurai.contracts import (
     ArtifactEnvelope,
@@ -58,6 +62,7 @@ from samurai.parent import (
     create_parent_agent,
 )
 from samurai.workflow_state import WorkflowContextError, load_company_state
+from tests.test_parent import _deterministic_catalog  # pyright: ignore[reportPrivateUsage]
 
 if TYPE_CHECKING:
     from collections import abc
@@ -192,6 +197,46 @@ def create_restart_app() -> FastAPI:
     )
 
 
+def create_cancel_stream_app() -> FastAPI:
+    database = SqliteDb(db_file=os.environ["BOUNDARY_DB_FILE"])
+    settings = Settings.model_validate({"os_security_key": os.environ["BOUNDARY_OS_KEY"]})
+
+    def catalog_factory(_settings: Settings) -> object:
+        return _deterministic_catalog()
+
+    async def blocked_research(*_args: object, **_kwargs: object) -> Never:
+        await anyio.sleep_forever()
+        raise AssertionError
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(company_workflow, "create_role_catalog", catalog_factory)
+    monkeypatch.setattr(company_workflow, "run_research", blocked_research)
+    arguments = json.dumps(
+        {
+            "idea": "AI receptionist for Indian dental clinics",
+            "target_customer": "Independent Indian dental clinics",
+            "geography": "India",
+            "budget": "INR 50000",
+            "founder_skills": "Python and Next.js",
+            "goal": "Validate demand in 30 days",
+        }
+    )
+    app = create_app(
+        db=database,
+        settings=settings,
+        parent_model_factory=lambda: DeterministicTextModel(
+            tool_name="run_company_journey",
+            tool_arguments=arguments,
+        ),
+    )
+
+    @app.get("/test-active-runs")
+    async def active_runs() -> dict[str, bool]:
+        return await aget_active_runs()
+
+    return app
+
+
 def _free_port() -> int:
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
@@ -199,13 +244,18 @@ def _free_port() -> int:
         return address[1]
 
 
-def _start_uvicorn(port: int, environment: dict[str, str]) -> subprocess.Popen[str]:
+def _start_uvicorn(
+    port: int,
+    environment: dict[str, str],
+    *,
+    factory: str = "create_restart_app",
+) -> subprocess.Popen[str]:
     process = subprocess.Popen(  # noqa: S603 - fixed interpreter/module and ephemeral test port.
         [
             sys.executable,
             "-m",
             "uvicorn",
-            "tests.test_boundaries:create_restart_app",
+            f"tests.test_boundaries:{factory}",
             "--factory",
             "--host",
             "127.0.0.1",
@@ -1063,3 +1113,130 @@ def test_streaming_parent_run_replays_body_once_and_handles_disconnect(tmp_path:
     assert "RunStarted" in partial_stream
     assert "Unexpected message received: http.request" not in terminal_logs
     assert "Unexpected message received: http.request" not in disconnect_logs
+
+
+def test_http_stream_cancel_after_real_core_progress_settles_both_runs(  # noqa: PLR0915
+    tmp_path: Path,
+) -> None:
+    token = uuid4().hex
+    database_file = tmp_path / "stream-cancel.db"
+    port = _free_port()
+    backend = str(Path(__file__).parent.parent)
+    environment = {
+        **os.environ,
+        "BOUNDARY_DB_FILE": str(database_file),
+        "BOUNDARY_OS_KEY": token,
+        "PYTHONASYNCIODEBUG": "1",
+        "PYTHONPATH": os.pathsep.join((str(Path(backend) / "src"), backend)),
+    }
+    process = _start_uvicorn(port, environment, factory="create_cancel_stream_app")
+    trace: list[dict[str, object]] = []
+    started_at = monotonic()
+    run_id = ""
+    terminal_event = ""
+    cancel_status = 0
+    try:
+        with httpx.Client(
+            base_url=f"http://127.0.0.1:{port}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        ) as client:
+            with client.stream(
+                "POST",
+                "/agentos/agents/samurai/runs",
+                files={
+                    "message": (None, "Start the fictional company journey."),
+                    "session_id": (None, "stream-cancel-session"),
+                    "user_id": (None, "stream-cancel-user"),
+                    "stream": (None, "true"),
+                    "background": (None, "false"),
+                },
+            ) as response:
+                assert response.status_code == 200
+                current_event = ""
+                cancelled = False
+                for line in response.iter_lines():
+                    elapsed = round(monotonic() - started_at, 6)
+                    if line.startswith("event: "):
+                        current_event = line.removeprefix("event: ")
+                        continue
+                    if not line.startswith("data: "):
+                        continue
+                    payload = cast("dict[str, object]", json.loads(line.removeprefix("data: ")))
+                    payload_event = payload.get("event")
+                    if isinstance(payload_event, str):
+                        current_event = payload_event
+                    trace.append(
+                        {
+                            "elapsed_seconds": elapsed,
+                            "event": current_event,
+                            "content": payload.get("content"),
+                        }
+                    )
+                    if current_event == "RunStarted":
+                        candidate = payload.get("run_id")
+                        assert isinstance(candidate, str)
+                        run_id = candidate
+                    if (
+                        current_event == "CustomEvent"
+                        and payload.get("content") == "Research started"
+                        and not cancelled
+                    ):
+                        assert run_id
+                        cancelled = True
+                        cancel = client.post(
+                            f"/agentos/agents/samurai/runs/{run_id}/cancel",
+                            params={"session_id": "stream-cancel-session"},
+                        )
+                        cancel_status = cancel.status_code
+                        trace.append(
+                            {
+                                "elapsed_seconds": round(monotonic() - started_at, 6),
+                                "event": "CancelResponse",
+                                "status": cancel.status_code,
+                            }
+                        )
+                    if current_event in {"RunCancelled", "RunCompleted", "RunError"}:
+                        terminal_event = current_event
+                        break
+            active = client.get("/test-active-runs")
+            assert active.status_code == 200
+            trace.append(
+                {
+                    "elapsed_seconds": round(monotonic() - started_at, 6),
+                    "event": "ActiveRuns",
+                    "content": active.json(),
+                }
+            )
+            assert active.json() == {}
+    finally:
+        _stop_uvicorn(process)
+        trace_file = os.environ.get("BOUNDARY_CANCEL_TRACE_FILE")
+        if trace_file:
+            trace_path = Path(trace_file)
+            _ = trace_path.write_text(json.dumps(trace, indent=2), encoding="utf-8")
+            assert process.stdout is not None
+            _ = trace_path.with_suffix(".server.log").write_text(
+                cast("str", process.stdout.read()),
+                encoding="utf-8",
+            )
+
+    database = SqliteDb(db_file=str(database_file))
+    parent = database.get_session("stream-cancel-session", user_id="stream-cancel-user")
+    child = database.get_session(
+        child_session_id("stream-cancel-user", "stream-cancel-session"),
+        user_id="stream-cancel-user",
+    )
+    assert cancel_status == 200
+    assert terminal_event == "RunCancelled"
+    assert isinstance(parent, AgentSession)
+    assert parent.runs is not None
+    parent_run = next(run for run in parent.runs if run.run_id == run_id)
+    assert parent_run.status == RunStatus.cancelled.value
+    assert isinstance(child, WorkflowSession)
+    assert child.runs is not None
+    assert child.runs[-1].status == RunStatus.cancelled.value
+    assert child.session_data is not None
+    session_state = cast("dict[str, object]", child.session_data["session_state"])
+    company = CompanyState.model_validate(session_state["company"])
+    assert [artifact.artifact_type for artifact in company.artifacts] == [ArtifactType.INTAKE]
