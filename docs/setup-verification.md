@@ -6,11 +6,13 @@ The entries below preserve prior foundation evidence. They do not verify the evo
 
 ## Parent-agent increment — current status
 
-### Implemented in the current source, pending acceptance
+### Implemented and locally accepted at final parent head
 
 - With a configured Gemini model, AgentOS source registers one ordinary founder-facing agent, `samurai`; the nine internal roles are Intake, Researcher, Strategist, Product Manager, Builder, Marketer, Sales, Analyst, and Verifier.
 - The parent exposes four bounded tools: `run_company_journey`, `create_launch_drafts`, `analyze_metrics`, and `read_company_state`. Parent context binds an authenticated user and parent session to a deterministic child workflow session; canonical company state and contiguous artifact revisions live in the child session.
 - The core workflow is intake → brief check → research → evidence check → strategy → product plan → verification. Builder, Marketer, and Sales create reviewable drafts only. Analyst requires provenance-labelled metrics and labels founder-supplied inputs as conditional.
+- Intake, Strategist, Product Manager, and Verifier preload validated local skill text and have no runtime function tools. Researcher has native Gemini Search only. Builder, Marketer, Sales, and Analyst use only local read-only skill functions; the parent limits its local skill inspection to instructions and references.
+- Child workflows use a deadline of `GEMINI_TIMEOUT_SECONDS * 7` (420 seconds with the default 60-second setting), cancel and drain child runs on timeout or parent cancellation, and cap model requests at `AGENT_TOOL_CALL_LIMIT + 1` (five with the default limit of four). Child failures become sanitized typed errors.
 - Source lineage retains Gemini Search source references, excerpts, claim mappings, conflicts, assumptions, and verification findings. A retained citation is not factual verification. No parent or child tool can send, publish, spend, contact prospects, run ads, or deploy.
 
 ### Locally verified before the parent changes
@@ -18,19 +20,20 @@ The entries below preserve prior foundation evidence. They do not verify the evo
 - 85 combined backend tests passed before parent registration and boundary changes. This is a baseline, not evidence that the new parent API or boundary suite passes.
 - Task 5's real Gemini Search smoke retained three sources. Task 6's core journey has offline confirmation.
 
-### Focused parent checks now passing
+### Final local verification
 
-- 14 native HTTP/JWT boundary tests and eight parent/application tests pass.
-- A two-process local Uvicorn/SQLite restart retained the brief and evidence with no child workflow rerun.
-- The current full suite reports 101 passing tests. Two failures remain unresolved: sandbox local-port permission and an unnamed native-workflow/global-tracing interaction.
+- Final parent head `9002382fcf9a5b7e10e45e4d0d20f499d2fb3760`: 131 backend tests passed; Ruff passed; basedpyright reported zero errors, warnings, and notes.
+- Local JWT/API checks passed for unauthenticated 401, root 404, authorized configuration 200, owner-only run reads, cross-user denial, restart/recall, input rejection before persistence, and sanitized terminal errors.
+- The API primary reached revision 5 with intake, research, strategy, product plan, and verification. It retained three unique grounded sources and nine propagated references; claims remained unverified and verification returned `needs_rework`.
+- A complete founder-supplied metric advanced the saved company from revision 5 to 6. The native analysis child completed and retained all seven metric fields, `founder_supplied` provenance, no connector receipt, `founder_metrics_unverified`, and `based_on_founder_supplied_metrics`.
+- The final real-TCP cancellation regression streamed `Research started`, accepted cancel in about 20 ms, streamed `RunCancelled`, persisted both parent and child as `CANCELLED`, emptied the active registry, and retained only the pre-cancel intake artifact. An immediate cancel also settled both runs as `CANCELLED`.
+- Chrome completed the approved fictional dental brief in 16 seconds with five artifacts at revision 5, five unique sources, unverified claims, and `needs_rework`. A two-second `read_company_state` recall retained customer, budget, skills, conflicts, and the next decision; a reload restored both runs without rerunning the child journey.
 
-These focused checks and the partial full-suite result do not establish a full-suite pass, full API acceptance, or AgentOS UI acceptance.
+### Scope that remains outside this acceptance
 
-### Pending or blocked
-
-- The approved post-fix live core journey ran and stopped at evidence verification with zero retained sources, `insufficient_evidence`, and partial artifacts. It did not satisfy journey acceptance. Skills advertising tools while Google Search disables external tools is a confirmed structural contradiction; the fix and live-journey rerun remain pending.
-- The final full parent check, AgentOS UI, SSE, cancellation, and deployment acceptance remain pending. This document does not claim full API or end-to-end acceptance.
-- No merge, push, deployment, external action, or Reporting change is claimed.
+- Builder, Marketer, and Sales remain draft-only. No live launch-draft generation is claimed.
+- No push, deployment, external action, or Reporting change is claimed for the current workflow and parent-agent increments; this does not revise historical foundation or streaming records.
+- Deployment, production Cloud SQL, connected measurements, durable queue-backed resumability, and external action integrations remain outside the local acceptance scope.
 
 ## Passed locally
 

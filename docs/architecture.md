@@ -7,11 +7,11 @@ The owner's Agno proposal selects a workflow-first implementation of AI Idea →
 | Layer | Choice | Status |
 |---|---|---|
 | Founder workspace | Next.js App Router, TypeScript, Tailwind; shadcn/ui after the design system | Runtime and health endpoint configured; no product screens |
-| Agent runtime | Python, Agno AgentOS, FastAPI | With a configured Gemini model, current source registers one ordinary `Samurai` parent Agent with four bounded tools; parent API/runtime acceptance is in progress |
-| Orchestration | Explicit Agno Workflow stages, with bounded branching/parallelism | Current source defines intake → research → strategy → product → verification plus draft and metrics workflows; live parent-journey acceptance is pending |
+| Agent runtime | Python, Agno AgentOS, FastAPI | With a configured Gemini model, current source registers one ordinary `Samurai` parent Agent with four bounded tools; local API and Chrome acceptance passed |
+| Orchestration | Explicit Agno Workflow stages, with bounded branching/parallelism | The local parent journey, conditional metrics analysis, restart/recall, and cancellation paths passed; launch drafts remain draft-only and were not generated live |
 | Intelligence | Gemini API initially; Vertex AI is a future deployment choice | Model configuration present; live access requires credentials |
-| Research | Native Gemini Search with bounded retained source evidence | Source extraction retains source URLs, excerpts, claim mappings, and conflicts; one real smoke retained three sources, but the post-fix live journey stopped with zero retained sources and `insufficient_evidence`. Skills advertising tools while Google Search disables external tools is a confirmed structural contradiction; the fix and live rerun remain pending |
-| Records | PostgreSQL locally through Podman; Cloud SQL in production | Parent/child AgentOS session model and revisioned `CompanyState` are in source; parent restart/API acceptance remains pending |
+| Research | Native Gemini Search with bounded retained source evidence | The local API primary retained three unique sources and nine propagated references; the Chrome primary retained five unique sources. Claims remained unverified and verification returned `needs_rework` |
+| Records | PostgreSQL locally through Podman; Cloud SQL in production | Parent/child AgentOS session model and revisioned `CompanyState` passed local persistence, recall, reload, and cancellation checks; Cloud SQL remains planned |
 | Artifacts | Cloud Storage with metadata/revision references in PostgreSQL | Planned |
 | Hosting | Cloud Run for the Python service and server-capable Next.js | Planned |
 | Identity | JWT authentication plus company-scoped backend authorization | Optional RS256 JWT/scope enforcement and user isolation configured and tested; real control-plane key installed and authenticated discovery verified; company authorization remains pending |
@@ -21,6 +21,8 @@ Agno agents are reasoning roles, not independent services. Samurai is the one fo
 ## Parent, state, and workflow boundaries
 
 The parent has exactly four bounded business tools: run or continue the company journey, create launch drafts, analyze metrics, and read canonical company state. The authenticated parent session owns only its deterministic child-workflow session ID, company ID, and current revision. The child workflow session owns the canonical company state. This keeps one backend-generated company per parent session without allowing model-supplied identity, company, session, or revision values to select another company's state.
+
+Intake, Strategist, Product Manager, and Verifier preload validated local skill text and have no runtime function tools. Researcher has native Gemini Search only. Builder, Marketer, Sales, and Analyst have only local read-only skill functions; the parent narrows its local skill inspection to instructions and references. Child workflows have a deadline of seven configured model timeouts (420 seconds by default), cancellation drains child runs, model calls are capped at the tool-call budget plus one, and child failures are converted to sanitized typed errors. These are source-level execution controls, not evidence of a completed provider run.
 
 Canonical state is an accepted, contiguous artifact history. Each artifact has a company ID, revision and input revision, producer, status, payload, founder statements, assumptions, sources, claims, optional measurements, and verification findings. Source URLs and grounding segments establish retained lineage, not truth: claims remain unverified unless a later verifier can support them. Conflicts or missing lineage stop the core journey before strategy and product outputs continue.
 
@@ -42,7 +44,7 @@ Persistent AgentOS sessions are not, by themselves, proof that a job resumes aft
 
 Financial projections and market estimates must remain labeled assumptions or estimates. Search grounding cannot prove willingness to pay. External actions need explicit approval of the concrete action, and the backend must enforce it.
 
-The configured request boundary limits founder message input to 20,000 characters. The model token and timeout settings and the native parent tool-call limit are configured from the backend environment. These source-level controls and boundary tests are not a substitute for the pending local HTTP and AgentOS UI acceptance runs.
+The configured request boundary limits founder message input to 20,000 characters. The model token and timeout settings and the native parent tool-call limit are configured from the backend environment. Local JWT/API and Chrome acceptance verified port 8000 liveness, authorization and isolation, source-backed primary journeys, recall/reload, and cancellation. These results do not establish deployment or external action capability.
 
 ## Sources and update policy
 
