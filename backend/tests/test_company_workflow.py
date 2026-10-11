@@ -1,17 +1,56 @@
+"""Company journey state-machine acceptance scenarios. # noqa: SIZE_OK."""
+
+from dataclasses import replace
 from datetime import UTC, datetime
+from functools import partial
+from typing import TYPE_CHECKING, Literal, Never, final, override
 from uuid import uuid4
 
+import anyio
 import pytest
+from agno.agent import Agent
+from agno.db.sqlite import SqliteDb
+from agno.models.base import Model
+from agno.models.response import ModelResponse
 from agno.run import RunContext
-from pydantic import ValidationError
+from agno.run.workflow import WorkflowRunOutput
+from agno.workflow import StepOutput
+from pydantic import HttpUrl, JsonValue, ValidationError
 
+from samurai.agents import ROLE_CAPABILITIES, ConfiguredRole
+from samurai.company_workflow import (
+    CompanyJourneyFailure,
+    CompanyJourneyRequest,
+    create_company_workflow,
+)
+from samurai.config import Settings
 from samurai.contracts import (
+    Assumption,
+    CompanyBrief,
     CompanyMismatchError,
+    CompanyState,
+    IntakeArtifact,
+    ProductPlanArtifact,
+    ResearchArtifact,
+    Role,
+    SourcedClaim,
+    SourceReference,
     StaleRevisionError,
+    StrategyArtifact,
+    VerificationArtifact,
+    VerificationFinding,
     WorkflowRequest,
     WorkflowResult,
 )
+from samurai.research import ResearchAgent, ResearchResult
 from samurai.workflow_state import WorkflowContextError, load_company_state, save_company_state
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Iterator, Mapping
+    from pathlib import Path
+
+    from agno.models.message import Message
+    from agno.workflow import Workflow
 
 
 def _run_context(
@@ -160,3 +199,413 @@ def test_save_rejects_canonical_history_rewrite() -> None:
     # When another company state targets the same child session, then save fails closed.
     with pytest.raises(WorkflowContextError, match="cannot rewrite canonical company history"):
         save_company_state(replacement, run_context)
+
+
+@final
+class _StaticModel(Model):
+    def __init__(
+        self,
+        content: (
+            IntakeArtifact
+            | ResearchArtifact
+            | StrategyArtifact
+            | ProductPlanArtifact
+            | VerificationArtifact
+        ),
+    ) -> None:
+        super().__init__(id="static", name="Static", provider="test")
+        self.id: str = "static"
+        self.content: (
+            IntakeArtifact
+            | ResearchArtifact
+            | StrategyArtifact
+            | ProductPlanArtifact
+            | VerificationArtifact
+        ) = content
+        self.calls: int = 0
+
+    @override
+    def invoke(self, *_args: Never, **_kwargs: Never) -> ModelResponse:
+        return ModelResponse()
+
+    @override
+    async def ainvoke(self, messages: list[Message], **_kwargs: Never) -> ModelResponse:
+        assert messages
+        self.calls += 1
+        raw = self.content.model_dump_json()
+        if isinstance(self.content, IntakeArtifact):
+            raw = raw.replace('"artifact_type":"intake"', '"artifact_type":"founder_intake"')
+        return ModelResponse(content=raw)
+
+    @override
+    def invoke_stream(self, *_args: Never, **_kwargs: Never) -> Iterator[ModelResponse]:
+        return iter(())
+
+    @override
+    async def ainvoke_stream(self, *_args: Never, **_kwargs: Never) -> AsyncIterator[ModelResponse]:
+        yield ModelResponse()
+
+    @override
+    def _parse_provider_response(self, response: ModelResponse, **_kwargs: Never) -> ModelResponse:
+        return response
+
+    @override
+    def _parse_provider_response_delta(self, response: ModelResponse) -> ModelResponse:
+        return response
+
+
+def _settings() -> Settings:
+    return Settings.model_validate(
+        {
+            "os_security_key": "x" * 32,
+            "database_url": "postgresql+psycopg://samurai:test@localhost:5432/samurai",
+        }
+    )
+
+
+def _catalog(
+    *, pricing_assumptions: tuple[str, ...] = ("Validate willingness to pay.",)
+) -> tuple[Mapping[Role, ConfiguredRole], dict[Role, _StaticModel]]:
+    outputs = {
+        Role.INTAKE: IntakeArtifact(
+            brief=CompanyBrief(
+                idea="model proposal is never trusted as founder input",
+                target_customer="invented",
+                geography="invented",
+                budget="invented",
+                founder_skills="invented",
+                goal="invented",
+                supplied_context=[],
+                assumptions=[],
+                open_questions=[],
+                next_actions=["Answer the remaining founder questions."],
+            )
+        ),
+        Role.RESEARCHER: ResearchArtifact(summary="unused test research", conflicts=()),
+        Role.STRATEGIST: StrategyArtifact(
+            ideal_customer_profile="Independent Indian dental clinics",
+            positioning="Recover missed patient calls",
+            offer="A managed receptionist pilot",
+            pricing_assumptions=pricing_assumptions,
+        ),
+        Role.PRODUCT_MANAGER: ProductPlanArtifact(
+            minimum_viable_offering=("Answer and route clinic calls",),
+            delivery_requirements=("Clinic call-forwarding access",),
+            user_stories=("As a clinic owner, I can review captured enquiries.",),
+            roadmap=("Pilot with one clinic",),
+        ),
+        Role.VERIFIER: VerificationArtifact(
+            checked_artifact_ids=(uuid4(),),
+            outcome="verified",
+        ),
+    }
+    models = {role: _StaticModel(payload) for role, payload in outputs.items()}
+    catalog = {
+        role: ConfiguredRole(
+            agent_id=f"test-{role.value}",
+            agent=Agent(
+                id=f"test-{role.value}",
+                model=models[role],
+                output_schema=type(payload),
+                telemetry=False,
+            ),
+            capability=ROLE_CAPABILITIES[role],
+            instructions="test",
+        )
+        for role, payload in outputs.items()
+    }
+    return catalog, models
+
+
+async def _complete_research(
+    _agent: ResearchAgent, _brief: CompanyBrief, *, max_sources: int = 5
+) -> ResearchResult:
+    assert max_sources == 5
+    return _research_result()
+
+
+def _research_result(*, conflicts: tuple[str, ...] = ()) -> ResearchResult:
+    source_id = uuid4()
+    segment = "Clinics report missed calls and compare monthly services."
+    return ResearchResult(
+        status="complete",
+        payload=ResearchArtifact(summary=segment, conflicts=conflicts),
+        sources=(
+            SourceReference(
+                source_id=source_id,
+                url=HttpUrl("https://example.com/clinic-study"),
+                title="Clinic study",
+                retrieved_at=datetime(2026, 10, 11, tzinfo=UTC),
+                search_query="India dental clinic missed calls",
+                excerpt=segment,
+            ),
+        ),
+        claims=(
+            SourcedClaim(
+                claim_id=uuid4(),
+                text=segment,
+                source_ids=(source_id,),
+                support_status="mapped",
+                support_segments=(segment,),
+                verification_status="unverified",
+            ),
+        ),
+        assumptions=(Assumption(assumption_id=uuid4(), text="Clinics may adopt the service"),),
+        verification_findings=(
+            VerificationFinding(
+                code="research_lineage_retained",
+                message="Source lineage retained.",
+                severity="info",
+            ),
+        ),
+    )
+
+
+def _complete_request() -> CompanyJourneyRequest:
+    return CompanyJourneyRequest(
+        company_id=None,
+        expected_revision=0,
+        idea="AI receptionist for Indian dental clinics",
+        target_customer="Independent Indian dental clinics",
+        geography="India",
+        budget="INR 50000",
+        founder_skills="Python and Next.js",
+        goal="Validate demand",
+    )
+
+
+async def _run_workflow(
+    workflow: Workflow,
+    request: CompanyJourneyRequest,
+    session_state: dict[str, JsonValue],
+) -> WorkflowRunOutput:
+    output = await workflow.arun(
+        request,
+        user_id="founder-1",
+        session_id="child-journey",
+        session_state=session_state,
+        dependencies={
+            "trusted_parent_session_id": "parent-1",
+            "trusted_user_id": "founder-1",
+            "child_session_id": "child-journey",
+        },
+    )
+    assert isinstance(output, WorkflowRunOutput)
+    return output
+
+
+def test_complete_company_journey_persists_verified_ordered_lineage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given deterministic role outputs and mapped grounded research.
+    catalog, _ = _catalog()
+
+    def catalog_factory(_settings: Settings) -> Mapping[Role, ConfiguredRole]:
+        return catalog
+
+    monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
+    monkeypatch.setattr("samurai.company_workflow.run_research", _complete_research)
+    workflow = create_company_workflow(SqliteDb(db_file=str(tmp_path) + "/journey.db"), _settings())
+    session_state: dict[str, JsonValue] = {}
+    request = _complete_request()
+
+    # When the native workflow completes.
+    output = anyio.run(partial(_run_workflow, workflow, request, session_state))
+
+    # Then five artifact types form monotonic verified lineage in canonical child state.
+    result = WorkflowResult.model_validate(output.content)
+    assert result.outcome == "verified"
+    assert [artifact.revision for artifact in result.artifacts] == [1, 2, 3, 4, 5]
+    assert [artifact.input_revision for artifact in result.artifacts] == [0, 1, 2, 3, 4]
+    step_names: list[str] = []
+    for step in output.step_results or ():
+        assert isinstance(step, StepOutput)
+        step_names.append(step.step_name or "")
+    assert step_names == [
+        "Intake",
+        "Verify brief",
+        "Research",
+        "Verify evidence",
+        "Strategy",
+        "Product plan",
+        "Verify journey",
+    ]
+    assert all(
+        claim.verification_status == "unverified"
+        for artifact in result.artifacts
+        for claim in artifact.claims
+    )
+    verification = VerificationArtifact.model_validate(result.artifacts[-1].payload)
+    assert verification.checked_artifact_ids == tuple(
+        artifact.artifact_id for artifact in result.artifacts[:-1]
+    )
+    assert CompanyState.model_validate(session_state["company"]).current_revision == 5
+
+
+def test_clarification_continuation_preserves_idea_without_duplicate_research(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given one partial founder request and counted downstream executions.
+    catalog, models = _catalog()
+    research_calls: list[str] = []
+
+    async def fake_research(
+        _agent: ResearchAgent, _brief: CompanyBrief, *, max_sources: int = 5
+    ) -> ResearchResult:
+        assert max_sources == 5
+        research_calls.append("research")
+        return _research_result()
+
+    def catalog_factory(_settings: Settings) -> Mapping[Role, ConfiguredRole]:
+        return catalog
+
+    monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
+    monkeypatch.setattr("samurai.company_workflow.run_research", fake_research)
+    workflow = create_company_workflow(
+        SqliteDb(db_file=str(tmp_path) + "/continue.db"), _settings()
+    )
+    session_state: dict[str, JsonValue] = {}
+    first = CompanyJourneyRequest(
+        company_id=None,
+        expected_revision=0,
+        idea="AI receptionist for Indian dental clinics",
+    )
+
+    # When missing context stops and the same child session continues once.
+    partial_result = WorkflowResult.model_validate(
+        anyio.run(partial(_run_workflow, workflow, first, session_state)).content
+    )
+    complete = CompanyJourneyRequest(
+        company_id=partial_result.company_id,
+        expected_revision=partial_result.revision,
+        target_customer="Independent Indian dental clinics",
+        geography="India",
+        budget="INR 50000",
+        founder_skills="Python and Next.js",
+        goal="Validate demand",
+    )
+    final_result = WorkflowResult.model_validate(
+        anyio.run(partial(_run_workflow, workflow, complete, session_state)).content
+    )
+
+    # Then the amended intake is intentional, while completed downstream stages run once.
+    assert partial_result.outcome == "needs_input"
+    assert final_result.outcome == "verified"
+    intake = IntakeArtifact.model_validate(final_result.artifacts[0].payload)
+    assert intake.brief.idea == first.idea
+    assert research_calls == ["research"]
+    assert models[Role.INTAKE].calls == 2
+    assert models[Role.STRATEGIST].calls == 1
+    assert models[Role.PRODUCT_MANAGER].calls == 1
+
+
+@pytest.mark.parametrize(
+    ("research", "expected"),
+    [
+        (_research_result(conflicts=("Two sources disagree.",)), "needs_rework"),
+        (
+            replace(
+                _research_result(),
+                status="insufficient_evidence",
+                sources=(),
+                claims=(),
+            ),
+            "insufficient_evidence",
+        ),
+    ],
+)
+def test_invalid_research_stops_before_strategy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    research: ResearchResult,
+    expected: Literal["needs_rework", "insufficient_evidence"],
+) -> None:
+    # Given conflicting or insufficient research from the grounded boundary.
+    catalog, models = _catalog()
+
+    async def invalid_research(
+        _agent: ResearchAgent, _brief: CompanyBrief, *, max_sources: int = 5
+    ) -> ResearchResult:
+        assert max_sources == 5
+        return research
+
+    def catalog_factory(_settings: Settings) -> Mapping[Role, ConfiguredRole]:
+        return catalog
+
+    monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
+    monkeypatch.setattr("samurai.company_workflow.run_research", invalid_research)
+    workflow = create_company_workflow(
+        SqliteDb(db_file=str(tmp_path / f"{expected}.db")), _settings()
+    )
+
+    # When deterministic evidence validation evaluates the result.
+    output = anyio.run(partial(_run_workflow, workflow, _complete_request(), {}))
+
+    # Then the honest evidence outcome is persisted and no downstream model runs.
+    result = WorkflowResult.model_validate(output.content)
+    assert result.outcome == expected
+    assert [artifact.artifact_type for artifact in result.artifacts] == ["intake", "research"]
+    assert models[Role.STRATEGIST].calls == 0
+    assert models[Role.PRODUCT_MANAGER].calls == 0
+    assert models[Role.VERIFIER].calls == 0
+
+
+def test_unsupported_strategy_number_requires_rework(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given a strategy that invents a number absent from retained research claims.
+    catalog, _ = _catalog(pricing_assumptions=("Charge INR 9000 each month.",))
+
+    def catalog_factory(_settings: Settings) -> Mapping[Role, ConfiguredRole]:
+        return catalog
+
+    monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
+    monkeypatch.setattr("samurai.company_workflow.run_research", _complete_research)
+    workflow = create_company_workflow(
+        SqliteDb(db_file=str(tmp_path / "unsupported-number.db")), _settings()
+    )
+
+    # When final verification checks numeric support.
+    output = anyio.run(partial(_run_workflow, workflow, _complete_request(), {}))
+
+    # Then the run needs rework and records the unsupported number explicitly.
+    result = WorkflowResult.model_validate(output.content)
+    verification = result.artifacts[-1]
+    assert result.outcome == "needs_rework"
+    assert verification.status == "needs_rework"
+    assert verification.verification_findings[0].code == "unsupported_numeric_claim"
+    assert "9000" in verification.verification_findings[0].message
+
+
+def test_stale_continuation_fails_before_another_model_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given a child session with one persisted partial intake.
+    catalog, models = _catalog()
+
+    def catalog_factory(_settings: Settings) -> Mapping[Role, ConfiguredRole]:
+        return catalog
+
+    monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
+    workflow = create_company_workflow(SqliteDb(db_file=str(tmp_path / "stale.db")), _settings())
+    session_state: dict[str, JsonValue] = {}
+    first = WorkflowResult.model_validate(
+        anyio.run(
+            partial(
+                _run_workflow,
+                workflow,
+                CompanyJourneyRequest(company_id=None, expected_revision=0, idea="Clinic tool"),
+                session_state,
+            )
+        ).content
+    )
+
+    # When the same session submits a stale expected revision.
+    stale = CompanyJourneyRequest(company_id=first.company_id, expected_revision=0)
+    output = anyio.run(partial(_run_workflow, workflow, stale, session_state))
+
+    # Then the native workflow stops with a sanitized boundary failure before model work.
+    failure = CompanyJourneyFailure.model_validate(output.content)
+    assert failure.error_code == "invalid_revision"
+    assert models[Role.INTAKE].calls == 1
+    assert models[Role.RESEARCHER].calls == 0
