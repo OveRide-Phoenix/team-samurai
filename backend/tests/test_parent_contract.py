@@ -28,6 +28,7 @@ from agno.run.agent import (
     RunCompletedEvent,
     RunOutput,
     RunOutputEvent,
+    ToolCallCompletedEvent,
     ToolCallErrorEvent,
 )
 from agno.run.base import RunContext, RunStatus
@@ -48,12 +49,15 @@ from pydantic import BaseModel, ConfigDict
 if TYPE_CHECKING:
     import pathlib
 
+    from agno.models.message import Message
+
 USER_ID = "founder-1"
 COMPANY_ID = "company-1"
 PARENT_SESSION_ID = "parent-session"
 CHILD_SESSION_ID = "company-1-workflow"
 PARENT_RUN_ID = "parent-run"
 CHILD_RUN_ID = "child-run"
+TOOL_RESULT_MARKER = "\nNESTED_RESULT="
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -83,8 +87,13 @@ class ContextMismatchError(Exception):
 
 
 @final
+class MissingNestedResultError(Exception):
+    pass
+
+
+@final
 class DeterministicToolModel(Model):
-    def __init__(self, tool_args: dict[str, str], result: NestedResult) -> None:
+    def __init__(self, tool_args: dict[str, str]) -> None:
         super().__init__(
             id="deterministic-tool-model",
             name="Deterministic contract model",
@@ -92,7 +101,6 @@ class DeterministicToolModel(Model):
         )
         self.id: str = "deterministic-tool-model"
         self.tool_args: dict[str, str] = tool_args
-        self.result: NestedResult = result
         self.calls: int = 0
 
     @override
@@ -100,7 +108,7 @@ class DeterministicToolModel(Model):
         return ModelResponse()
 
     @override
-    async def ainvoke(self, *_args: Never, **_kwargs: Never) -> ModelResponse:
+    async def ainvoke(self, messages: list[Message], **_kwargs: Never) -> ModelResponse:
         self.calls += 1
         if self.calls == 1:
             return ModelResponse(
@@ -115,7 +123,14 @@ class DeterministicToolModel(Model):
                     }
                 ]
             )
-        return ModelResponse(content=self.result.model_dump_json())
+        tool_content = next(
+            message.content for message in reversed(messages) if message.role == "tool"
+        )
+        if not isinstance(tool_content, str) or TOOL_RESULT_MARKER not in tool_content:
+            raise MissingNestedResultError
+        payload = tool_content.rsplit(TOOL_RESULT_MARKER, maxsplit=1)[1]
+        result = NestedResult.model_validate_json(payload)
+        return ModelResponse(content=result.model_dump_json())
 
     @override
     def invoke_stream(self, *_args: Never, **_kwargs: Never) -> abc.Iterator[ModelResponse]:
@@ -163,12 +178,15 @@ def _build_parent(
     *,
     claimed_user_id: str = USER_ID,
     block_child: bool = False,
+    child_result: NestedResult | None = None,
 ) -> tuple[ParentRunner, list[str]]:
     child_terminals: list[str] = []
-    expected = NestedResult(company_id=COMPANY_ID, revision=4, outcome="validated")
+    expected = child_result or NestedResult(company_id=COMPANY_ID, revision=4, outcome="validated")
     workflow = _create_child_workflow(db, block_child=block_child, expected=expected)
 
-    async def stream_company_workflow(run_context: RunContext) -> abc.AsyncIterator[CustomEvent]:
+    async def stream_company_workflow(
+        run_context: RunContext,
+    ) -> abc.AsyncIterator[CustomEvent | str]:
         child_state = {"company": {"company_id": COMPANY_ID, "name": "Fixture Co", "revision": 4}}
         # Agno does not cascade arbitrary nested Workflow cancellation from an Agent tool.
         child_events = workflow.arun(
@@ -207,10 +225,14 @@ def _build_parent(
                 )
             if isinstance(event, (WorkflowCompletedEvent, WorkflowCancelledEvent)):
                 child_terminals.append(event.event)
+            if isinstance(event, WorkflowCompletedEvent) and isinstance(
+                event.content, NestedResult
+            ):
+                yield TOOL_RESULT_MARKER + event.content.model_dump_json()
 
     def run_company_workflow(
         claimed_user_id: str, company_id: str, run_context: RunContext
-    ) -> abc.AsyncIterator[CustomEvent]:
+    ) -> abc.AsyncIterator[CustomEvent | str]:
         if claimed_user_id != run_context.user_id:
             raise StopAgentRun(ContextMismatchError(run_context.user_id or "", claimed_user_id))
         session_state = run_context.session_state
@@ -223,7 +245,7 @@ def _build_parent(
         id="contract-parent",
         db=db,
         model=DeterministicToolModel(
-            {"claimed_user_id": claimed_user_id, "company_id": COMPANY_ID}, expected
+            {"claimed_user_id": claimed_user_id, "company_id": COMPANY_ID}
         ),
         tools=[run_company_workflow],
         output_schema=NestedResult,
@@ -299,6 +321,28 @@ def test_parent_agent_invokes_workflow_with_typed_nested_progress(
     assert json.loads(json.dumps(child_session.session_data["session_state"])) == {
         "company": {"company_id": COMPANY_ID, "name": "Fixture Co", "revision": 4}
     }
+
+
+def test_parent_typed_result_is_derived_from_child_payload(tmp_path: pathlib.Path) -> None:
+    child_result = NestedResult(
+        company_id="wrong-company", revision=999, outcome="mutation-witness"
+    )
+    parent, _ = _build_parent(
+        SqliteDb(db_file=str(tmp_path / "mutated-child.db")), child_result=child_result
+    )
+
+    events = anyio.run(_collect_parent_events, parent)
+
+    completed = [event for event in events if isinstance(event, RunCompletedEvent)]
+    tool_completed = [event for event in events if isinstance(event, ToolCallCompletedEvent)]
+    assert len(completed) == 1
+    assert len(tool_completed) == 1
+    assert tool_completed[0].tool is not None
+    assert tool_completed[0].tool.result is not None
+    assert tool_completed[0].tool.result.endswith(
+        TOOL_RESULT_MARKER + child_result.model_dump_json()
+    )
+    assert completed[0].content == child_result
 
 
 def test_parent_cancellation_cancels_child_workflow(tmp_path: pathlib.Path) -> None:
