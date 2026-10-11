@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum, unique
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Final, Literal, cast, override
+from typing import TYPE_CHECKING, Final, Literal, assert_never, cast, override
 from uuid import uuid4
 
 from agno.workflow import Step, Workflow
@@ -115,15 +115,15 @@ def create_launch_workflows(
 
 
 def _requested_roles(kind: LaunchKind) -> tuple[LaunchRole, ...]:
-    match kind:
-        case LaunchKind.ALL:
-            return LAUNCH_ROLES
-        case LaunchKind.BUILDER:
-            return (Role.BUILDER,)
-        case LaunchKind.MARKETER:
-            return (Role.MARKETER,)
-        case LaunchKind.SALES:
-            return (Role.SALES,)
+    if kind is LaunchKind.ALL:
+        return LAUNCH_ROLES
+    if kind is LaunchKind.BUILDER:
+        return (Role.BUILDER,)
+    if kind is LaunchKind.MARKETER:
+        return (Role.MARKETER,)
+    if kind is LaunchKind.SALES:
+        return (Role.SALES,)
+    assert_never(kind)
 
 
 def _verified_inputs(state: CompanyState) -> tuple[ArtifactEnvelope, ArtifactEnvelope]:
@@ -145,7 +145,6 @@ def _verified_inputs(state: CompanyState) -> tuple[ArtifactEnvelope, ArtifactEnv
             artifact
             for artifact in reversed(state.artifacts)
             if isinstance(artifact.payload, StrategyArtifact)
-            and artifact.artifact_id in checked_ids
         ),
         None,
     )
@@ -154,11 +153,15 @@ def _verified_inputs(state: CompanyState) -> tuple[ArtifactEnvelope, ArtifactEnv
             artifact
             for artifact in reversed(state.artifacts)
             if isinstance(artifact.payload, ProductPlanArtifact)
-            and artifact.artifact_id in checked_ids
         ),
         None,
     )
-    if strategy is None or product is None:
+    if (
+        strategy is None
+        or product is None
+        or strategy.artifact_id not in checked_ids
+        or product.artifact_id not in checked_ids
+    ):
         raise MissingVerifiedLaunchInputsError
     return strategy, product
 
@@ -174,13 +177,13 @@ def _prompt(strategy: ArtifactEnvelope, product: ArtifactEnvelope) -> str:
 
 
 def _payload(role: LaunchRole, output: WorkflowRunOutput) -> LaunchPayload:
-    match role:
-        case Role.BUILDER:
-            return BuilderDraftArtifact.model_validate(output.content)
-        case Role.MARKETER:
-            return MarketingDraftArtifact.model_validate(output.content)
-        case Role.SALES:
-            return SalesDraftArtifact.model_validate(output.content)
+    if role is Role.BUILDER:
+        return BuilderDraftArtifact.model_validate(output.content)
+    if role is Role.MARKETER:
+        return MarketingDraftArtifact.model_validate(output.content)
+    if role is Role.SALES:
+        return SalesDraftArtifact.model_validate(output.content)
+    assert_never(role)
 
 
 async def run_launch_drafts(

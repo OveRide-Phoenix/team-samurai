@@ -1,3 +1,5 @@
+"""Launch workflow fixtures and boundary coverage kept in one assigned file. # noqa: SIZE_OK"""
+
 from datetime import UTC, datetime
 from typing import TypedDict, Unpack
 from uuid import uuid4
@@ -35,6 +37,7 @@ from samurai.launch_workflows import (
     LaunchAction,
     LaunchDraftRequest,
     LaunchKind,
+    MissingVerifiedLaunchInputsError,
     create_launch_workflows,
     run_launch_drafts,
 )
@@ -259,6 +262,44 @@ def test_rejects_stale_revision_before_model(
         )
 
     assert calls == []
+
+
+@pytest.mark.parametrize(
+    "artifact_type",
+    [ArtifactType.STRATEGY, ArtifactType.PRODUCT_PLAN],
+)
+def test_rejects_newer_unverified_strategy_or_product_before_model_and_state_change(
+    monkeypatch: pytest.MonkeyPatch,
+    artifact_type: ArtifactType,
+) -> None:
+    verified = _verified_state()
+    previous = next(
+        artifact
+        for artifact in reversed(verified.artifacts)
+        if artifact.artifact_type == artifact_type
+    )
+    replacement = _envelope(verified, previous.payload, previous.producer)
+    state = accept_artifact(verified, replacement, authenticated_session_id="parent-1")
+    context = _context(state)
+    before = context.session_state.copy() if context.session_state is not None else None
+    calls = _fake_workflow_outputs(monkeypatch)
+    workflows = create_launch_workflows(create_role_catalog(Settings.model_validate({})))
+
+    with pytest.raises(MissingVerifiedLaunchInputsError):
+        _ = anyio.run(
+            run_launch_drafts,
+            workflows,
+            LaunchDraftRequest(
+                company_id=state.context.company_id,
+                expected_revision=state.current_revision,
+                kind=LaunchKind.BUILDER,
+            ),
+            context,
+            NOW,
+        )
+
+    assert calls == []
+    assert context.session_state == before
 
 
 def test_request_boundary_rejects_free_form_routing_and_injection() -> None:
