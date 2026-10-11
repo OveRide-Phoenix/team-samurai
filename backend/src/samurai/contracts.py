@@ -366,6 +366,12 @@ def accept_artifact(
         )
     if any(finding.severity == "error" for finding in artifact.verification_findings):
         raise InvalidArtifactTransitionError("accepted artifacts cannot contain error findings")
+    if any(
+        measurement.provenance == "connected_measurement" for measurement in artifact.measurements
+    ):
+        raise InvalidArtifactTransitionError(
+            "connected measurements require trusted backend connector validation"
+        )
     accepted_artifact = artifact.model_copy(update={"acceptance_status": "accepted"})
     return CompanyState(
         context=state.context,

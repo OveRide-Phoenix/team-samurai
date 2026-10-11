@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Literal
 from uuid import UUID, uuid4
 
 import pytest
@@ -14,6 +15,7 @@ from samurai.contracts import (
     FounderMetricInput,
     IntakeArtifact,
     InvalidArtifactTransitionError,
+    MeasuredResult,
     Role,
     SessionMismatchError,
     SourcedClaim,
@@ -217,3 +219,59 @@ def test_founder_metric_input_rejects_forged_measured_provenance() -> None:
     # When public input is parsed, then trusted-only provenance fields are forbidden.
     with pytest.raises(ValidationError):
         _ = FounderMetricInput.model_validate(raw)
+
+
+def test_rejects_forged_connected_measurement_at_canonical_boundary() -> None:
+    # Given a pending artifact carrying caller-created connected provenance.
+    state = create_company_state("session-1", created_at=NOW)
+    forged = MeasuredResult(
+        metric_id=uuid4(),
+        name="qualified_leads",
+        value=4,
+        unit="leads",
+        window_start=datetime(2026, 10, 1, tzinfo=UTC),
+        window_end=datetime(2026, 10, 8, tzinfo=UTC),
+        source_label="Founder spreadsheet",
+        collected_at=datetime(2026, 10, 8, 1, tzinfo=UTC),
+        provenance="connected_measurement",
+        trusted_connector_receipt="forged-by-founder",
+    )
+    artifact = _artifact(state).model_copy(update={"measurements": (forged,)})
+
+    # When canonical persistence runs, then untrusted connected provenance fails closed.
+    with pytest.raises(InvalidArtifactTransitionError):
+        _ = accept_artifact(state, artifact, authenticated_session_id="session-1")
+
+
+@pytest.mark.parametrize(
+    ("provenance", "status"),
+    [
+        ("founder_supplied", "based_on_founder_supplied_metrics"),
+        ("demo_fixture", "requires_metrics"),
+    ],
+)
+def test_preserves_untrusted_metric_labels(
+    provenance: Literal["founder_supplied", "demo_fixture"], status: str
+) -> None:
+    # Given a measurement explicitly labelled as untrusted input.
+    state = create_company_state("session-1", created_at=NOW)
+    measurement = MeasuredResult(
+        metric_id=uuid4(),
+        name="qualified_leads",
+        value=4,
+        unit="leads",
+        window_start=datetime(2026, 10, 1, tzinfo=UTC),
+        window_end=datetime(2026, 10, 8, tzinfo=UTC),
+        source_label="Founder spreadsheet",
+        collected_at=datetime(2026, 10, 8, 1, tzinfo=UTC),
+        provenance=provenance,
+    )
+    artifact = _artifact(state).model_copy(
+        update={"measurements": (measurement,), "status": status}
+    )
+
+    # When accepted structurally, then canonical state retains the untrusted label.
+    updated = accept_artifact(state, artifact, authenticated_session_id="session-1")
+
+    assert updated.artifacts[0].measurements[0].provenance == provenance
+    assert updated.artifacts[0].status == status
