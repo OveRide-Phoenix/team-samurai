@@ -7,29 +7,34 @@ from collections import abc  # noqa: TC003 - Agno resolves tool annotations at r
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum, unique
+from functools import wraps
+from inspect import isasyncgenfunction, iscoroutinefunction, isgeneratorfunction
 from pathlib import Path
 from time import time
 from types import MethodType
-from typing import TYPE_CHECKING, ClassVar, Final, cast, override
+from typing import TYPE_CHECKING, ClassVar, Final, TypedDict, cast, override
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 import anyio
 from agno.agent import Agent
 from agno.agent.factory import AgentFactory
 from agno.db.base import SessionType
-from agno.exceptions import StopAgentRun
+from agno.exceptions import OutputCheckError, StopAgentRun
+from agno.models.base import Model
 from agno.run import RunContext
-from agno.run.agent import CustomEvent
+from agno.run.agent import CustomEvent, RunOutput
 from agno.run.cancel import acancel_run, ais_cancelled
 from agno.run.workflow import (
     StepProgressEvent,
     WorkflowCancelledEvent,
     WorkflowCompletedEvent,
+    WorkflowErrorEvent,
 )
 from agno.session.workflow import WorkflowSession
 from agno.skills import LocalSkills, Skills
 from agno.tools.function import Function
-from pydantic import ConfigDict, ValidationError
+from agno.workflow import Step, StepInput, Workflow
+from pydantic import AwareDatetime, ConfigDict, ValidationError
 
 from samurai.agents import ROLE_CAPABILITIES, create_role_catalog
 from samurai.analysis_workflow import (
@@ -63,17 +68,19 @@ from samurai.launch_workflows import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Awaitable, Callable
+    from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 
     from agno.db.base import BaseDb
     from agno.factory import RequestContext
-    from agno.models.base import Model
     from agno.models.response import ModelResponse
+    from agno.workflow.step import StepExecutor
 
 PARENT_AGENT_ID: Final = "samurai"
 PARENT_AGENT_NAME: Final = "Samurai"
 PARENT_DESCRIPTION: Final = "Build and improve one evidence-linked company with Samurai."
 TOOL_RESULT_MARKER: Final = "\nSAMURAI_WORKFLOW_RESULT="
+TOOL_ERROR_MARKER: Final = "SAMURAI_WORKFLOW_ERROR="
+CHILD_FAILURE_MESSAGE: Final = "child workflow failed"
 PARENT_BINDING_KEYS: Final = frozenset({"child_session_id", "company_id", "current_revision"})
 AGNO_SESSION_KEYS: Final = frozenset({"current_user_id", "current_session_id", "current_run_id"})
 STARTER_PROMPTS: Final = [
@@ -109,6 +116,21 @@ class _ParentWorkflowResult(WorkflowResult):
         return self.model_dump_json()
 
 
+class _ChildWorkflowFailure(Contract):
+    outcome: str = "failed"
+    error_code: str = "child_workflow_failed"
+
+
+class _FounderMetricToolInput(TypedDict):
+    name: str
+    value: float
+    unit: str
+    window_start: AwareDatetime
+    window_end: AwareDatetime
+    source_label: str
+    collected_at: AwareDatetime
+
+
 class _ChildWorkflowState(Contract):
     company: CompanyState | None = None
 
@@ -123,8 +145,8 @@ class _BoundedSkills(Skills):
     def get_tools(self) -> list[Function]:
         tools = [tool for tool in super().get_tools() if tool.name != "get_skill_script"]
         for tool in tools:
-            tool.stop_after_tool_call = True
-            tool.show_result = True
+            tool.stop_after_tool_call = False
+            tool.show_result = False
         return tools
 
 
@@ -157,11 +179,23 @@ class _ParentModelError(RuntimeError):
         super().__init__("parent model request failed")
 
 
-def _sanitize_async_model_failures(model: Model) -> Model:
+class _ChildWorkflowError(RuntimeError):
+    def __init__(self) -> None:
+        super().__init__(CHILD_FAILURE_MESSAGE)
+
+
+def _sanitize_async_model_failures(model: Model, *, max_calls: int | None = None) -> Model:
     original_ainvoke = cast("Callable[..., Awaitable[ModelResponse]]", model.ainvoke)
     original_ainvoke_stream = cast(
         "Callable[..., AsyncIterator[ModelResponse]]", model.ainvoke_stream
     )
+    calls = 0
+
+    def check_budget() -> None:
+        nonlocal calls
+        calls += 1
+        if max_calls is not None and calls > max_calls:
+            raise _ParentModelError
 
     async def safe_ainvoke(
         _model: Model,
@@ -169,6 +203,7 @@ def _sanitize_async_model_failures(model: Model) -> Model:
         **kwargs: object,
     ) -> ModelResponse:
         try:
+            check_budget()
             return await original_ainvoke(*args, **kwargs)
         except Exception:  # noqa: BLE001 - provider details must stop at this trust boundary.
             raise _ParentModelError from None
@@ -179,6 +214,7 @@ def _sanitize_async_model_failures(model: Model) -> Model:
         **kwargs: object,
     ) -> abc.AsyncIterator[ModelResponse]:
         try:
+            check_budget()
             async for response in original_ainvoke_stream(*args, **kwargs):
                 yield response
         except Exception:  # noqa: BLE001 - provider details must stop at this trust boundary.
@@ -187,6 +223,80 @@ def _sanitize_async_model_failures(model: Model) -> Model:
     model.ainvoke = MethodType(safe_ainvoke, model)
     model.ainvoke_stream = MethodType(safe_ainvoke_stream, model)
     return model
+
+
+def _sanitize_step_executor(executor: StepExecutor) -> StepExecutor:  # noqa: C901
+    if isasyncgenfunction(executor):
+        async_executor = cast("Callable[[StepInput], AsyncIterator[object]]", executor)
+
+        @wraps(executor)
+        async def safe_async_generator(step_input: StepInput) -> abc.AsyncIterator[object]:
+            try:
+                async for output in async_executor(step_input):
+                    yield output
+            except Exception:  # noqa: BLE001 - child details must stop before Agno logs them.
+                raise _ChildWorkflowError from None
+
+        return cast("StepExecutor", safe_async_generator)
+    if iscoroutinefunction(executor):
+        async_executor = cast("Callable[[StepInput], Awaitable[object]]", executor)
+
+        @wraps(executor)
+        async def safe_coroutine(step_input: StepInput) -> object:
+            try:
+                return await async_executor(step_input)
+            except Exception:  # noqa: BLE001 - child details must stop before Agno logs them.
+                raise _ChildWorkflowError from None
+
+        return cast("StepExecutor", safe_coroutine)
+    if isgeneratorfunction(executor):
+        generator_executor = cast("Callable[[StepInput], Iterator[object]]", executor)
+
+        @wraps(executor)
+        def safe_generator(step_input: StepInput) -> abc.Iterator[object]:
+            try:
+                yield from generator_executor(step_input)
+            except Exception:  # noqa: BLE001 - child details must stop before Agno logs them.
+                raise _ChildWorkflowError from None
+
+        return cast("StepExecutor", safe_generator)
+    sync_executor = cast("Callable[[StepInput], object]", executor)
+
+    @wraps(executor)
+    def safe_sync(step_input: StepInput) -> object:
+        try:
+            return sync_executor(step_input)
+        except Exception:  # noqa: BLE001 - child details must stop before Agno logs them.
+            raise _ChildWorkflowError from None
+
+    return cast("StepExecutor", safe_sync)
+
+
+def _sanitize_workflow(workflow: Workflow) -> Workflow:
+    if not isinstance(workflow.steps, list):
+        return workflow
+    for step in workflow.steps:
+        if not isinstance(step, Step):
+            continue
+        step.max_retries = 0
+        if step.executor is not None:
+            step.executor = _sanitize_step_executor(step.executor)
+            step.active_executor = step.executor
+        if step.agent is not None and isinstance(step.agent.model, Model):
+            step.agent.model = _sanitize_async_model_failures(step.agent.model)
+        if step.workflow is not None:
+            _ = _sanitize_workflow(step.workflow)
+    return workflow
+
+
+def _fail_closed_tool_errors(run_output: RunOutput) -> None:
+    content = run_output.content
+    failed_tool = any(tool.tool_call_error for tool in run_output.tools or ())
+    if isinstance(content, str) and content.startswith(TOOL_ERROR_MARKER):
+        failed_tool = True
+    if failed_tool:
+        run_output.content = _ChildWorkflowFailure().model_dump_json()
+        raise OutputCheckError(CHILD_FAILURE_MESSAGE)
 
 
 def child_session_id(user_id: str, parent_session_id: str) -> str:
@@ -370,6 +480,8 @@ async def _create_launch_drafts(
         run_id=_child_run_id(run_context, "launch"),
     )
     workflows = create_launch_workflows(create_role_catalog(settings), db=db)
+    for workflow in workflows.values():
+        _ = _sanitize_workflow(workflow)
     run_ids: dict[LaunchRole, str] = {
         Role.BUILDER: _child_run_id(run_context, "launch:builder"),
         Role.MARKETER: _child_run_id(run_context, "launch:marketer"),
@@ -416,7 +528,7 @@ async def _analyze_metrics(
     child_run_id = _child_run_id(run_context, "analysis")
     context = _child_context(run_context, child_id, state, run_id=child_run_id)
     analyst = create_role_catalog(settings)[Role.ANALYST].agent
-    workflow = create_analysis_workflow(db, analyst)
+    workflow = _sanitize_workflow(create_analysis_workflow(db, analyst))
 
     async def operation() -> WorkflowResult:
         return await run_analysis(
@@ -443,7 +555,7 @@ async def _analyze_metrics(
     return result
 
 
-def create_parent_agent(  # noqa: C901 - closures are the four bounded Agno tool surface.
+def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded tool surface.
     db: BaseDb,
     settings: Settings,
     *,
@@ -478,7 +590,7 @@ def create_parent_agent(  # noqa: C901 - closures are the four bounded Agno tool
             supplied_context=supplied_context,
             assumptions=assumptions,
         )
-        workflow = create_company_workflow(db, settings)
+        workflow = _sanitize_workflow(create_company_workflow(db, settings))
         cancelled = False
         events = workflow.arun(
             request,
@@ -497,6 +609,9 @@ def create_parent_agent(  # noqa: C901 - closures are the four bounded Agno tool
                 yield _progress(run_context, child_id, str(event.content))
             if isinstance(event, WorkflowCancelledEvent):
                 cancelled = True
+            if isinstance(event, WorkflowErrorEvent):
+                yield TOOL_ERROR_MARKER + _ChildWorkflowFailure().model_dump_json()
+                return
             if isinstance(event, WorkflowCompletedEvent) and not cancelled:
                 result = WorkflowResult.model_validate(event.content)
                 _bind_parent(run_context, child_id, result)
@@ -508,15 +623,26 @@ def create_parent_agent(  # noqa: C901 - closures are the four bounded Agno tool
         action: LaunchAction = LaunchAction.DRAFT,
     ) -> WorkflowResult:
         """Create reviewable launch drafts without external action capability."""
-        result = await _create_launch_drafts(db, settings, run_context, kind, action)
+        try:
+            result = await _create_launch_drafts(db, settings, run_context, kind, action)
+        except ParentContextError, StopAgentRun:
+            raise
+        except Exception:  # noqa: BLE001 - child details must stop before Agno logs them.
+            raise _ChildWorkflowError from None
         return _ParentWorkflowResult.model_validate(result)
 
     async def analyze_metrics(
-        metrics: tuple[FounderMetricInput, ...],
+        measurements: tuple[_FounderMetricToolInput, ...],
         run_context: RunContext,
     ) -> WorkflowResult:
         """Analyze eligible founder metrics without changing their provenance."""
-        result = await _analyze_metrics(db, settings, metrics, run_context)
+        metrics = tuple(FounderMetricInput.model_validate(metric) for metric in measurements)
+        try:
+            result = await _analyze_metrics(db, settings, metrics, run_context)
+        except ParentContextError, StopAgentRun:
+            raise
+        except Exception:  # noqa: BLE001 - child details must stop before Agno logs them.
+            raise _ChildWorkflowError from None
         return _ParentWorkflowResult.model_validate(result)
 
     def read_company_state(run_context: RunContext) -> CompanyStateSummary:
@@ -593,7 +719,10 @@ def create_parent_agent(  # noqa: C901 - closures are the four bounded Agno tool
         name=PARENT_AGENT_NAME,
         description=PARENT_DESCRIPTION,
         db=db,
-        model=_sanitize_async_model_failures(model or create_model(settings)),
+        model=_sanitize_async_model_failures(
+            model or create_model(settings),
+            max_calls=settings.agent_tool_call_limit + 1,
+        ),
         tools=tools,
         skills=skills,
         instructions=[
@@ -603,6 +732,7 @@ def create_parent_agent(  # noqa: C901 - closures are the four bounded Agno tool
         add_history_to_context=True,
         num_history_runs=5,
         tool_call_limit=settings.agent_tool_call_limit,
+        post_hooks=[_fail_closed_tool_errors],
         store_events=True,
         telemetry=False,
     )

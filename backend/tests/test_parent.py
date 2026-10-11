@@ -1,11 +1,21 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+import json
+from collections import abc  # noqa: TC003 - Agno resolves model annotations at runtime.
+from typing import TYPE_CHECKING, Never, cast, final, override
 from uuid import UUID
 
+import anyio
 from agno.db.sqlite import SqliteDb
+from agno.models.base import Model
+from agno.models.response import ModelResponse
+from agno.run.base import RunStatus
+from agno.session.agent import AgentSession
 from agno.tools.function import Function
+from agno.workflow import Step, StepInput, StepOutput, Workflow
+from fastapi.testclient import TestClient
 
+from samurai.app import create_app
 from samurai.config import Settings
 from samurai.parent import (
     PARENT_AGENT_ID,
@@ -15,6 +25,86 @@ from samurai.parent import (
 
 if TYPE_CHECKING:
     import pathlib
+    from collections.abc import Awaitable, Callable
+
+    import pytest
+    from agno.agent import Agent
+    from agno.models.message import Message
+    from agno.run.agent import RunOutput
+
+
+@final
+class _ToolSequenceModel(Model):
+    def __init__(
+        self,
+        *tool_names: str,
+        repeat: bool = False,
+        arguments: dict[str, str] | None = None,
+    ) -> None:
+        super().__init__(id="parent-test", name="Parent test", provider="test")
+        self.id: str = "parent-test"
+        self.tool_names = tool_names
+        self.repeat = repeat
+        self.arguments = arguments or {}
+        self.calls = 0
+        self.advertised_tools_json = ""
+
+    @override
+    def invoke(self, *_args: Never, **_kwargs: Never) -> ModelResponse:
+        return ModelResponse()
+
+    @override
+    async def ainvoke(
+        self,
+        messages: list[Message],
+        *,
+        tools: list[dict[str, object]] | None = None,
+        **_kwargs: Never,
+    ) -> ModelResponse:
+        assert messages
+        self.advertised_tools_json = json.dumps(tools or ())
+        index = self.calls
+        self.calls += 1
+        if self.tool_names and (index < len(self.tool_names) or self.repeat):
+            name = self.tool_names[min(index, len(self.tool_names) - 1)]
+            arguments = self.arguments.get(name, "{}")
+            if name.startswith("get_skill"):
+                arguments = '{"skill_name":"evidence-discipline"}'
+            if name == "run_company_journey":
+                arguments = '{"idea":"offline failure probe"}'
+            return ModelResponse(
+                tool_calls=[
+                    {
+                        "id": f"tool-{self.calls}",
+                        "type": "function",
+                        "function": {"name": name, "arguments": arguments},
+                    }
+                ]
+            )
+        return ModelResponse(content="done")
+
+    @override
+    def invoke_stream(self, *_args: Never, **_kwargs: Never) -> abc.Iterator[ModelResponse]:
+        return iter(())
+
+    @override
+    async def ainvoke_stream(
+        self, *_args: Never, **_kwargs: Never
+    ) -> abc.AsyncIterator[ModelResponse]:
+        yield ModelResponse()
+
+    @override
+    def _parse_provider_response(self, response: ModelResponse, **_kwargs: Never) -> ModelResponse:
+        return response
+
+    @override
+    def _parse_provider_response_delta(self, response: ModelResponse) -> ModelResponse:
+        return response
+
+
+async def _run_agent(agent: Agent, message: str, session_id: str) -> RunOutput:
+    run = cast("Callable[..., Awaitable[RunOutput]]", agent.arun)
+    return await run(message, user_id="founder", session_id=session_id, stream=False)
 
 
 def test_parent_exposes_only_four_bounded_business_tools(tmp_path: pathlib.Path) -> None:
@@ -22,7 +112,6 @@ def test_parent_exposes_only_four_bounded_business_tools(tmp_path: pathlib.Path)
         SqliteDb(db_file=str(tmp_path / "parent.db")),
         Settings.model_validate({}),
     )
-
     assert agent.id == PARENT_AGENT_ID
     assert agent.tool_call_limit == Settings.model_validate({}).agent_tool_call_limit
     raw_tools = cast("object", agent.tools)
@@ -39,7 +128,7 @@ def test_parent_exposes_only_four_bounded_business_tools(tmp_path: pathlib.Path)
         "get_skill_instructions",
         "get_skill_reference",
     }
-    assert all(tool.stop_after_tool_call for tool in agent.skills.get_tools())
+    assert all(not tool.stop_after_tool_call for tool in agent.skills.get_tools())
 
 
 def test_child_session_is_deterministic_and_scoped_to_trusted_owner() -> None:
@@ -50,3 +139,173 @@ def test_child_session_is_deterministic_and_scoped_to_trusted_owner() -> None:
     assert first != child_session_id("founder-b", "parent-session")
     assert first != child_session_id("founder-a", "other-parent-session")
     assert child_session_id("a:b", "c") != child_session_id("a", "b:c")
+
+
+def test_skill_read_continues_to_bounded_business_tool(tmp_path: pathlib.Path) -> None:
+    model = _ToolSequenceModel("get_skill_instructions", "read_company_state")
+    agent = create_parent_agent(
+        SqliteDb(db_file=str(tmp_path / "skills.db")),
+        Settings.model_validate({}),
+        model=model,
+    )
+
+    async def scenario() -> RunOutput:
+        return await _run_agent(
+            agent, "read the evidence skill, then read my company", "skill-session"
+        )
+
+    result = anyio.run(scenario)
+
+    assert result.status == RunStatus.completed
+    assert json.loads(cast("str", result.content))["status"] == "not_started"
+    assert model.calls == 2
+
+
+def test_repeated_skill_reads_end_at_parent_model_budget(tmp_path: pathlib.Path) -> None:
+    model = _ToolSequenceModel("get_skill_instructions", repeat=True)
+    settings = Settings.model_validate({"agent_tool_call_limit": 2})
+    agent = create_parent_agent(
+        SqliteDb(db_file=str(tmp_path / "skill-loop.db")),
+        settings,
+        model=model,
+    )
+
+    async def scenario() -> RunOutput:
+        return await _run_agent(agent, "loop on the evidence skill", "skill-loop-session")
+
+    result = anyio.run(scenario)
+
+    assert result.status == RunStatus.error
+    assert result.content == "parent model request failed"
+    assert model.calls == settings.agent_tool_call_limit + 1
+
+
+def test_child_failure_is_sanitized_and_parent_is_terminal_error(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    provider_marker = "child-provider-secret-marker"
+    attempts = 0
+
+    def failing_workflow(_db: SqliteDb, _settings: Settings) -> Workflow:
+        async def fail(_: StepInput) -> StepOutput:
+            nonlocal attempts
+            attempts += 1
+            raise TimeoutError(provider_marker)
+
+        return Workflow(
+            id="company-journey",
+            name="Failing child",
+            db=_db,
+            steps=[Step(name="fail", executor=fail, max_retries=0)],
+            telemetry=False,
+        )
+
+    monkeypatch.setattr("samurai.parent.create_company_workflow", failing_workflow)
+    db = SqliteDb(db_file=str(tmp_path / "child-failure.db"))
+    settings = Settings.model_validate({})
+    with TestClient(
+        create_app(
+            db=db,
+            settings=settings,
+            parent_model_factory=lambda: _ToolSequenceModel("run_company_journey"),
+        )
+    ) as client:
+        response = client.post(
+            "/agentos/agents/samurai/runs",
+            headers={"Authorization": f"Bearer {settings.os_security_key.get_secret_value()}"},
+            data={
+                "message": "start a company",
+                "session_id": "failure-session",
+                "user_id": "founder",
+                "stream": "false",
+            },
+        )
+
+    assert response.status_code == 200
+    payload = cast("dict[str, object]", response.json())
+    assert payload["status"] == RunStatus.error.value
+    assert json.loads(cast("str", payload["content"])) == {
+        "outcome": "failed",
+        "error_code": "child_workflow_failed",
+    }
+    assert provider_marker not in caplog.text
+    assert provider_marker not in response.text
+    assert attempts == 1
+    session = db.get_session("failure-session", user_id="founder")
+    assert isinstance(session, AgentSession)
+    assert session.runs is not None
+    assert session.runs[-1].status == RunStatus.error.value
+
+
+def test_nonstreaming_child_failures_share_sanitized_terminal_boundary(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    provider_marker = "launch-analysis-provider-marker"
+    attempts = 0
+
+    async def fail(*_args: object, **_kwargs: object) -> Never:
+        nonlocal attempts
+        attempts += 1
+        raise TimeoutError(provider_marker)
+
+    metric_arguments = json.dumps(
+        {
+            "measurements": [
+                {
+                    "name": "revenue",
+                    "value": 10,
+                    "unit": "INR",
+                    "window_start": "2026-10-01T00:00:00Z",
+                    "window_end": "2026-10-02T00:00:00Z",
+                    "source_label": "founder spreadsheet",
+                    "collected_at": "2026-10-03T00:00:00Z",
+                }
+            ]
+        }
+    )
+    cases = (
+        ("_create_launch_drafts", "create_launch_drafts", "{}"),
+        ("_analyze_metrics", "analyze_metrics", metric_arguments),
+    )
+
+    for index, (target, tool_name, arguments) in enumerate(cases):
+        monkeypatch.setattr(f"samurai.parent.{target}", fail)
+        model = _ToolSequenceModel(tool_name, arguments={tool_name: arguments})
+        settings = Settings.model_validate({})
+        with TestClient(
+            create_app(
+                db=SqliteDb(db_file=str(tmp_path / f"child-{index}.db")),
+                settings=settings,
+                parent_model_factory=lambda model=model: model,
+            )
+        ) as client:
+            response = client.post(
+                "/agentos/agents/samurai/runs",
+                headers={"Authorization": f"Bearer {settings.os_security_key.get_secret_value()}"},
+                data={
+                    "message": "run child operation",
+                    "session_id": f"child-session-{index}",
+                    "user_id": "founder",
+                    "stream": "false",
+                },
+            )
+
+        assert response.status_code == 200
+        payload = cast("dict[str, object]", response.json())
+        assert payload["status"] == RunStatus.error.value
+        assert json.loads(cast("str", payload["content"]))["error_code"] == (
+            "child_workflow_failed"
+        )
+        assert model.calls == 1
+        assert provider_marker not in response.text
+        assert provider_marker not in caplog.text
+        if tool_name == "analyze_metrics":
+            assert '"measurements"' in model.advertised_tools_json
+            assert '"checked_at"' not in model.advertised_tools_json
+        caplog.clear()
+
+    assert attempts == len(cases)
