@@ -243,6 +243,35 @@ def test_rejects_forged_connected_measurement_at_canonical_boundary() -> None:
         _ = accept_artifact(state, artifact, authenticated_session_id="session-1")
 
 
+def test_rejects_forged_connected_measurement_when_loading_canonical_json() -> None:
+    # Given persisted canonical JSON with an accepted caller-forged connected measurement.
+    state = create_company_state("session-1", created_at=NOW)
+    forged = MeasuredResult(
+        metric_id=uuid4(),
+        name="qualified_leads",
+        value=4,
+        unit="leads",
+        window_start=datetime(2026, 10, 1, tzinfo=UTC),
+        window_end=datetime(2026, 10, 8, tzinfo=UTC),
+        source_label="Founder spreadsheet",
+        collected_at=datetime(2026, 10, 8, 1, tzinfo=UTC),
+        provenance="connected_measurement",
+        trusted_connector_receipt="forged-by-founder",
+    )
+    artifact = _artifact(state).model_copy(
+        update={"acceptance_status": "accepted", "measurements": (forged,)}
+    )
+    raw = {
+        "context": state.context.model_dump(mode="json"),
+        "current_revision": 1,
+        "artifacts": [artifact.model_dump(mode="json")],
+    }
+
+    # When restored through the typed boundary, then canonical validation fails closed.
+    with pytest.raises(ValidationError):
+        _ = CompanyState.model_validate(raw)
+
+
 @pytest.mark.parametrize(
     ("provenance", "status"),
     [

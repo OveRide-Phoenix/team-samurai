@@ -261,6 +261,12 @@ class ArtifactEnvelope(Contract):
         return self
 
 
+def _contains_connected_measurement(artifact: ArtifactEnvelope) -> bool:
+    return any(
+        measurement.provenance == "connected_measurement" for measurement in artifact.measurements
+    )
+
+
 class CompanyState(Contract):
     context: CompanyContext
     current_revision: int = Field(ge=0)
@@ -279,6 +285,11 @@ class CompanyState(Contract):
             if artifact.acceptance_status != "accepted":
                 raise PydanticCustomError(
                     "rejected_canonical_state", "canonical state accepts accepted artifacts only"
+                )
+            if _contains_connected_measurement(artifact):
+                raise PydanticCustomError(
+                    "untrusted_connected_measurement",
+                    "connected measurements require trusted backend connector validation",
                 )
             revision = artifact.revision
         if self.current_revision != revision:
@@ -366,9 +377,7 @@ def accept_artifact(
         )
     if any(finding.severity == "error" for finding in artifact.verification_findings):
         raise InvalidArtifactTransitionError("accepted artifacts cannot contain error findings")
-    if any(
-        measurement.provenance == "connected_measurement" for measurement in artifact.measurements
-    ):
+    if _contains_connected_measurement(artifact):
         raise InvalidArtifactTransitionError(
             "connected measurements require trusted backend connector validation"
         )
