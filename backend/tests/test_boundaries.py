@@ -199,7 +199,12 @@ def create_restart_app() -> FastAPI:
 
 def create_cancel_stream_app() -> FastAPI:
     database = SqliteDb(db_file=os.environ["BOUNDARY_DB_FILE"])
-    settings = Settings.model_validate({"os_security_key": os.environ["BOUNDARY_OS_KEY"]})
+    settings = Settings.model_validate(
+        {
+            "os_security_key": os.environ["BOUNDARY_OS_KEY"],
+            "jwt_verification_key": None,
+        }
+    )
 
     def catalog_factory(_settings: Settings) -> object:
         return _deterministic_catalog()
