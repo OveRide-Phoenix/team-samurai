@@ -95,7 +95,16 @@ class _ToolSequenceModel(Model):
             if name.startswith("get_skill"):
                 arguments = '{"skill_name":"evidence-discipline"}'
             if name == "run_company_journey" and name not in self.arguments:
-                arguments = '{"idea":"offline failure probe"}'
+                arguments = json.dumps(
+                    {
+                        "idea": "offline failure probe",
+                        "target_customer": "",
+                        "geography": "",
+                        "budget": "",
+                        "founder_skills": "",
+                        "goal": "",
+                    }
+                )
             return ModelResponse(
                 tool_calls=[
                     {
@@ -296,6 +305,59 @@ def test_parent_exposes_only_four_bounded_business_tools(tmp_path: pathlib.Path)
     assert all(not tool.stop_after_tool_call for tool in agent.skills.get_tools())
 
 
+def test_company_journey_requires_all_brief_fields_before_child_start(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = SqliteDb(db_file=str(tmp_path / "required-brief.db"))
+    model = _ToolSequenceModel(
+        "run_company_journey",
+        arguments={"run_company_journey": '{"idea":"offline failure probe"}'},
+    )
+    child_starts = 0
+
+    def unexpected_child_start(*_args: object, **_kwargs: object) -> Workflow:
+        nonlocal child_starts
+        child_starts += 1
+        return cast("Workflow", object())
+
+    monkeypatch.setattr("samurai.parent.create_company_workflow", unexpected_child_start)
+    agent = create_parent_agent(database, Settings.model_validate({}), model=model)
+
+    async def scenario() -> RunOutput:
+        return await _run_agent(agent, "Build my partially described company", "required-session")
+
+    result = anyio.run(scenario)
+    advertised_tools = cast("list[dict[str, object]]", json.loads(model.advertised_tools_json))
+    journey = next(
+        cast("dict[str, object]", item["function"])
+        for item in advertised_tools
+        if cast("dict[str, object]", item["function"])["name"] == "run_company_journey"
+    )
+    parameters = cast("dict[str, object]", journey["parameters"])
+
+    assert parameters["required"] == [
+        "idea",
+        "target_customer",
+        "geography",
+        "budget",
+        "founder_skills",
+        "goal",
+    ]
+    properties = cast("dict[str, dict[str, object]]", parameters["properties"])
+    for field in cast("list[str]", parameters["required"]):
+        assert properties[field]["type"] == "string"
+        assert "Exact founder-supplied" in cast("str", properties[field]["description"])
+    assert child_starts == 0
+    assert result.status == RunStatus.error
+    assert json.loads(cast("str", result.content)) == {
+        "outcome": "failed",
+        "error_code": "child_workflow_failed",
+    }
+    assert model.calls == 1
+    assert database.get_sessions(session_type=SessionType.WORKFLOW, user_id="founder") == []
+
+
 def test_child_session_is_deterministic_and_scoped_to_trusted_owner() -> None:
     first = child_session_id("founder-a", "parent-session")
 
@@ -407,6 +469,12 @@ def test_native_http_parent_runs_real_company_workflow_to_five_artifacts(
     assert child.session_data is not None
     session_state = cast("dict[str, object]", child.session_data["session_state"])
     state = CompanyState.model_validate(session_state["company"])
+    intake = IntakeArtifact.model_validate(state.artifacts[0].payload)
+    assert intake.brief.target_customer == "Independent Indian dental clinics"
+    assert intake.brief.geography == "India"
+    assert intake.brief.budget == "INR 50000"
+    assert intake.brief.founder_skills == "Python and Next.js"
+    assert intake.brief.goal == "Validate demand in 30 days"
     assert persisted_result.company_id == state.context.company_id
     assert persisted_result.revision == state.current_revision
     assert [artifact.artifact_type for artifact in state.artifacts] == [
@@ -422,6 +490,60 @@ def test_native_http_parent_runs_real_company_workflow_to_five_artifacts(
         for artifact in state.artifacts
         for claim in artifact.claims
     )
+
+
+def test_explicit_empty_brief_fields_remain_missing_input(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def catalog_factory(_settings: Settings) -> dict[Role, ConfiguredRole]:
+        return _deterministic_catalog()
+
+    monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
+    arguments = json.dumps(
+        {
+            "idea": "AI receptionist for Indian dental clinics",
+            "target_customer": "Independent Indian dental clinics",
+            "geography": "India",
+            "budget": "INR 50000",
+            "founder_skills": "",
+            "goal": "",
+        }
+    )
+    database = SqliteDb(db_file=str(tmp_path / "missing-brief.db"))
+    agent = create_parent_agent(
+        database,
+        Settings.model_validate({}),
+        model=_ToolSequenceModel(
+            "run_company_journey",
+            arguments={"run_company_journey": arguments},
+        ),
+    )
+
+    async def scenario() -> RunOutput:
+        return await _run_agent(
+            agent, "Build this company with my supplied facts", "missing-session"
+        )
+
+    result = anyio.run(scenario)
+    sessions = database.get_sessions(session_type=SessionType.WORKFLOW, user_id="founder")
+    assert isinstance(sessions, list)
+    assert len(sessions) == 1
+    session = sessions[0]
+    assert isinstance(session, WorkflowSession)
+    assert session.session_data is not None
+    state_payload = cast("dict[str, object]", session.session_data["session_state"])
+    state = CompanyState.model_validate(state_payload["company"])
+    intake = IntakeArtifact.model_validate(state.artifacts[0].payload)
+
+    assert result.status == RunStatus.completed
+    assert len(state.artifacts) == 1
+    assert intake.brief.founder_skills is None
+    assert intake.brief.goal is None
+    assert intake.brief.open_questions == [
+        "Which founder skills can support delivery?",
+        "What outcome and timeframe define success?",
+    ]
 
 
 def test_parent_tool_emits_progress_before_blocked_research_and_closes_cross_task(

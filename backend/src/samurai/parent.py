@@ -724,28 +724,41 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
 
     async def run_company_journey(  # noqa: PLR0913, PLR0917
         run_context: RunContext,
-        idea: str | None = None,
-        target_customer: str | None = None,
-        geography: str | None = None,
-        budget: str | None = None,
-        founder_skills: str | None = None,
-        goal: str | None = None,
+        idea: str,
+        target_customer: str,
+        geography: str,
+        budget: str,
+        founder_skills: str,
+        goal: str,
         supplied_context: tuple[str, ...] = (),
         assumptions: tuple[str, ...] = (),
     ) -> abc.AsyncIterator[CustomEvent | str]:
-        """Run or continue the verified company journey for this parent session."""
+        """Run or continue the verified company journey for this parent session.
+
+        Args:
+            run_context: Trusted server-owned identity and session context.
+            idea: Exact founder-supplied company idea; empty if not supplied.
+            target_customer: Exact founder-supplied first customer; empty if not supplied.
+            geography: Exact founder-supplied first geography; empty if not supplied.
+            budget: Exact founder-supplied budget; empty if not supplied.
+            founder_skills: Exact founder-supplied skills; empty if not supplied.
+            goal: Exact founder-supplied outcome and timeframe; empty if not supplied.
+            supplied_context: Other exact context explicitly supplied by the founder.
+            assumptions: Founder-labelled hypotheses, never inferred facts.
+
+        """
         child_id, state = _child_state(db, run_context)
         user_id, parent_session_id, _ = _trusted_identity(run_context)
         child_run_id = _child_run_id(run_context, "journey")
         request = CompanyJourneyRequest(
             company_id=None if state is None else state.context.company_id,
             expected_revision=0 if state is None else state.current_revision,
-            idea=idea,
-            target_customer=target_customer,
-            geography=geography,
-            budget=budget,
-            founder_skills=founder_skills,
-            goal=goal,
+            idea=idea or None,
+            target_customer=target_customer or None,
+            geography=geography or None,
+            budget=budget or None,
+            founder_skills=founder_skills or None,
+            goal=goal or None,
             supplied_context=supplied_context,
             assumptions=assumptions,
         )

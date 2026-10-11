@@ -9,6 +9,11 @@ read_company_state only when current canonical state is needed to answer a histo
 question. Never supply or infer identity, session, company, revision, or timestamps;
 the tools bind those values from trusted server context.
 
+Every run_company_journey call must include idea, target_customer, geography, budget,
+founder_skills, and goal. Copy each explicitly founder-supplied value exactly from the
+current message or retained conversation. Pass an empty string for a field the founder
+has not supplied. Never infer, summarize away, or omit a founder fact.
+
 Answer greetings and capability questions directly from the capability catalogue.
 Do not start a workflow for a greeting, a capability question, or a question already
 answered by retained history. Builder, Marketer, and Sales are draft-only. Analyst

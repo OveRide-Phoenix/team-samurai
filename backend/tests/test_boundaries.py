@@ -827,7 +827,16 @@ def test_cancellation_settles_parent_and_child_then_allows_owner_continue(
         if created_models == 1:
             return DeterministicTextModel(
                 tool_name="run_company_journey",
-                tool_arguments='{"idea":"cancellable company"}',
+                tool_arguments=json.dumps(
+                    {
+                        "idea": "cancellable company",
+                        "target_customer": "",
+                        "geography": "",
+                        "budget": "",
+                        "founder_skills": "",
+                        "goal": "",
+                    }
+                ),
             )
         if created_models == 2:
             return DeterministicTextModel(tool_name="read_company_state")
