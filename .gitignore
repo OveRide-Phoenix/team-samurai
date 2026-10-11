@@ -1,0 +1,22 @@
+# Local research and tool state
+.omo/
+.codex/
+.agents/
+.DS_Store
+
+# Dependencies and generated outputs
+node_modules/
+dist/
+build/
+coverage/
+__pycache__/
+.venv/
+
+# Local credentials and configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+service-account*.json
+firebase-adminsdk*.json
