@@ -6,14 +6,14 @@ The owner's Agno proposal selects a workflow-first implementation of AI Idea →
 
 | Layer | Choice | Status |
 |---|---|---|
-| Founder workspace | Next.js App Router, TypeScript, Tailwind; shadcn/ui after the design system | Frontend scaffold and health endpoint run locally; no product screens or backend integration |
+| Founder workspace | React/Vite, TypeScript, Tailwind, assistant-ui, Radix | Working local founder UI preview; authenticated backend integration pending |
 | Agent runtime | Python, Agno AgentOS, FastAPI | With a configured Gemini model, current source registers one ordinary `Samurai` parent Agent with four bounded tools; local API and Chrome acceptance passed |
 | Orchestration | Explicit Agno Workflow stages, with bounded branching/parallelism | The local parent journey, conditional metrics analysis, restart/recall, and cancellation paths passed; launch drafts remain draft-only and were not generated live |
 | Intelligence | Gemini API initially; Vertex AI is a future deployment choice | Model configuration present; live access requires credentials |
 | Research | Native Gemini Search with bounded retained source evidence | The local API primary retained three unique sources and nine propagated references; the Chrome primary retained five unique sources. Claims remained unverified and verification returned `needs_rework` |
 | Records | PostgreSQL locally through Podman; Cloud SQL in production | Parent/child AgentOS session model and revisioned `CompanyState` passed local persistence, recall, reload, and cancellation checks. Root Taskfile commands manage only the local Samurai PostgreSQL service; Cloud SQL remains planned |
 | Artifacts | Cloud Storage with metadata/revision references in PostgreSQL | Planned |
-| Hosting | Cloud Run for the Python service and server-capable Next.js | Planned |
+| Hosting | Cloud Run for the Python service; frontend hosting remains planned | Planned |
 | Identity | JWT authentication plus company-scoped backend authorization | Optional RS256 JWT/scope enforcement and user isolation configured and tested; real control-plane key installed and authenticated discovery verified; company authorization remains pending |
 
 Agno agents are reasoning roles, not independent services. Samurai is the one founder-facing ordinary Agent; Intake, Researcher, Strategist, Product Manager, Builder, Marketer, Sales, Analyst, and Verifier are internal roles. Explicit workflows own their order and validation. Deterministic code owns identity/session bindings, revision checks, artifact acceptance, limits, calculations, and execution controls. Preserve the root README's product story and architecture map.
@@ -50,7 +50,7 @@ The configured request boundary limits founder message input to 20,000 character
 
 The root Taskfile is the local entry point. It creates missing private configuration without overwriting it, installs locked dependencies, starts only Samurai PostgreSQL through the pinned Podman Compose provider, and runs backend or frontend servers in the foreground. `task health` checks PostgreSQL and AgentOS liveness without a model call.
 
-The saved **Samurai Local** AgentOS connection is a backend technical-console test path: it renders raw structured responses and verifies the parent agent, state persistence, and JWT boundary. It is not the Next.js founder workspace. The frontend currently has an independent health endpoint; the request/result contract and authenticated integration remain planned.
+The saved **Samurai Local** AgentOS connection is a backend technical-console test path: it renders raw structured responses and verifies the parent agent, state persistence, and JWT boundary. The founder workspace is the React/Vite UI preview in `frontend/`. The user requested consolidating the existing UI here, replacing the Next.js health-only scaffold without a framework rewrite. The request/result contract and authenticated integration remain planned.
 
 ## Sources and update policy
 
@@ -58,7 +58,7 @@ Reviewed on 11 October 2026:
 
 - [Agno documentation](https://docs.agno.com/) and [AgentOS security](https://docs.agno.com/agent-os/security/overview).
 - [Next.js installation](https://nextjs.org/docs/app/getting-started/installation).
-- [Gemini model catalogue](https://ai.google.dev/gemini-api/docs/models), which lists `gemini-3.8-flash` as stable. Availability for the team's account is unverified.
+- [Gemini model catalogue](https://ai.google.dev/gemini-api/docs/models), the runtime is locked to user-approved `gemini-3.5-flash-lite`. Text access was verified locally; Google Search is disabled because free-tier grounding is unavailable.
 - [shadcn/ui Next.js installation](https://ui.shadcn.com/docs/installation/next).
 - [Dependabot ecosystem support](https://docs.github.com/en/code-security/reference/supply-chain-security/supported-ecosystems-and-repositories).
 

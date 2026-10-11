@@ -44,7 +44,7 @@ class _FakeAgent:
         stream: Literal[False] = False,
     ) -> RunOutput:
         assert input.startswith(
-            "Use Google Search for current public competitor and pricing evidence"
+            "Google Search is unavailable in this free-tier runtime. Do not invent sources"
         )
         assert stream is False
         self.calls += 1
@@ -65,15 +65,15 @@ def _output(citations: Citations | None, *, conflicts: tuple[str, ...] = ()) -> 
     )
 
 
-def test_only_researcher_enables_native_google_search() -> None:
+def test_free_tier_disables_native_google_search() -> None:
     catalog = create_role_catalog(Settings.model_validate({}))
 
     researcher_model = catalog[Role.RESEARCHER].agent.model
     assert isinstance(researcher_model, Gemini)
-    assert researcher_model.search is True
+    assert researcher_model.search is False
     assert catalog[Role.RESEARCHER].agent.output_schema is None
     assert catalog[Role.RESEARCHER].agent.skills is None
-    assert catalog[Role.RESEARCHER].capability.tools == ("google_search",)
+    assert catalog[Role.RESEARCHER].capability.tools == ()
     assert all(
         isinstance(configured.agent.model, Gemini)
         and configured.agent.model.search is False

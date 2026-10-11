@@ -37,7 +37,7 @@ SKILL_TOOL_NAMES: Final = (
     "get_skill_reference",
     "get_skill_script",
 )
-RESEARCH_TOOL_NAMES: Final = ("google_search",)
+RESEARCH_TOOL_NAMES: Final[tuple[str, ...]] = ()
 PRELOADED_SKILL_ROLES: Final = frozenset(
     {Role.INTAKE, Role.STRATEGIST, Role.PRODUCT_MANAGER, Role.VERIFIER}
 )
@@ -193,7 +193,8 @@ def create_role_catalog(settings: Settings) -> Mapping[Role, ConfiguredRole]:
             else:
                 runtime_skills = validated_skills
         model = create_model(settings)
-        model.search = spec.role is Role.RESEARCHER
+        # Free-tier 3.5 Flash-Lite does not include Google Search grounding.
+        model.search = False
         catalog[spec.role] = ConfiguredRole(
             agent_id=spec.agent_id,
             agent=Agent(

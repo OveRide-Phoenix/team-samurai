@@ -58,20 +58,17 @@ tasks:
       - uv run --directory backend uvicorn samurai.app:create_app --factory --app-dir src --host 127.0.0.1 --port 8000
 
   frontend:setup:
-    desc: Create missing private frontend configuration and install locked Node dependencies
+    desc: Install locked frontend dependencies
     preconditions:
       - sh: command -v npm >/dev/null
         msg: npm is required only for optional frontend development.
     cmds:
-      - task: setup
-      - uv run --directory backend python ../scripts/local_setup.py init-frontend "{{.ROOT_DIR}}"
       - npm --prefix frontend ci
 
   frontend:dev:
-    desc: Start the optional frontend in the foreground on port 3000
+    desc: Start the Samurai UI in the foreground on port 4173
     cmds:
       - task: frontend:setup
-      - uv run --directory backend python ../scripts/local_setup.py check-port 3000 frontend
       - npm --prefix frontend run dev
 
   check:

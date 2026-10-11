@@ -8,7 +8,7 @@ Software generation is a supporting capability when the company needs it. The pr
 
 Product direction, UI principles, and competition requirements are documented in [AGENTS.md](AGENTS.md). Samurai brand assets are available in [assets/samurai-logo](assets/samurai-logo).
 
-The repository has a Next.js application with a health endpoint, local PostgreSQL in Podman, environment templates, and locked dependencies. When a Gemini model is configured, the current parent-agent source registers one ordinary AgentOS agent, **Samurai**, as the conversational entry point. It has four bounded tools: run or continue the company journey, create launch drafts, analyze provenance-labelled metrics, and read current company state. The nine specialist roles remain internal workflow executors.
+The repository has the React/Vite founder UI in [frontend/](frontend/), local PostgreSQL in Podman, environment templates, and locked dependencies. The UI has onboarding, chat, generative panels, and a company dashboard using labelled preview data; it is not connected to AgentOS yet. When a Gemini model is configured, the current parent-agent source registers one ordinary AgentOS agent, **Samurai**, as the conversational entry point. It has four bounded tools: run or continue the company journey, create launch drafts, analyze provenance-labelled metrics, and read current company state. The nine specialist roles remain internal workflow executors.
 
 The source defines the core journey as intake → brief check → grounded research → evidence check → strategy → product plan → verification. It retains typed, revisioned artifacts with founder statements, assumptions, source references, claims, and verification findings. Builder, Marketer, and Sales produce reviewable drafts only; Analyst requires eligible metrics and labels founder-supplied metrics as conditional. No current tool can publish, send, spend, contact prospects, run ads, or deploy.
 
@@ -28,7 +28,7 @@ Use the task commands from the repository root. They create missing private conf
 task setup          # prepare private backend configuration and locked Python dependencies
 task backend:dev    # ensure setup, start PostgreSQL, then serve AgentOS on 127.0.0.1:8000
 task health         # check Samurai PostgreSQL and /agentos/health without a model call
-task frontend:dev   # optional Next.js scaffold on 127.0.0.1:3000
+task frontend:dev   # founder UI preview on 127.0.0.1:4173
 ```
 
 In a second terminal, use `task db:status`, `task db:logs`, or `task db:stop`. `db:stop` preserves the Samurai volume and does not touch Reporting or other Podman services. See [the local development guide](docs/local-development.md) for prerequisites, JWT AgentOS testing, safe repeat behavior, and the technical-console/UI boundary.
@@ -63,11 +63,11 @@ The journey is **validate demand → shape an offer → build what is needed →
 
 ## Logical architecture
 
-This is the target responsibility map, implemented incrementally with Next.js and Agno AgentOS workflows. It does not require a separate deployed service for each agent.
+This is the target responsibility map, implemented incrementally with React and Agno AgentOS workflows. It does not require a separate deployed service for each agent.
 
 ```mermaid
 flowchart TD
-    Founder["Founder: Build my business"] --> Workspace["Next.js: conversation, panels, evidence, approvals"]
+    Founder["Founder: Build my business"] --> Workspace["React: conversation, panels, evidence, approvals"]
     Workspace --> Boundary["AgentOS API: identity and action authorization"]
     Boundary --> Orchestrator["Agno Workflow: explicit stages and shared company context"]
     Orchestrator --> Research["Research: Researcher"]
@@ -108,7 +108,7 @@ team-samurai/
 │   ├── pyproject.toml    # Python dependencies and checks; uv.lock pins resolution
 │   └── README.md         # Backend setup and boundaries
 ├── frontend/
-│   ├── src/app/          # Next.js App Router; health endpoint first
+│   ├── src/              # React workspace, intake, chat, and generative panels
 │   ├── package.json      # Frontend scripts; package-lock.json pins resolution
 │   └── README.md         # Frontend setup and ownership
 ├── compose.yaml          # Local PostgreSQL through Podman
@@ -117,7 +117,7 @@ team-samurai/
     └── samurai-logo/     # Existing shared brand assets
 ```
 
-The backend owns orchestration, execution, verification, integrations, and authorization. The frontend owns the founder experience and will render structured company state. The current frontend serves `/api/health`; product screens are not implemented yet.
+The backend owns orchestration, execution, verification, integrations, and authorization. The frontend owns the founder experience and will render structured company state. The frontend serves the founder UI preview on port 4173. The former Next.js health-only scaffold has been replaced; authenticated backend integration remains pending.
 
 ## UI direction
 
@@ -126,21 +126,21 @@ A Hark Pro-inspired conversational workspace with an atmospheric background, fro
 ## Intended stack
 
 - Python 3.14, Agno AgentOS 3.1.2, and explicit workflows for backend execution.
-- Next.js 16.4.0, React 19.3.0, TypeScript 7.0.2, and Tailwind CSS 4.3.3; shadcn/ui components will follow the design system.
+- React 19.2.0, Vite 6.4.2, TypeScript 7.0.2, Tailwind CSS 4.3.3, assistant-ui, and Radix for the existing founder UI.
 - PostgreSQL locally in Podman, with Cloud SQL as the production target.
 - Cloud Run for application hosting and Cloud Storage for generated artifacts.
-- Gemini for reasoning and planned Google Search grounding; the tracked default is `gemini-3.8-flash`. For a lower-cost local experiment, set `GEMINI_MODEL=gemini-3.5-flash-lite` only in ignored local environment configuration; do not commit `.env`.
+- Gemini for reasoning and planned Google Search grounding; the model is locked to `gemini-3.5-flash-lite`. Account access and free-tier quota must be checked separately; do not commit `.env`.
 - End-user identity and company authorization remain a separate implementation step.
 
 Framework versions were resolved on 11 October 2026. Check the manifests and lockfiles for exact versions. Cloud services remain planned; see AGENTS.md for the agent responsibilities, verification requirements, and submission checklist.
 
 ## Local setup
 
-Backend requirements: Python 3.14, Task, uv, and a running Podman machine. Node.js 24 or 26 and npm are required only for the optional frontend scaffold. New contributors should use the copy/configuration commands in the directory guides rather than copying another developer's local files.
+Backend requirements: Python 3.14, Task, uv, and a running Podman machine. Node.js 24 or 26 and npm are required only for the frontend UI. New contributors should use the copy/configuration commands in the directory guides rather than copying another developer's local files.
 
 1. Install `task`, `uv`, and Podman. Install Node.js and npm only for frontend work.
 2. Run `task setup`, then `task backend:dev` from the repository root.
-3. In a separate terminal, run `task health`. Use `task frontend:dev` only when you need the unconnected frontend scaffold.
+3. In a separate terminal, run `task health`. Use `task frontend:dev` only when you need the unconnected UI preview.
 
 Health endpoints show process liveness, not proof of Gemini access or a completed business workflow. Keep the shared backend key server-side; this local bootstrap must not be exposed as a multi-user service.
 

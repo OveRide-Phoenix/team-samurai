@@ -39,7 +39,7 @@ task backend:dev
 
 `task setup` installs locked Python dependencies, creates only missing root and backend `.env` files at owner-only permissions, and validates that their database credentials match. It never prints or replaces secrets. `task backend:dev` checks port 8000, starts only Samurai's PostgreSQL service, and runs Uvicorn in the foreground. `task health` checks PostgreSQL and `GET /agentos/health` without a model call. In shared-key mode, `GET /agentos/config` accepts `Authorization: Bearer <OS_SECURITY_KEY>`; when `JWT_VERIFICATION_KEY` is configured, use a valid user JWT instead. Use `/agentos/docs` for the installed API schema.
 
-Set `GOOGLE_API_KEY` only when ready to call Gemini. The tracked default remains `gemini-3.8-flash`; a lower-cost local experiment may set `GEMINI_MODEL=gemini-3.5-flash-lite` in ignored `backend/.env`. Never commit that file. See [local development](../docs/local-development.md) for the full command reference and JWT test surface.
+Set `GOOGLE_API_KEY` only when ready to call Gemini. The model is locked to `gemini-3.5-flash-lite`, as requested; other model IDs fail configuration validation. Never commit that file. See [local development](../docs/local-development.md) for the full command reference and JWT test surface.
 
 The runtime disables automatic database provisioning on startup so liveness/configuration checks work without a database. AgentOS creates required tables on its normal database write paths. Starting the process alone does not prove persistence. Use Cloud SQL and controlled schema management for deployment; do not expose this shared-key bootstrap publicly.
 
@@ -86,3 +86,5 @@ keeps port 8000 and native Agno authentication. Its JWT mode intentionally rejec
 the shared key. Reporting's custom authentication, queues, AG-UI integration and
 business routes are not prerequisites for this foundation and were not copied.
 The path change does not prove that Agno's hosted connection-creation 403 is fixed.
+
+Google Search grounding is disabled in this free-tier 3.5 Flash-Lite runtime. Research without citations remains insufficient evidence; no paid search or billing was enabled.

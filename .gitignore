@@ -13,6 +13,8 @@ node_modules/
 dist/
 build/
 coverage/
+output/playwright/
+.playwright-cli/
 __pycache__/
 .venv/
 
@@ -33,3 +35,7 @@ next-env.d.ts
 .ruff_cache/
 *.egg-info/
 *.db
+
+.vite/
+
+/frontend/design-evidence/

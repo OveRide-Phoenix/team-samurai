@@ -125,8 +125,9 @@ async def run_research(
     if not 1 <= max_sources <= MAX_SOURCES:
         raise ResearchInputError(max_sources)
     request = (
-        "Use Google Search for current public competitor and pricing evidence as of "
-        "2026-10-11, and cite each web source before answering.\n\n"
+        "Google Search is unavailable in this free-tier runtime. Do not invent sources "
+        "or claim current research. Explain missing evidence and return an unverified "
+        "summary with conflicts as a JSON object.\n\n"
     )
     output = await agent.arun(request + brief.model_dump_json(), stream=False)
     draft = (
