@@ -22,6 +22,7 @@ from agno.session.workflow import WorkflowSession
 from agno.tools.function import Function
 from agno.utils.gemini import format_function_definitions
 from agno.workflow import Step, StepInput, StepOutput, Workflow
+from agno.workflow.types import HumanReview, OnError
 from fastapi.testclient import TestClient
 from pydantic import HttpUrl, JsonValue
 
@@ -45,8 +46,10 @@ from samurai.contracts import (
     WorkflowResult,
     create_company_state,
 )
+from samurai.launch_workflows import LaunchAction, LaunchKind
 from samurai.parent import (
     PARENT_AGENT_ID,
+    _create_launch_drafts,  # pyright: ignore[reportPrivateUsage]
     child_session_id,
     create_parent_agent,
 )
@@ -164,6 +167,43 @@ class _StaticRoleModel(Model):
     async def ainvoke(self, messages: list[Message], **_kwargs: Never) -> ModelResponse:
         assert messages
         return ModelResponse(content=self.content)
+
+    @override
+    def invoke_stream(self, *_args: Never, **_kwargs: Never) -> abc.Iterator[ModelResponse]:
+        return iter(())
+
+    @override
+    async def ainvoke_stream(
+        self, *_args: Never, **_kwargs: Never
+    ) -> abc.AsyncIterator[ModelResponse]:
+        yield ModelResponse()
+
+    @override
+    def _parse_provider_response(self, response: ModelResponse, **_kwargs: Never) -> ModelResponse:
+        return response
+
+    @override
+    def _parse_provider_response_delta(self, response: ModelResponse) -> ModelResponse:
+        return response
+
+
+@final
+class _FailingRoleModel(Model):
+    def __init__(self, marker: str) -> None:
+        super().__init__(id="failing-role-test", name="Failing role test", provider="test")
+        self.id: str = "failing-role-test"
+        self.marker = marker
+        self.calls = 0
+
+    @override
+    def invoke(self, *_args: Never, **_kwargs: Never) -> ModelResponse:
+        return ModelResponse()
+
+    @override
+    async def ainvoke(self, messages: list[Message], **_kwargs: Never) -> ModelResponse:
+        assert messages
+        self.calls += 1
+        raise TimeoutError(self.marker)
 
     @override
     def invoke_stream(self, *_args: Never, **_kwargs: Never) -> abc.Iterator[ModelResponse]:
@@ -737,6 +777,178 @@ def test_native_http_parent_runs_real_company_workflow_to_five_artifacts(
         for artifact in state.artifacts
         for claim in artifact.claims
     )
+
+
+def test_real_core_step_failure_is_fail_closed_before_state_mutation(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    provider_marker = "real-core-provider-secret-marker"
+    failing_model = _FailingRoleModel(provider_marker)
+    catalog = _deterministic_catalog()
+    catalog[Role.INTAKE] = ConfiguredRole(
+        agent_id="test-failing-intake",
+        agent=Agent(
+            id="test-failing-intake",
+            model=failing_model,
+            output_schema=IntakeArtifact,
+            telemetry=False,
+        ),
+        capability=ROLE_CAPABILITIES[Role.INTAKE],
+        instructions="test",
+    )
+
+    def catalog_factory(_settings: Settings) -> dict[Role, ConfiguredRole]:
+        return catalog
+
+    research_calls = 0
+
+    async def unexpected_research(
+        agent: ResearchAgent,
+        brief: CompanyBrief,
+        *,
+        max_sources: int = 5,
+    ) -> ResearchResult:
+        nonlocal research_calls
+        research_calls += 1
+        return await _mapped_research(agent, brief, max_sources=max_sources)
+
+    monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
+    monkeypatch.setattr("samurai.company_workflow.run_research", unexpected_research)
+    arguments = json.dumps(
+        {
+            "idea": "AI receptionist for Indian dental clinics",
+            "target_customer": "Independent Indian dental clinics",
+            "geography": "India",
+            "budget": "INR 50000",
+            "founder_skills": "Python and Next.js",
+            "goal": "Validate demand in 30 days",
+        }
+    )
+    database = SqliteDb(db_file=str(tmp_path / "parent-real-core-failure.db"))
+    settings = Settings.model_validate({})
+    with TestClient(
+        create_app(
+            db=database,
+            settings=settings,
+            parent_model_factory=lambda: _ToolSequenceModel(
+                "run_company_journey",
+                arguments={"run_company_journey": arguments},
+            ),
+        )
+    ) as client:
+        response = client.post(
+            "/agentos/agents/samurai/runs",
+            headers={"Authorization": f"Bearer {settings.os_security_key.get_secret_value()}"},
+            data={
+                "message": "Start the fictional company journey.",
+                "session_id": "real-core-failure-parent-session",
+                "user_id": "founder",
+                "stream": "false",
+            },
+        )
+
+    assert response.status_code == 200
+    payload = cast("dict[str, object]", response.json())
+    assert payload["status"] == RunStatus.error.value
+    assert json.loads(cast("str", payload["content"])) == {
+        "outcome": "failed",
+        "error_code": "child_workflow_failed",
+    }
+    assert provider_marker not in response.text
+    assert provider_marker not in caplog.text
+    assert failing_model.calls == 1
+    assert research_calls == 0
+    sessions = database.get_sessions(session_type=SessionType.WORKFLOW, user_id="founder")
+    assert isinstance(sessions, list)
+    assert len(sessions) == 1
+    child = sessions[0]
+    assert isinstance(child, WorkflowSession)
+    assert child.runs is not None
+    child_run = child.runs[-1]
+    assert child_run.status == RunStatus.error.value
+    assert len(child_run.step_results or ()) == 1
+    assert child.session_data is not None
+    session_state = cast("dict[str, object]", child.session_data["session_state"])
+    assert "company" not in session_state
+
+
+def test_launch_child_steps_are_fail_closed_without_losing_review_policy(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parent_session_id = "launch-policy-session"
+    database = SqliteDb(db_file=str(tmp_path / "launch-policy.db"))
+    state = create_company_state(parent_session_id, created_at=NOW)
+    child_id = child_session_id("founder", parent_session_id)
+    _ = database.upsert_session(
+        WorkflowSession(
+            session_id=child_id,
+            user_id="founder",
+            workflow_id="company-journey",
+            session_data={"session_state": {"company": state.model_dump(mode="json")}},
+        )
+    )
+    workflows = {
+        role: Workflow(
+            id=f"test-{role.value}-draft",
+            steps=[
+                Step(
+                    name=f"Create {role.value} draft",
+                    agent=Agent(
+                        id=f"test-{role.value}",
+                        model=_StaticRoleModel("unused"),
+                        telemetry=False,
+                    ),
+                    human_review=HumanReview(
+                        requires_confirmation=True,
+                        confirmation_message="Review draft",
+                        on_error="skip",
+                    ),
+                )
+            ],
+            telemetry=False,
+        )
+        for role in (Role.BUILDER, Role.MARKETER, Role.SALES)
+    }
+
+    def launch_factory(*_args: object, **_kwargs: object) -> dict[Role, Workflow]:
+        return workflows
+
+    async def inspect_launch_policy(*_args: object, **_kwargs: object) -> WorkflowResult:
+        supplied = cast("dict[Role, Workflow]", _args[0])
+        assert supplied == workflows
+        for workflow in supplied.values():
+            assert isinstance(workflow.steps, list)
+            step = cast("Step", workflow.steps[0])
+            assert step.max_retries == 0
+            assert step.human_review.on_error is OnError.fail
+            assert step.human_review.requires_confirmation
+            assert step.human_review.confirmation_message == "Review draft"
+        return WorkflowResult(
+            company_id=state.context.company_id,
+            revision=state.current_revision,
+            outcome="draft_only",
+        )
+
+    monkeypatch.setattr("samurai.parent.create_launch_workflows", launch_factory)
+    monkeypatch.setattr("samurai.parent.run_launch_drafts", inspect_launch_policy)
+    result = anyio.run(
+        _create_launch_drafts,
+        database,
+        Settings.model_validate({}),
+        RunContext(
+            run_id="launch-policy-run",
+            session_id=parent_session_id,
+            user_id="founder",
+            session_state={},
+        ),
+        LaunchKind.ALL,
+        LaunchAction.DRAFT,
+    )
+
+    assert result.outcome == "draft_only"
 
 
 def test_explicit_empty_brief_fields_remain_missing_input(

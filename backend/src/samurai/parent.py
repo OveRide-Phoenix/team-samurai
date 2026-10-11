@@ -37,6 +37,7 @@ from agno.session.workflow import WorkflowSession
 from agno.skills import LocalSkills, Skills
 from agno.tools.function import Function
 from agno.workflow import Step, StepInput, Workflow
+from agno.workflow.types import OnError
 from pydantic import AwareDatetime, ConfigDict, JsonValue, ValidationError
 
 from samurai.agents import ROLE_CAPABILITIES, create_role_catalog
@@ -85,6 +86,13 @@ TOOL_RESULT_MARKER: Final = "\nSAMURAI_WORKFLOW_RESULT="
 TOOL_ERROR_MARKER: Final = "SAMURAI_WORKFLOW_ERROR="
 CHILD_FAILURE_MESSAGE: Final = "child workflow failed"
 CHILD_WORKFLOW_MODEL_CALL_BUDGET: Final = 7
+CORE_EXECUTOR_AGENT_FIELDS: Final = (
+    "intake_agent",
+    "research_agent",
+    "strategy_agent",
+    "product_agent",
+    "verifier_agent",
+)
 PARENT_BINDING_KEYS: Final = frozenset({"child_session_id", "company_id", "current_revision"})
 AGNO_SESSION_KEYS: Final = frozenset({"current_user_id", "current_session_id", "current_run_id"})
 STARTER_PROMPTS: Final = [
@@ -202,6 +210,10 @@ class _ChildWorkflowError(RuntimeError):
         super().__init__(CHILD_FAILURE_MESSAGE)
 
 
+class _CoreWorkflowBoundaryError(TypeError):
+    pass
+
+
 def _sanitize_async_model_failures(model: Model, *, max_calls: int | None = None) -> Model:
     original_ainvoke = cast("Callable[..., Awaitable[ModelResponse]]", model.ainvoke)
     original_ainvoke_stream = cast(
@@ -317,23 +329,73 @@ def _sanitize_step_executor(executor: StepExecutor) -> StepExecutor:  # noqa: C9
     return cast("StepExecutor", safe_sync)
 
 
-def _sanitize_workflow(workflow: Workflow, *, max_model_calls: int) -> Workflow:
+def _core_executor_agents(executor: StepExecutor) -> tuple[Agent, ...]:
+    owner = getattr(executor, "__self__", None)
+    candidates = tuple(
+        getattr(owner, field_name, None) for field_name in CORE_EXECUTOR_AGENT_FIELDS
+    )
+    if not any(candidate is not None for candidate in candidates):
+        return ()
+    if not all(isinstance(candidate, Agent) for candidate in candidates):
+        raise _CoreWorkflowBoundaryError
+    return cast("tuple[Agent, ...]", candidates)
+
+
+def _sanitize_agent_model(
+    agent: Agent,
+    *,
+    max_model_calls: int,
+    sanitized_models: set[int],
+) -> None:
+    model = agent.model
+    if not isinstance(model, Model) or id(model) in sanitized_models:
+        return
+    sanitized_models.add(id(model))
+    agent.model = _sanitize_async_model_failures(model, max_calls=max_model_calls)
+
+
+def _sanitize_workflow_steps(
+    workflow: Workflow,
+    *,
+    max_model_calls: int,
+    sanitized_models: set[int],
+) -> None:
     if not isinstance(workflow.steps, list):
-        return workflow
+        return
     for step in workflow.steps:
         if not isinstance(step, Step):
             continue
         step.max_retries = 0
+        step.human_review.on_error = OnError.fail
         if step.executor is not None:
+            for agent in _core_executor_agents(step.executor):
+                _sanitize_agent_model(
+                    agent,
+                    max_model_calls=max_model_calls,
+                    sanitized_models=sanitized_models,
+                )
             step.executor = _sanitize_step_executor(step.executor)
             step.active_executor = step.executor
-        if step.agent is not None and isinstance(step.agent.model, Model):
-            step.agent.model = _sanitize_async_model_failures(
-                step.agent.model,
-                max_calls=max_model_calls,
+        if step.agent is not None:
+            _sanitize_agent_model(
+                step.agent,
+                max_model_calls=max_model_calls,
+                sanitized_models=sanitized_models,
             )
         if step.workflow is not None:
-            _ = _sanitize_workflow(step.workflow, max_model_calls=max_model_calls)
+            _sanitize_workflow_steps(
+                step.workflow,
+                max_model_calls=max_model_calls,
+                sanitized_models=sanitized_models,
+            )
+
+
+def _sanitize_workflow(workflow: Workflow, *, max_model_calls: int) -> Workflow:
+    _sanitize_workflow_steps(
+        workflow,
+        max_model_calls=max_model_calls,
+        sanitized_models=set(),
+    )
     return workflow
 
 
