@@ -1,6 +1,5 @@
 """The company-brief workflow contract and its deterministic evidence boundary."""
 
-from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Final, Literal
 
@@ -9,13 +8,13 @@ from agno.skills import LocalSkills, Skills
 from agno.workflow import Step, StepInput, StepOutput, Workflow, WorkflowAgent
 from pydantic import BaseModel, ConfigDict
 
+from samurai.config import Settings, create_model
 from samurai.contracts import CompanyBrief
 
 __all__ = ["CompanyBrief"]
 
 if TYPE_CHECKING:
     from agno.db.base import BaseDb
-    from agno.models.google import Gemini
 
 RESOURCES: Final = Path(__file__).parent
 WORKFLOW_ID: Final = "company-foundation"
@@ -59,21 +58,21 @@ def verify_brief(step_input: StepInput) -> StepOutput:
     )
 
 
-def create_foundation(db: BaseDb, model: Gemini) -> Workflow:
+def create_foundation(db: BaseDb, settings: Settings) -> Workflow:
     """Expose one conversational workflow, with skills owned by its brief step."""
     skills = Skills(loaders=[LocalSkills(str(RESOURCES / "skills"))])
     brief_agent = Agent(
         id="company-brief",
         name="Company Brief",
-        model=model,
+        model=create_model(settings),
         skills=skills,
         instructions=(RESOURCES / "prompts" / "brief.md").read_text(encoding="utf-8"),
         output_schema=CompanyBrief,
-        tool_call_limit=4,
+        tool_call_limit=settings.agent_tool_call_limit,
         telemetry=False,
     )
     main_agent = WorkflowAgent(
-        model=replace(model),
+        model=create_model(settings),
         instructions=(RESOURCES / "prompts" / "main.md").read_text(encoding="utf-8"),
         num_history_runs=5,
     )

@@ -1,19 +1,17 @@
 """Application factory for the local AgentOS bootstrap."""
 
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING
 
 from agno.db.postgres import PostgresDb
-from agno.models.google import Gemini
 from agno.os import AgentOS
 from agno.os.authz import Authorization
 from agno.os.config import AgentOSConfig, ChatConfig
 from agno.os.settings import AgnoAPISettings
 from agno.workflow import WorkflowFactory
 from fastapi import FastAPI
-from pydantic import Field, PostgresDsn, SecretStr
-from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from samurai.config import Settings
 from samurai.foundation import (
     STARTER_PROMPTS,
     WORKFLOW_DESCRIPTION,
@@ -22,6 +20,8 @@ from samurai.foundation import (
     create_foundation,
 )
 
+__all__ = ["Settings"]
+
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
@@ -29,35 +29,9 @@ if TYPE_CHECKING:
     from agno.workflow import Workflow
 
 
-class Settings(BaseSettings):
-    """Parse required service credentials and optional Gemini configuration."""
-
-    model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
-        env_file=".env",
-        extra="forbid",
-        hide_input_in_errors=True,
-    )
-
-    os_security_key: SecretStr = Field(min_length=32)
-    database_url: PostgresDsn
-    google_api_key: SecretStr = SecretStr("")
-    gemini_model: str = Field(default="gemini-3.8-flash", min_length=1)
-    jwt_verification_key: str | None = None
-
-
 def create_foundation_workflow(db: PostgresDb, settings: Settings) -> Workflow:
     """Build one request-scoped workflow with a fresh Gemini model."""
-    api_key = settings.google_api_key.get_secret_value()
-
-    return create_foundation(
-        db,
-        Gemini(
-            id=settings.gemini_model,
-            api_key=api_key,
-            max_output_tokens=4096,
-            timeout=60,
-        ),
-    )
+    return create_foundation(db, settings)
 
 
 def _create_foundation_factory(db: PostgresDb, settings: Settings) -> WorkflowFactory:
