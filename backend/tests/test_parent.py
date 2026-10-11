@@ -6,11 +6,14 @@ from typing import TYPE_CHECKING, Never, cast, final, override
 from uuid import UUID
 
 import anyio
+from agno.db.base import SessionType
 from agno.db.sqlite import SqliteDb
 from agno.models.base import Model
 from agno.models.response import ModelResponse
 from agno.run.base import RunStatus
+from agno.run.cancel import aget_active_runs
 from agno.session.agent import AgentSession
+from agno.session.workflow import WorkflowSession
 from agno.tools.function import Function
 from agno.workflow import Step, StepInput, StepOutput, Workflow
 from fastapi.testclient import TestClient
@@ -237,6 +240,61 @@ def test_child_failure_is_sanitized_and_parent_is_terminal_error(
     assert isinstance(session, AgentSession)
     assert session.runs is not None
     assert session.runs[-1].status == RunStatus.error.value
+
+
+def test_child_timeout_cancels_drains_and_returns_terminal_error(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def hang(_: StepInput) -> Never:
+        await anyio.sleep_forever()
+        raise AssertionError
+
+    def hanging_workflow(_db: SqliteDb, _settings: Settings) -> Workflow:
+        return Workflow(
+            id="company-journey",
+            name="Hanging child",
+            db=_db,
+            steps=[Step(name="hang", executor=hang)],
+            telemetry=False,
+        )
+
+    monkeypatch.setattr("samurai.parent.create_company_workflow", hanging_workflow)
+    database = SqliteDb(db_file=str(tmp_path / "child-timeout.db"))
+    settings = Settings.model_validate({"gemini_timeout_seconds": 0.01})
+    with TestClient(
+        create_app(
+            db=database,
+            settings=settings,
+            parent_model_factory=lambda: _ToolSequenceModel("run_company_journey"),
+        )
+    ) as client:
+        response = client.post(
+            "/agentos/agents/samurai/runs",
+            headers={"Authorization": f"Bearer {settings.os_security_key.get_secret_value()}"},
+            data={
+                "message": "start a company",
+                "session_id": "timeout-session",
+                "user_id": "founder",
+                "stream": "false",
+            },
+        )
+
+    assert response.status_code == 200
+    payload = cast("dict[str, object]", response.json())
+    assert payload["status"] == RunStatus.error.value
+    assert json.loads(cast("str", payload["content"]))["error_code"] == ("child_workflow_failed")
+    sessions = database.get_sessions(
+        session_type=SessionType.WORKFLOW,
+        user_id="founder",
+    )
+    assert isinstance(sessions, list)
+    assert len(sessions) == 1
+    child_session = sessions[0]
+    assert isinstance(child_session, WorkflowSession)
+    assert child_session.runs is not None
+    assert child_session.runs[-1].status == RunStatus.cancelled.value
+    assert anyio.run(aget_active_runs) == {}
 
 
 def test_nonstreaming_child_failures_share_sanitized_terminal_boundary(

@@ -23,7 +23,7 @@ from agno.exceptions import OutputCheckError, StopAgentRun
 from agno.models.base import Model
 from agno.run import RunContext
 from agno.run.agent import CustomEvent, RunOutput
-from agno.run.cancel import acancel_run, ais_cancelled
+from agno.run.cancel import acancel_run, acleanup_run, ais_cancelled
 from agno.run.workflow import (
     StepProgressEvent,
     WorkflowCancelledEvent,
@@ -81,6 +81,7 @@ PARENT_DESCRIPTION: Final = "Build and improve one evidence-linked company with 
 TOOL_RESULT_MARKER: Final = "\nSAMURAI_WORKFLOW_RESULT="
 TOOL_ERROR_MARKER: Final = "SAMURAI_WORKFLOW_ERROR="
 CHILD_FAILURE_MESSAGE: Final = "child workflow failed"
+CHILD_WORKFLOW_MODEL_CALL_BUDGET: Final = 7
 PARENT_BINDING_KEYS: Final = frozenset({"child_session_id", "company_id", "current_revision"})
 AGNO_SESSION_KEYS: Final = frozenset({"current_user_id", "current_session_id", "current_run_id"})
 STARTER_PROMPTS: Final = [
@@ -272,7 +273,7 @@ def _sanitize_step_executor(executor: StepExecutor) -> StepExecutor:  # noqa: C9
     return cast("StepExecutor", safe_sync)
 
 
-def _sanitize_workflow(workflow: Workflow) -> Workflow:
+def _sanitize_workflow(workflow: Workflow, *, max_model_calls: int) -> Workflow:
     if not isinstance(workflow.steps, list):
         return workflow
     for step in workflow.steps:
@@ -283,9 +284,12 @@ def _sanitize_workflow(workflow: Workflow) -> Workflow:
             step.executor = _sanitize_step_executor(step.executor)
             step.active_executor = step.executor
         if step.agent is not None and isinstance(step.agent.model, Model):
-            step.agent.model = _sanitize_async_model_failures(step.agent.model)
+            step.agent.model = _sanitize_async_model_failures(
+                step.agent.model,
+                max_calls=max_model_calls,
+            )
         if step.workflow is not None:
-            _ = _sanitize_workflow(step.workflow)
+            _ = _sanitize_workflow(step.workflow, max_model_calls=max_model_calls)
     return workflow
 
 
@@ -437,6 +441,27 @@ async def _cancel_children_when_parent_stops(
         await anyio.sleep(0.01)
 
 
+async def _cancel_children(child_run_ids: tuple[str, ...]) -> None:
+    for child_run_id in child_run_ids:
+        _ = await acancel_run(child_run_id)
+
+
+async def _cancel_children_after_timeout(
+    child_run_ids: tuple[str, ...],
+    done: anyio.Event,
+    operation_scope: anyio.CancelScope,
+    timeout_seconds: float,
+    timed_out: anyio.Event,
+) -> None:
+    with anyio.move_on_after(timeout_seconds) as deadline:
+        await done.wait()
+    if not deadline.cancel_called or done.is_set():
+        return
+    timed_out.set()
+    await _cancel_children(child_run_ids)
+    operation_scope.cancel()
+
+
 def _cancelled_tool_run() -> StopAgentRun:
     return StopAgentRun("parent run cancelled")
 
@@ -445,9 +470,23 @@ async def _await_with_cancel_watch[T](
     operation: Callable[[], Awaitable[T]],
     run_context: RunContext,
     child_run_ids: tuple[str, ...],
+    timeout_seconds: float,
 ) -> T:
     done = anyio.Event()
+    timed_out = anyio.Event()
+    operation_scope = anyio.CancelScope()
     result: list[T] = []
+    errors: list[Exception] = []
+
+    async def execute() -> None:
+        with operation_scope:
+            try:
+                result.append(await operation())
+            except Exception as error:  # noqa: BLE001 - re-raised after sibling tasks drain.
+                errors.append(error)
+            finally:
+                done.set()
+
     async with anyio.create_task_group() as tasks:
         _ = tasks.start_soon(
             _cancel_children_when_parent_stops,
@@ -455,12 +494,80 @@ async def _await_with_cancel_watch[T](
             child_run_ids,
             done,
         )
-        try:
-            result.append(await operation())
-        finally:
-            done.set()
-            tasks.cancel_scope.cancel()
+        _ = tasks.start_soon(
+            _cancel_children_after_timeout,
+            child_run_ids,
+            done,
+            operation_scope,
+            timeout_seconds,
+            timed_out,
+        )
+        _ = tasks.start_soon(execute)
+        await done.wait()
+        tasks.cancel_scope.cancel()
+    for child_run_id in child_run_ids:
+        await acleanup_run(child_run_id)
+    if timed_out.is_set():
+        raise _ChildWorkflowError
+    if errors:
+        raise errors[0]
     return result[0]
+
+
+async def _stream_with_cancel_watch[T](
+    events: AsyncIterator[T],
+    run_context: RunContext,
+    child_run_id: str,
+    timeout_seconds: float,
+) -> abc.AsyncIterator[T]:
+    done = anyio.Event()
+    timed_out = anyio.Event()
+    operation_scope = anyio.CancelScope()
+    errors: list[Exception] = []
+    send, receive = anyio.create_memory_object_stream[T]()
+
+    async def produce() -> None:
+        with operation_scope:
+            try:
+                async with send:
+                    async for event in events:
+                        await send.send(event)
+            except Exception as error:  # noqa: BLE001 - re-raised after sibling tasks drain.
+                errors.append(error)
+            finally:
+                done.set()
+
+    try:
+        async with anyio.create_task_group() as tasks:
+            _ = tasks.start_soon(
+                _cancel_children_when_parent_stops,
+                run_context.run_id,
+                (child_run_id,),
+                done,
+            )
+            _ = tasks.start_soon(
+                _cancel_children_after_timeout,
+                (child_run_id,),
+                done,
+                operation_scope,
+                timeout_seconds,
+                timed_out,
+            )
+            _ = tasks.start_soon(produce)
+            async with receive:
+                async for event in receive:
+                    yield event
+            tasks.cancel_scope.cancel()
+    finally:
+        await acleanup_run(child_run_id)
+    if timed_out.is_set():
+        raise _ChildWorkflowError
+    if errors:
+        raise errors[0]
+
+
+def _child_workflow_timeout(settings: Settings) -> float:
+    return settings.gemini_timeout_seconds * CHILD_WORKFLOW_MODEL_CALL_BUDGET
 
 
 async def _create_launch_drafts(
@@ -481,7 +588,10 @@ async def _create_launch_drafts(
     )
     workflows = create_launch_workflows(create_role_catalog(settings), db=db)
     for workflow in workflows.values():
-        _ = _sanitize_workflow(workflow)
+        _ = _sanitize_workflow(
+            workflow,
+            max_model_calls=settings.agent_tool_call_limit + 1,
+        )
     run_ids: dict[LaunchRole, str] = {
         Role.BUILDER: _child_run_id(run_context, "launch:builder"),
         Role.MARKETER: _child_run_id(run_context, "launch:marketer"),
@@ -507,6 +617,7 @@ async def _create_launch_drafts(
             operation,
             run_context,
             tuple(run_ids.values()),
+            _child_workflow_timeout(settings),
         )
     except ValidationError:
         if await ais_cancelled(run_context.run_id):
@@ -528,7 +639,10 @@ async def _analyze_metrics(
     child_run_id = _child_run_id(run_context, "analysis")
     context = _child_context(run_context, child_id, state, run_id=child_run_id)
     analyst = create_role_catalog(settings)[Role.ANALYST].agent
-    workflow = _sanitize_workflow(create_analysis_workflow(db, analyst))
+    workflow = _sanitize_workflow(
+        create_analysis_workflow(db, analyst),
+        max_model_calls=settings.agent_tool_call_limit + 1,
+    )
 
     async def operation() -> WorkflowResult:
         return await run_analysis(
@@ -546,7 +660,12 @@ async def _analyze_metrics(
         )
 
     try:
-        result = await _await_with_cancel_watch(operation, run_context, (child_run_id,))
+        result = await _await_with_cancel_watch(
+            operation,
+            run_context,
+            (child_run_id,),
+            _child_workflow_timeout(settings),
+        )
     except AnalysisCancelledError:
         if await ais_cancelled(run_context.run_id):
             raise _cancelled_tool_run() from None
@@ -590,7 +709,10 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
             supplied_context=supplied_context,
             assumptions=assumptions,
         )
-        workflow = _sanitize_workflow(create_company_workflow(db, settings))
+        workflow = _sanitize_workflow(
+            create_company_workflow(db, settings),
+            max_model_calls=settings.agent_tool_call_limit + 1,
+        )
         cancelled = False
         events = workflow.arun(
             request,
@@ -602,20 +724,26 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
             stream=True,
             stream_events=True,
         )
-        async for event in events:
-            if not cancelled and await ais_cancelled(run_context.run_id):
-                cancelled = await acancel_run(child_run_id)
-            if isinstance(event, StepProgressEvent):
-                yield _progress(run_context, child_id, str(event.content))
-            if isinstance(event, WorkflowCancelledEvent):
-                cancelled = True
-            if isinstance(event, WorkflowErrorEvent):
-                yield TOOL_ERROR_MARKER + _ChildWorkflowFailure().model_dump_json()
-                return
-            if isinstance(event, WorkflowCompletedEvent) and not cancelled:
-                result = WorkflowResult.model_validate(event.content)
-                _bind_parent(run_context, child_id, result)
-                yield TOOL_RESULT_MARKER + result.model_dump_json()
+        try:
+            async for event in _stream_with_cancel_watch(
+                events,
+                run_context,
+                child_run_id,
+                _child_workflow_timeout(settings),
+            ):
+                if isinstance(event, StepProgressEvent):
+                    yield _progress(run_context, child_id, str(event.content))
+                if isinstance(event, WorkflowCancelledEvent):
+                    cancelled = True
+                if isinstance(event, WorkflowErrorEvent):
+                    yield TOOL_ERROR_MARKER + _ChildWorkflowFailure().model_dump_json()
+                    return
+                if isinstance(event, WorkflowCompletedEvent) and not cancelled:
+                    result = WorkflowResult.model_validate(event.content)
+                    _bind_parent(run_context, child_id, result)
+                    yield TOOL_RESULT_MARKER + result.model_dump_json()
+        except _ChildWorkflowError:
+            yield TOOL_ERROR_MARKER + _ChildWorkflowFailure().model_dump_json()
 
     async def create_launch_drafts(
         run_context: RunContext,
