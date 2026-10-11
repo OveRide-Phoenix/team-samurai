@@ -1,14 +1,21 @@
 """Launch workflow fixtures and boundary coverage kept in one assigned file. # noqa: SIZE_OK"""
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
-from typing import TypedDict, Unpack
+from functools import partial
+from typing import TYPE_CHECKING, TypedDict, Unpack
 from uuid import uuid4
 
 import anyio
 import pytest
+from agno.db.sqlite import SqliteDb
 from agno.run import RunContext
+from agno.run.base import RunStatus
+from agno.run.cancel import acancel_run
 from agno.run.workflow import WorkflowRunOutput
-from agno.workflow import Step, Workflow
+from agno.workflow import Step, StepInput, StepOutput, Workflow
+from agno.workflow.types import StepProgress
 from pydantic import ValidationError
 
 from samurai.agents import SKILL_TOOL_NAMES, create_role_catalog
@@ -37,16 +44,22 @@ from samurai.launch_workflows import (
     LaunchAction,
     LaunchDraftRequest,
     LaunchKind,
+    LaunchRole,
     MissingVerifiedLaunchInputsError,
     create_launch_workflows,
     run_launch_drafts,
 )
+
+if TYPE_CHECKING:
+    from collections import abc
+    from pathlib import Path
 
 NOW = datetime(2026, 10, 11, tzinfo=UTC)
 
 
 class _WorkflowRunKwargs(TypedDict, total=False):
     user_id: str | None
+    run_id: str | None
     session_id: str | None
     session_state: dict[str, str | int] | None
     dependencies: dict[str, str] | None
@@ -129,6 +142,7 @@ def _context(state: CompanyState) -> RunContext:
 
 def _fake_workflow_outputs(
     monkeypatch: pytest.MonkeyPatch,
+    run_ids: list[str | None] | None = None,
 ) -> list[str]:
     calls: list[str] = []
 
@@ -137,7 +151,8 @@ def _fake_workflow_outputs(
         _input: str,
         **kwargs: Unpack[_WorkflowRunKwargs],
     ) -> WorkflowRunOutput:
-        _ = kwargs
+        if run_ids is not None:
+            run_ids.append(kwargs.get("run_id"))
         calls.append(self.id or "")
         payloads = {
             "samurai-builder-draft": BuilderDraftArtifact(
@@ -164,6 +179,88 @@ def _fake_workflow_outputs(
 
     monkeypatch.setattr(Workflow, "arun", fake_arun)
     return calls
+
+
+def test_forwards_caller_supplied_run_ids_to_each_native_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = _verified_state()
+    observed: list[str | None] = []
+    workflows = create_launch_workflows(create_role_catalog(Settings.model_validate({})))
+    supplied: dict[LaunchRole, str] = {
+        Role.BUILDER: "parent-run:launch:builder",
+        Role.MARKETER: "parent-run:launch:marketer",
+        Role.SALES: "parent-run:launch:sales",
+    }
+    _ = _fake_workflow_outputs(monkeypatch, observed)
+
+    _ = anyio.run(
+        partial(
+            run_launch_drafts,
+            workflows,
+            LaunchDraftRequest(
+                company_id=state.context.company_id,
+                expected_revision=state.current_revision,
+                kind=LaunchKind.ALL,
+            ),
+            _context(state),
+            NOW,
+            run_ids=supplied,
+        )
+    )
+
+    assert observed == list(supplied.values())
+
+
+def test_supplied_run_id_reaches_ongoing_native_child_cancellation(tmp_path: Path) -> None:
+    run_id = "parent-run:launch:builder"
+
+    async def scenario() -> WorkflowRunOutput | None:
+        started = anyio.Event()
+
+        async def build(
+            _: StepInput,
+        ) -> abc.AsyncIterator[StepProgress | StepOutput]:
+            started.set()
+            yield StepProgress(content="started")
+            while True:
+                await anyio.lowlevel.checkpoint()
+                yield StepProgress(content="running")
+
+        db = SqliteDb(db_file=str(tmp_path / "cancel.db"))
+        workflow = Workflow(
+            id="samurai-builder-draft",
+            db=db,
+            steps=[Step(name="Create builder draft", executor=build)],
+            telemetry=False,
+        )
+        state = _verified_state()
+
+        async def run_child() -> None:
+            with pytest.raises(ValidationError):
+                _ = await run_launch_drafts(
+                    {Role.BUILDER: workflow},
+                    LaunchDraftRequest(
+                        company_id=state.context.company_id,
+                        expected_revision=state.current_revision,
+                        kind=LaunchKind.BUILDER,
+                    ),
+                    _context(state),
+                    NOW,
+                    run_ids={Role.BUILDER: run_id},
+                )
+
+        async with anyio.create_task_group() as tasks:
+            _ = tasks.start_soon(run_child)
+            await started.wait()
+            assert await acancel_run(run_id)
+        persisted = db.get_run(run_id)
+        return persisted if isinstance(persisted, WorkflowRunOutput) else None
+
+    persisted = anyio.run(scenario)
+
+    assert persisted is not None
+    assert persisted.status == RunStatus.cancelled.value
 
 
 def test_produces_drafts_from_verified_strategy_and_product(

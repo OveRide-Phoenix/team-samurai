@@ -191,6 +191,8 @@ async def run_launch_drafts(
     request: LaunchDraftRequest,
     run_context: RunContext,
     created_at: datetime,
+    *,
+    run_ids: Mapping[LaunchRole, str] | None = None,
 ) -> WorkflowResult:
     """Create and persist only typed draft artifacts from verified current inputs."""
     if request.action is not LaunchAction.DRAFT:
@@ -202,6 +204,7 @@ async def run_launch_drafts(
         output = await workflows[role].arun(
             _prompt(strategy, product),
             user_id=run_context.user_id,
+            run_id=run_ids.get(role) if run_ids is not None else None,
             session_id=run_context.session_id,
             session_state=run_context.session_state,
             dependencies=run_context.dependencies,
