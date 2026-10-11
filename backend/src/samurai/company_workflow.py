@@ -23,6 +23,7 @@ from samurai.contracts import (
     FounderStatement,
     IntakeArtifact,
     ProductPlanArtifact,
+    ResearchArtifact,
     Role,
     SessionMismatchError,
     SourcedClaim,
@@ -53,6 +54,7 @@ QUESTIONS = {
     "founder_skills": "Which founder skills can support delivery?",
     "goal": "What outcome and timeframe define success?",
 }
+UNRESOLVED_RESEARCH = "retained research conflicts and factual claims remain unresolved."
 JOURNEY_TYPES = (
     ArtifactType.INTAKE,
     ArtifactType.RESEARCH,
@@ -414,11 +416,7 @@ class _Journey:
             raise JourneyInputError(message)
         mapped = _has_retained_mappings(research)
         outcome = (
-            "needs_rework"
-            if research.payload.conflicts
-            else "complete"
-            if research.status == "complete" and mapped
-            else "insufficient_evidence"
+            "complete" if research.status == "complete" and mapped else "insufficient_evidence"
         )
         findings = (
             *research.verification_findings,
@@ -431,8 +429,22 @@ class _Journey:
                     "remain unverified."
                 )
                 if outcome == "complete"
-                else "Research is conflicting, unmapped, or lacks retained support content.",
+                else "Research is unmapped or lacks retained support content.",
                 severity="info" if outcome == "complete" else "warning",
+            ),
+            *(
+                (
+                    VerificationFinding(
+                        code="research_conflicts_retained",
+                        message=(
+                            "Research conflicts were retained for final verification; "
+                            "factual claims remain unverified."
+                        ),
+                        severity="warning",
+                    ),
+                )
+                if research.payload.conflicts and outcome == "complete"
+                else ()
             ),
         )
         envelope = _envelope(
@@ -468,6 +480,7 @@ class _Journey:
             _StrategyDraft,
         )
         payload = StrategyArtifact.model_validate(draft.model_dump())
+        conflicts = ResearchArtifact.model_validate(research.payload).conflicts
         envelope = _envelope(
             state,
             _ArtifactCandidate(
@@ -475,10 +488,19 @@ class _Journey:
                 producer=Role.STRATEGIST,
                 status="complete",
                 findings=(
+                    *tuple(
+                        finding
+                        for finding in research.verification_findings
+                        if finding.code == "research_conflicts_retained"
+                    ),
                     VerificationFinding(
-                        code="strategy_typed",
-                        message="Strategy schema validated.",
-                        severity="info",
+                        code="strategy_provisional" if conflicts else "strategy_typed",
+                        message=(
+                            f"Strategy schema validated as provisional; {UNRESOLVED_RESEARCH}"
+                            if conflicts
+                            else "Strategy schema validated."
+                        ),
+                        severity="warning" if conflicts else "info",
                     ),
                 ),
                 sources=research.sources,
@@ -507,6 +529,7 @@ class _Journey:
             _ProductDraft,
         )
         payload = ProductPlanArtifact.model_validate(draft.model_dump())
+        conflicts = ResearchArtifact.model_validate(research.payload).conflicts
         envelope = _envelope(
             state,
             _ArtifactCandidate(
@@ -514,10 +537,19 @@ class _Journey:
                 producer=Role.PRODUCT_MANAGER,
                 status="complete",
                 findings=(
+                    *tuple(
+                        finding
+                        for finding in research.verification_findings
+                        if finding.code == "research_conflicts_retained"
+                    ),
                     VerificationFinding(
-                        code="product_typed",
-                        message="Product plan schema validated.",
-                        severity="info",
+                        code="product_provisional" if conflicts else "product_typed",
+                        message=(
+                            f"Product plan schema validated as provisional; {UNRESOLVED_RESEARCH}"
+                            if conflicts
+                            else "Product plan schema validated."
+                        ),
+                        severity="warning" if conflicts else "info",
                     ),
                 ),
                 sources=research.sources,
@@ -539,6 +571,7 @@ class _Journey:
         )
         upstream = tuple(_latest(state, artifact_type) for artifact_type in JOURNEY_TYPES[:-1])
         accepted = tuple(artifact for artifact in upstream if artifact is not None)
+        research = ResearchArtifact.model_validate(accepted[1].payload)
         strategy = StrategyArtifact.model_validate(accepted[2].payload)
         supported_text = " ".join(claim.text for claim in accepted[1].claims)
         numbers: set[str] = {
@@ -547,17 +580,49 @@ class _Journey:
             for token in _numeric_tokens(assumption)
         }
         unsupported = tuple(sorted(token for token in numbers if token not in supported_text))
-        outcome = "needs_rework" if unsupported else proposal.outcome
-        finding = VerificationFinding(
-            code="unsupported_numeric_claim" if unsupported else "journey_verified",
-            message=f"Unsupported numeric claims: {', '.join(unsupported)}"
-            if unsupported
-            else (
-                "Schema, lineage, and retained support mappings passed; market demand, "
-                "pricing, and source factualness remain unverified."
-            ),
-            severity="warning" if unsupported else "info",
-        )
+        outcome = "needs_rework" if unsupported or research.conflicts else proposal.outcome
+        findings: list[VerificationFinding] = []
+        if research.conflicts:
+            findings.append(
+                VerificationFinding(
+                    code="research_conflicts_unresolved",
+                    message=(
+                        "Retained research conflicts require resolution before "
+                        "verification; factual claims remain unverified."
+                    ),
+                    severity="warning",
+                )
+            )
+        if unsupported:
+            findings.append(
+                VerificationFinding(
+                    code="unsupported_numeric_claim",
+                    message=f"Unsupported numeric claims: {', '.join(unsupported)}",
+                    severity="warning",
+                )
+            )
+        if not findings:
+            fallback = {
+                "verified": VerificationFinding(
+                    code="journey_verified",
+                    message=(
+                        "Schema, lineage, and retained support mappings passed; market "
+                        "demand, pricing, and source factualness remain unverified."
+                    ),
+                    severity="info",
+                ),
+                "needs_input": VerificationFinding(
+                    code="verifier_follow_up_required",
+                    message="The verifier requested founder input before verification.",
+                    severity="warning",
+                ),
+                "needs_rework": VerificationFinding(
+                    code="verifier_rework_requested",
+                    message="The verifier requested rework before verification.",
+                    severity="warning",
+                ),
+            }
+            findings.append(fallback[outcome])
         envelope = _envelope(
             state,
             _ArtifactCandidate(
@@ -567,7 +632,7 @@ class _Journey:
                 ),
                 producer=Role.VERIFIER,
                 status="complete" if outcome == "verified" else outcome,
-                findings=(finding,),
+                findings=tuple(findings),
             ),
         )
         updated = _save(state, envelope, context)

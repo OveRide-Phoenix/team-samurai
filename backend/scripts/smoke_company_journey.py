@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from samurai.company_workflow import CompanyJourneyRequest, create_company_workflow
 from samurai.config import Settings
-from samurai.contracts import WorkflowResult
+from samurai.contracts import ArtifactType, ResearchArtifact, WorkflowResult
 
 if TYPE_CHECKING:
     from pydantic import JsonValue
@@ -97,8 +97,8 @@ async def _run(arguments: _Arguments) -> None:
         if not isinstance(step, StepOutput):
             raise SmokeError
         step_names.append(step.step_name or "")
-    complete = (
-        result.outcome == "verified"
+    terminal = (
+        result.outcome in {"verified", "needs_rework"}
         and [artifact.artifact_type for artifact in artifacts] == expected_types
         and [artifact.revision for artifact in artifacts] == [1, 2, 3, 4, 5]
         and [artifact.input_revision for artifact in artifacts] == [0, 1, 2, 3, 4]
@@ -118,14 +118,25 @@ async def _run(arguments: _Arguments) -> None:
                 "artifacts": [
                     {
                         "type": artifact.artifact_type,
+                        "artifact_id": str(artifact.artifact_id),
                         "revision": artifact.revision,
                         "input_revision": artifact.input_revision,
                         "status": artifact.status,
+                        "findings": [
+                            finding.model_dump(mode="json")
+                            for finding in artifact.verification_findings
+                        ],
                         "source_count": len(artifact.sources),
+                        "source_urls": [str(source.url) for source in artifact.sources],
                         "claim_count": len(artifact.claims),
                         "claim_verification": [
                             claim.verification_status for claim in artifact.claims
                         ],
+                        "conflicts": list(
+                            ResearchArtifact.model_validate(artifact.payload).conflicts
+                        )
+                        if artifact.artifact_type == ArtifactType.RESEARCH
+                        else [],
                     }
                     for artifact in artifacts
                 ],
@@ -134,7 +145,7 @@ async def _run(arguments: _Arguments) -> None:
         )
         + "\n"
     )
-    if not complete:
+    if not terminal:
         raise SmokeError
 
 

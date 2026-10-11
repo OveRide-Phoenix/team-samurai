@@ -3,7 +3,7 @@
 from dataclasses import replace
 from datetime import UTC, datetime
 from functools import partial
-from typing import TYPE_CHECKING, Literal, Never, final, override
+from typing import TYPE_CHECKING, Never, final, override
 from uuid import uuid4
 
 import anyio
@@ -361,6 +361,14 @@ def _research_result(*, conflicts: tuple[str, ...] = ()) -> ResearchResult:
     )
 
 
+def _unmapped_research_result() -> ResearchResult:
+    result = _research_result()
+    return replace(
+        result,
+        claims=(result.claims[0].model_copy(update={"support_status": "unmapped"}),),
+    )
+
+
 def _complete_request() -> CompanyJourneyRequest:
     return CompanyJourneyRequest(
         company_id=None,
@@ -500,9 +508,8 @@ def test_clarification_continuation_preserves_idea_without_duplicate_research(
 
 
 @pytest.mark.parametrize(
-    ("research", "expected"),
+    ("research", "label"),
     [
-        (_research_result(conflicts=("Two sources disagree.",)), "needs_rework"),
         (
             replace(
                 _research_result(),
@@ -510,17 +517,18 @@ def test_clarification_continuation_preserves_idea_without_duplicate_research(
                 sources=(),
                 claims=(),
             ),
-            "insufficient_evidence",
+            "source-free",
         ),
+        (_unmapped_research_result(), "unmapped"),
     ],
 )
 def test_invalid_research_stops_before_strategy(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     research: ResearchResult,
-    expected: Literal["needs_rework", "insufficient_evidence"],
+    label: str,
 ) -> None:
-    # Given conflicting or insufficient research from the grounded boundary.
+    # Given source-free or structurally invalid research from the grounded boundary.
     catalog, models = _catalog()
 
     async def invalid_research(
@@ -534,20 +542,76 @@ def test_invalid_research_stops_before_strategy(
 
     monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
     monkeypatch.setattr("samurai.company_workflow.run_research", invalid_research)
-    workflow = create_company_workflow(
-        SqliteDb(db_file=str(tmp_path / f"{expected}.db")), _settings()
-    )
+    workflow = create_company_workflow(SqliteDb(db_file=str(tmp_path / f"{label}.db")), _settings())
 
     # When deterministic evidence validation evaluates the result.
     output = anyio.run(partial(_run_workflow, workflow, _complete_request(), {}))
 
     # Then the honest evidence outcome is persisted and no downstream model runs.
     result = WorkflowResult.model_validate(output.content)
-    assert result.outcome == expected
+    assert result.outcome == "insufficient_evidence"
     assert [artifact.artifact_type for artifact in result.artifacts] == ["intake", "research"]
     assert models[Role.STRATEGIST].calls == 0
     assert models[Role.PRODUCT_MANAGER].calls == 0
     assert models[Role.VERIFIER].calls == 0
+
+
+def test_conflicting_grounded_research_reaches_provisional_final_rework(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given complete, mapped research that retains a source conflict.
+    catalog, models = _catalog()
+    conflict = "Two retained sources disagree about clinic adoption."
+
+    async def conflicting_research(
+        _agent: ResearchAgent, _brief: CompanyBrief, *, max_sources: int = 5
+    ) -> ResearchResult:
+        assert max_sources == 5
+        return _research_result(conflicts=(conflict,))
+
+    def catalog_factory(_settings: Settings) -> Mapping[Role, ConfiguredRole]:
+        return catalog
+
+    monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
+    monkeypatch.setattr("samurai.company_workflow.run_research", conflicting_research)
+    workflow = create_company_workflow(
+        SqliteDb(db_file=str(tmp_path / "conflicting-research.db")), _settings()
+    )
+
+    # When the ordered journey prepares provisional plans and runs final verification.
+    output = anyio.run(partial(_run_workflow, workflow, _complete_request(), {}))
+
+    # Then all five typed artifacts persist, while the unresolved conflict forces rework.
+    result = WorkflowResult.model_validate(output.content)
+    assert result.outcome == "needs_rework"
+    assert [artifact.artifact_type for artifact in result.artifacts] == [
+        "intake",
+        "research",
+        "strategy",
+        "product_plan",
+        "verification",
+    ]
+    research, strategy, product, verification = result.artifacts[1:]
+    assert research.status == "complete"
+    assert ResearchArtifact.model_validate(research.payload).conflicts == (conflict,)
+    assert any(
+        finding.code == "research_conflicts_retained" for finding in research.verification_findings
+    )
+    assert any(finding.code == "strategy_provisional" for finding in strategy.verification_findings)
+    assert any(finding.code == "product_provisional" for finding in product.verification_findings)
+    assert verification.status == "needs_rework"
+    assert any(
+        finding.code == "research_conflicts_unresolved"
+        for finding in verification.verification_findings
+    )
+    assert all(
+        claim.verification_status == "unverified"
+        for artifact in result.artifacts
+        for claim in artifact.claims
+    )
+    assert models[Role.STRATEGIST].calls == 1
+    assert models[Role.PRODUCT_MANAGER].calls == 1
+    assert models[Role.VERIFIER].calls == 1
 
 
 def test_unsupported_strategy_number_requires_rework(
