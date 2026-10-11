@@ -7,7 +7,11 @@ from typing import TYPE_CHECKING, ClassVar, Final, Literal
 from agno.agent import Agent
 from agno.skills import LocalSkills, Skills
 from agno.workflow import Step, StepInput, StepOutput, Workflow, WorkflowAgent
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
+
+from samurai.contracts import CompanyBrief
+
+__all__ = ["CompanyBrief"]
 
 if TYPE_CHECKING:
     from agno.db.base import BaseDb
@@ -24,22 +28,6 @@ STARTER_PROMPTS: Final = [
     "Help me clarify my customer, budget, skills, and goals before planning my business.",
     "What assumptions and unanswered questions remain in our company brief?",
 ]
-
-
-class CompanyBrief(BaseModel):
-    """Founder-supplied context and explicit hypotheses, never researched facts."""
-
-    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
-    idea: str = Field(min_length=1)
-    target_customer: str | None
-    geography: str | None
-    budget: str | None
-    founder_skills: str | None
-    goal: str | None
-    supplied_context: list[str]
-    assumptions: list[str]
-    open_questions: list[str]
-    next_actions: list[str]
 
 
 class FoundationResult(BaseModel):
