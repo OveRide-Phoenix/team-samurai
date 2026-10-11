@@ -11,11 +11,12 @@ import pytest
 from agno.db.base import SessionType
 from agno.db.sqlite import SqliteDb
 from agno.models.base import Model
+from agno.models.google import Gemini
 from agno.models.response import ModelResponse
 from agno.run import RunContext
 from agno.run.base import RunStatus
 from agno.session.workflow import WorkflowSession
-from pydantic import HttpUrl, ValidationError
+from pydantic import HttpUrl
 
 from samurai import parent as parent_module
 from samurai.agents import ROLE_CAPABILITIES, ConfiguredRole, create_role_catalog
@@ -42,6 +43,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from agno.models.message import Message
+    from google.genai.types import Content
 
 NOW = datetime(2026, 10, 11, 12, tzinfo=UTC)
 ANALYZE_METRICS = cast(
@@ -64,6 +66,17 @@ class _AnalysisDraftModel(Model):
     @override
     async def ainvoke(self, messages: list[Message], **_kwargs: Never) -> ModelResponse:
         assert messages
+        formatter = cast(
+            "Callable[[Gemini, list[Message]], tuple[list[Content], object]]",
+            Gemini.__dict__["_format_messages"],
+        )
+        contents, _ = formatter(Gemini(api_key="offline-test-key"), messages)
+        request_json = json.dumps(
+            [content.model_dump(mode="json") for content in contents]
+        )
+        assert contents
+        assert '"role": "user"' in request_json
+        assert "qualified_leads" in request_json
         content: dict[str, object] = (
             {"artifact_type": "analyst_brief"}
             if self.invalid_output
@@ -269,7 +282,7 @@ def test_invalid_analysis_output_fails_without_mutating_company_state(
         session_state={},
     )
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(RuntimeError, match="invalid analyst output"):
         _ = anyio.run(
             partial(ANALYZE_METRICS, database, settings, (metric,), parent_context)
         )
@@ -283,3 +296,6 @@ def test_invalid_analysis_output_fails_without_mutating_company_state(
     assert cast("dict[str, object]", child.session_data)["session_state"] == (
         expected_session_data["session_state"]
     )
+    assert child.runs is not None
+    failed_run = next(run for run in child.runs if run.workflow_id == "company-analysis")
+    assert failed_run.status == RunStatus.error

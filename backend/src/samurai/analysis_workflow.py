@@ -6,8 +6,8 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Final
 from uuid import uuid4
 
-from agno.workflow import Step, StepInput, StepOutput, Workflow
-from pydantic import AwareDatetime  # noqa: TC002 - Pydantic resolves this field type at runtime.
+from agno.workflow import HumanReview, Step, StepInput, StepOutput, Workflow
+from pydantic import AwareDatetime, ValidationError
 
 from samurai.contracts import (
     AnalysisArtifact,
@@ -35,6 +35,7 @@ if TYPE_CHECKING:
 
 MAX_METRIC_AGE: Final = timedelta(days=30)
 GATE_STEP: Final = "Check metric eligibility"
+INVALID_ANALYSIS_OUTPUT: Final = "invalid analyst output"
 
 
 class AnalysisCancelledError(RuntimeError):
@@ -107,18 +108,31 @@ def _gate_metrics(step_input: StepInput) -> StepOutput:
             ),
             stop=True,
         )
-    return _step_output(
-        _PreparedAnalysis(
-            state=state,
-            measurements=tuple(_founder_measurement(metric) for metric in workflow_input.metrics),
-        )
+    prepared = _PreparedAnalysis(
+        state=state,
+        measurements=tuple(_founder_measurement(metric) for metric in workflow_input.metrics),
     )
+    return StepOutput(content=prepared.model_dump_json())
 
 
 def _complete_analysis(step_input: StepInput) -> StepOutput:
-    assessment = AnalysisDraft.model_validate(step_input.previous_step_content)
     previous_outputs = step_input.previous_step_outputs or {}
-    prepared = _PreparedAnalysis.model_validate(previous_outputs[GATE_STEP].content)
+    prepared_content = previous_outputs[GATE_STEP].content
+    if not isinstance(prepared_content, str):
+        return StepOutput(
+            content=INVALID_ANALYSIS_OUTPUT,
+            success=False,
+            error=INVALID_ANALYSIS_OUTPUT,
+        )
+    try:
+        assessment = AnalysisDraft.model_validate(step_input.previous_step_content)
+        prepared = _PreparedAnalysis.model_validate_json(prepared_content)
+    except ValidationError:
+        return StepOutput(
+            content=INVALID_ANALYSIS_OUTPUT,
+            success=False,
+            error=INVALID_ANALYSIS_OUTPUT,
+        )
     state = prepared.state
     payload = AnalysisArtifact(
         metric_ids=tuple(metric.metric_id for metric in prepared.measurements),
@@ -164,9 +178,24 @@ def _complete_analysis(step_input: StepInput) -> StepOutput:
 def create_analysis_workflow(db: BaseDb, analyst: Agent) -> Workflow:
     """Build the explicit metric gate, Analyst, and deterministic completion steps."""
     steps: WorkflowSteps = [
-        Step(name=GATE_STEP, executor=_gate_metrics, max_retries=0),
-        Step(name="Analyze eligible founder metrics", agent=analyst, max_retries=0),
-        Step(name="Complete conditional analysis", executor=_complete_analysis, max_retries=0),
+        Step(
+            name=GATE_STEP,
+            executor=_gate_metrics,
+            max_retries=0,
+            human_review=HumanReview(on_error="fail"),
+        ),
+        Step(
+            name="Analyze eligible founder metrics",
+            agent=analyst,
+            max_retries=0,
+            human_review=HumanReview(on_error="fail"),
+        ),
+        Step(
+            name="Complete conditional analysis",
+            executor=_complete_analysis,
+            max_retries=0,
+            human_review=HumanReview(on_error="fail"),
+        ),
     ]
     return Workflow(
         id="company-analysis",
