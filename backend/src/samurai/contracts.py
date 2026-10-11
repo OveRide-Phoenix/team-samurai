@@ -322,6 +322,55 @@ class CompanyState(Contract):
         return self
 
 
+class WorkflowRequest(Contract):
+    company_id: UUID | None
+    expected_revision: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_new_company_revision(self) -> Self:
+        if self.company_id is None and self.expected_revision != 0:
+            raise PydanticCustomError(
+                "new_company_revision", "new company requests must start at revision zero"
+            )
+        return self
+
+
+class WorkflowResult(Contract):
+    company_id: UUID
+    revision: int = Field(ge=0)
+    outcome: Literal[
+        "verified",
+        "needs_input",
+        "needs_rework",
+        "insufficient_evidence",
+        "draft_only",
+        "requires_metrics",
+        "based_on_founder_supplied_metrics",
+    ]
+    artifacts: tuple[ArtifactEnvelope, ...] = ()
+    questions: tuple[Annotated[str, Field(min_length=1, max_length=200)], ...] = ()
+
+    @model_validator(mode="after")
+    def validate_summary(self) -> Self:
+        if self.outcome == "needs_input" and not self.questions:
+            raise PydanticCustomError(
+                "missing_workflow_questions", "needs_input requires at least one question"
+            )
+        if self.outcome != "needs_input" and self.questions:
+            raise PydanticCustomError(
+                "unexpected_workflow_questions", "questions are only valid for needs_input"
+            )
+        if any(artifact.company_id != self.company_id for artifact in self.artifacts):
+            raise PydanticCustomError(
+                "workflow_company_mismatch", "workflow artifacts must belong to the result company"
+            )
+        if any(artifact.revision > self.revision for artifact in self.artifacts):
+            raise PydanticCustomError(
+                "workflow_revision_mismatch", "workflow artifacts cannot exceed the result revision"
+            )
+        return self
+
+
 class RoleCapability(Contract):
     role: Role
     status: Literal["active", "draft_only", "requires_metrics"]
