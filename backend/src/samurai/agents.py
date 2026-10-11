@@ -18,7 +18,6 @@ from samurai.contracts import (
     IntakeArtifact,
     MarketingDraftArtifact,
     ProductPlanArtifact,
-    ResearchArtifact,
     Role,
     RoleCapability,
     SalesDraftArtifact,
@@ -44,7 +43,7 @@ SKILL_TOOL_NAMES: Final = (
 class _RoleSpec:
     role: Role
     name: str
-    output_schema: type[BaseModel]
+    output_schema: type[BaseModel] | None
     capability_status: Literal["active", "draft_only", "requires_metrics"]
     output_artifact: ArtifactType
 
@@ -68,7 +67,7 @@ ROLE_SPECS: Final = (
     _RoleSpec(
         Role.RESEARCHER,
         "Researcher",
-        ResearchArtifact,
+        None,
         "active",
         ArtifactType.RESEARCH,
     ),
@@ -168,12 +167,14 @@ def create_role_catalog(settings: Settings) -> Mapping[Role, ConfiguredRole]:
     catalog: dict[Role, ConfiguredRole] = {}
     for spec in ROLE_SPECS:
         instructions = _role_instructions(spec.role)
+        model = create_model(settings)
+        model.search = spec.role is Role.RESEARCHER
         catalog[spec.role] = ConfiguredRole(
             agent_id=spec.agent_id,
             agent=Agent(
                 id=spec.agent_id,
                 name=spec.name,
-                model=create_model(settings),
+                model=model,
                 skills=_skills(),
                 instructions=instructions,
                 output_schema=spec.output_schema,

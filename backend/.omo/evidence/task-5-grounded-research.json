@@ -1,0 +1,148 @@
+{
+  "status": "complete",
+  "request_focus": "current public competitor and pricing evidence as of 2026-10-11",
+  "model_id": "gemini-3.8-flash",
+  "search_enabled": true,
+  "provider_metadata_present": true,
+  "search_queries": [
+    "healthcare AI receptionist India pricing",
+    "AI receptionist dental clinic India pricing competitors",
+    "dental clinic AI voice receptionist India"
+  ],
+  "citation_count": 14,
+  "sources": [
+    {
+      "source_id": "c41fbd53-e6f3-4d38-8818-1a330d2767cf",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFfHzmEzi-CBsOcspxZmtz-JT8qHG0HcUjjg22_krPItWELYATmi-k6i3VVY61c_oGqtiQCpIYkufb6xL2WB9JwVWSa1GeKfNWsm1aYrgHWlKyxC1kOrA0e8bJkTzENNNyQIurTbycs54eW681PPtw3DL2c0fA_tiA=",
+      "title": "connectai.care",
+      "retrieved_at": "2026-10-11T12:31:35.344265+00:00"
+    },
+    {
+      "source_id": "8da7cc5a-8e91-43af-b764-bc6c281470ba",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGOkSCuSeuieMnyNZOdZu9xBYJR0jqK_Y7gZRRmjqRLv_foNHo4JrpSPeByeXjKewaOLbuCLN4SXKib6Ur7ZjRNifslb1dumu_5wZbTCIe3zPrA1__AsZ0t5YTTPA8nFEHHCHlHEvPr-cXINTbc05rEmt6rQ_RNF6KA4CGnDz3P8xpjv1eRzBaLoBYS",
+      "title": "cliniify.com",
+      "retrieved_at": "2026-10-11T12:31:35.344265+00:00"
+    },
+    {
+      "source_id": "a2fc2f4e-8c8c-427c-bcc3-82f4eb922aa9",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFV7KXqfXDsVyayfQe4dGL-RptX8sPSzE5usk-QoPUkm3tAPyknNnb-FNVmA-DWmmuNgCcHU7x8nF-2-Tx_thsd3x1QTyNMuNZXEfdFUvCxvGmOwBs5fQsCwVdfHwbmv9hhu5GOVFkle0dIRnucuQ==",
+      "title": "orthia.io",
+      "retrieved_at": "2026-10-11T12:31:35.344265+00:00"
+    }
+  ],
+  "claims": [
+    {
+      "source_ids": [
+        "c41fbd53-e6f3-4d38-8818-1a330d2767cf",
+        "8da7cc5a-8e91-43af-b764-bc6c281470ba",
+        "a2fc2f4e-8c8c-427c-bcc3-82f4eb922aa9"
+      ],
+      "support_status": "mapped",
+      "verification_status": "unverified"
+    },
+    {
+      "source_ids": [
+        "c41fbd53-e6f3-4d38-8818-1a330d2767cf",
+        "8da7cc5a-8e91-43af-b764-bc6c281470ba",
+        "a2fc2f4e-8c8c-427c-bcc3-82f4eb922aa9"
+      ],
+      "support_status": "unmapped",
+      "verification_status": "unverified"
+    },
+    {
+      "source_ids": [
+        "c41fbd53-e6f3-4d38-8818-1a330d2767cf",
+        "8da7cc5a-8e91-43af-b764-bc6c281470ba",
+        "a2fc2f4e-8c8c-427c-bcc3-82f4eb922aa9"
+      ],
+      "support_status": "unmapped",
+      "verification_status": "unverified"
+    },
+    {
+      "source_ids": [
+        "c41fbd53-e6f3-4d38-8818-1a330d2767cf"
+      ],
+      "support_status": "mapped",
+      "verification_status": "unverified"
+    },
+    {
+      "source_ids": [
+        "c41fbd53-e6f3-4d38-8818-1a330d2767cf",
+        "8da7cc5a-8e91-43af-b764-bc6c281470ba",
+        "a2fc2f4e-8c8c-427c-bcc3-82f4eb922aa9"
+      ],
+      "support_status": "unmapped",
+      "verification_status": "unverified"
+    },
+    {
+      "source_ids": [
+        "c41fbd53-e6f3-4d38-8818-1a330d2767cf",
+        "8da7cc5a-8e91-43af-b764-bc6c281470ba",
+        "a2fc2f4e-8c8c-427c-bcc3-82f4eb922aa9"
+      ],
+      "support_status": "unmapped",
+      "verification_status": "unverified"
+    },
+    {
+      "source_ids": [
+        "c41fbd53-e6f3-4d38-8818-1a330d2767cf"
+      ],
+      "support_status": "mapped",
+      "verification_status": "unverified"
+    },
+    {
+      "source_ids": [
+        "c41fbd53-e6f3-4d38-8818-1a330d2767cf",
+        "8da7cc5a-8e91-43af-b764-bc6c281470ba",
+        "a2fc2f4e-8c8c-427c-bcc3-82f4eb922aa9"
+      ],
+      "support_status": "unmapped",
+      "verification_status": "unverified"
+    },
+    {
+      "source_ids": [
+        "c41fbd53-e6f3-4d38-8818-1a330d2767cf",
+        "8da7cc5a-8e91-43af-b764-bc6c281470ba",
+        "a2fc2f4e-8c8c-427c-bcc3-82f4eb922aa9"
+      ],
+      "support_status": "unmapped",
+      "verification_status": "unverified"
+    },
+    {
+      "source_ids": [
+        "8da7cc5a-8e91-43af-b764-bc6c281470ba"
+      ],
+      "support_status": "mapped",
+      "verification_status": "unverified"
+    },
+    {
+      "source_ids": [
+        "a2fc2f4e-8c8c-427c-bcc3-82f4eb922aa9"
+      ],
+      "support_status": "mapped",
+      "verification_status": "unverified"
+    },
+    {
+      "source_ids": [
+        "a2fc2f4e-8c8c-427c-bcc3-82f4eb922aa9"
+      ],
+      "support_status": "mapped",
+      "verification_status": "unverified"
+    },
+    {
+      "source_ids": [
+        "8da7cc5a-8e91-43af-b764-bc6c281470ba"
+      ],
+      "support_status": "mapped",
+      "verification_status": "unverified"
+    },
+    {
+      "source_ids": [
+        "a2fc2f4e-8c8c-427c-bcc3-82f4eb922aa9"
+      ],
+      "support_status": "mapped",
+      "verification_status": "unverified"
+    }
+  ],
+  "finding": "Source linkage was retained; factual support remains unverified."
+}

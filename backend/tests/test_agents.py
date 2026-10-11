@@ -28,8 +28,11 @@ def test_role_catalog_builds_nine_typed_agents_with_fresh_models() -> None:
     assert all(first[role].agent.model is not second[role].agent.model for role in Role)
     for role, configured in first.items():
         assert isinstance(configured.agent, Agent)
-        assert isinstance(configured.agent.output_schema, type)
-        assert issubclass(configured.agent.output_schema, BaseModel)
+        if role is Role.RESEARCHER:
+            assert configured.agent.output_schema is None
+        else:
+            assert isinstance(configured.agent.output_schema, type)
+            assert issubclass(configured.agent.output_schema, BaseModel)
         assert configured.agent.tool_call_limit == settings.agent_tool_call_limit
         assert configured.agent.skills is not None
         assert configured.agent.skills.get_skill_names() == [
