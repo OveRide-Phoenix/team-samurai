@@ -1,0 +1,104 @@
+version: "3"
+
+vars:
+  COMPOSE: uv tool run --from podman-compose==1.6.0 podman-compose
+
+tasks:
+  default:
+    desc: Start the Samurai backend and its local database
+    cmds:
+      - task: backend:dev
+
+  setup:
+    desc: Create missing private backend configuration and install locked Python dependencies
+    preconditions:
+      - sh: command -v uv >/dev/null
+        msg: uv is required; install it before running task setup.
+    cmds:
+      - uv sync --locked --directory backend
+      - uv run --directory backend python ../scripts/local_setup.py init-backend "{{.ROOT_DIR}}"
+      - uv run --directory backend python ../scripts/local_setup.py validate "{{.ROOT_DIR}}"
+
+  db:up:
+    desc: Start only the Samurai PostgreSQL service and wait until it is healthy
+    dotenv: [.env]
+    deps: [_podman]
+    preconditions:
+      - sh: test -f .env
+        msg: Run task setup before starting PostgreSQL.
+    cmds:
+      - "{{.COMPOSE}} up -d --wait --no-recreate postgres"
+
+  db:status:
+    desc: Show the Samurai PostgreSQL service status
+    dotenv: [.env]
+    deps: [_podman]
+    cmds:
+      - "{{.COMPOSE}} ps"
+
+  db:logs:
+    desc: Follow logs for only the Samurai PostgreSQL service
+    deps: [_podman]
+    cmds:
+      - podman logs --tail 100 --follow team-samurai_postgres_1
+
+  db:stop:
+    desc: Stop only the Samurai PostgreSQL service and preserve its data volume
+    dotenv: [.env]
+    deps: [_podman]
+    cmds:
+      - "{{.COMPOSE}} stop postgres"
+
+  backend:dev:
+    desc: Start the Samurai backend in the foreground on port 8000
+    cmds:
+      - task: setup
+      - uv run --directory backend python ../scripts/local_setup.py check-port 8000 backend
+      - task: db:up
+      - uv run --directory backend uvicorn samurai.app:create_app --factory --app-dir src --host 127.0.0.1 --port 8000
+
+  frontend:setup:
+    desc: Create missing private frontend configuration and install locked Node dependencies
+    preconditions:
+      - sh: command -v npm >/dev/null
+        msg: npm is required only for optional frontend development.
+    cmds:
+      - task: setup
+      - uv run --directory backend python ../scripts/local_setup.py init-frontend "{{.ROOT_DIR}}"
+      - npm --prefix frontend ci
+
+  frontend:dev:
+    desc: Start the optional frontend in the foreground on port 3000
+    cmds:
+      - task: frontend:setup
+      - uv run --directory backend python ../scripts/local_setup.py check-port 3000 frontend
+      - npm --prefix frontend run dev
+
+  check:
+    desc: Run backend and frontend static checks, tests, and builds
+    cmds:
+      - task: setup
+      - uv run --directory backend ruff check src tests ../scripts/local_setup.py
+      - uv run --directory backend ruff format --check src tests ../scripts/local_setup.py
+      - uv run --directory backend basedpyright src tests ../scripts/local_setup.py
+      - uv run --directory backend pytest
+      - task: frontend:setup
+      - npm --prefix frontend run check
+      - npm --prefix frontend run build
+
+  health:
+    desc: Check the local PostgreSQL service and running backend without a model call
+    dotenv: [.env]
+    deps: [_podman]
+    cmds:
+      - "{{.COMPOSE}} exec -T postgres pg_isready -U samurai -d samurai"
+      - curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8000/agentos/health >/dev/null
+      - echo "Samurai PostgreSQL and backend health checks passed."
+
+  _podman:
+    internal: true
+    preconditions:
+      - sh: command -v podman >/dev/null
+        msg: Podman is required; install it before using database tasks.
+      - sh: podman info >/dev/null 2>&1
+        msg: Podman is unavailable; start the existing machine with `podman machine start`.
