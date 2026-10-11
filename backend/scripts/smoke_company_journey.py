@@ -97,18 +97,17 @@ async def _run(arguments: _Arguments) -> None:
         if not isinstance(step, StepOutput):
             raise SmokeError
         step_names.append(step.step_name or "")
-    if (
-        result.outcome != "verified"
-        or [artifact.artifact_type for artifact in artifacts] != expected_types
-        or [artifact.revision for artifact in artifacts] != [1, 2, 3, 4, 5]
-        or [artifact.input_revision for artifact in artifacts] != [0, 1, 2, 3, 4]
-        or any(
-            claim.verification_status != "unverified"
+    complete = (
+        result.outcome == "verified"
+        and [artifact.artifact_type for artifact in artifacts] == expected_types
+        and [artifact.revision for artifact in artifacts] == [1, 2, 3, 4, 5]
+        and [artifact.input_revision for artifact in artifacts] == [0, 1, 2, 3, 4]
+        and all(
+            claim.verification_status == "unverified"
             for artifact in artifacts
             for claim in artifact.claims
         )
-    ):
-        raise SmokeError
+    )
     _ = sys.stdout.write(
         json.dumps(
             {
@@ -122,7 +121,8 @@ async def _run(arguments: _Arguments) -> None:
                         "revision": artifact.revision,
                         "input_revision": artifact.input_revision,
                         "status": artifact.status,
-                        "sources": [str(source.url) for source in artifact.sources],
+                        "source_count": len(artifact.sources),
+                        "claim_count": len(artifact.claims),
                         "claim_verification": [
                             claim.verification_status for claim in artifact.claims
                         ],
@@ -134,6 +134,8 @@ async def _run(arguments: _Arguments) -> None:
         )
         + "\n"
     )
+    if not complete:
+        raise SmokeError
 
 
 if __name__ == "__main__":
