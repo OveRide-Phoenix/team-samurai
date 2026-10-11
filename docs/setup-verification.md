@@ -45,3 +45,13 @@
 - Updated the frontend backend-base template and ignored local configuration. No credentials were staged. The temporary Samurai server was stopped; Reporting was unchanged.
 - The installed Agno OpenAPI generator emits a duplicate `get_config` operation-ID warning; the schema request succeeds. Google GenAI's existing Python deprecation warning also remains.
 - This increment did not rerun paid model generation or resolve the hosted Agno 403. The real control-plane JWT key and UI acceptance are still pending. Reporting also explicitly enables private-network CORS; that is a separate browser-access consideration, not evidence explaining the hosted 403.
+
+
+## Real JWT connection acceptance
+
+- A later retry at `http://localhost:8000/agentos` in a separate Chrome window successfully created **Samurai Local** with JWT enabled. The prior hosted 403 did not recur; its exact original cause remains unknown.
+- Installed the issued public verification key only in ignored `backend/.env` (mode 600). JWT remains RS256 with native user isolation; the Google key and database password were not entered into Agno.
+- The UI showed **Samurai Local Active**, the main workflow and all three starter prompts. Server logs confirmed authenticated config/workflow discovery returned 200 and the workflow WebSocket was accepted.
+- The dental-clinic starter prompt began a workflow but remained at 0/2 steps; the persisted session also showed RUNNING with no completed steps. UI cancellation completed visibly with “Cancelled during execution”. Session: `6a3ec2fd-c531-48f8-9fae-b78d16931a42`. This does not supersede the prior successful API streaming tests or prove UI execution acceptance.
+- Non-JWT fallback was unnecessary because JWT authentication succeeded. No backend authentication was disabled. Reporting's connection and runtime were not changed.
+- The task-created Chrome tab and temporary Samurai process were closed after testing. The saved Agno connection and ignored local key remain available for the next run.

@@ -14,7 +14,7 @@ The owner's Agno proposal selects a workflow-first implementation of AI Idea →
 | Records | PostgreSQL locally through Podman; Cloud SQL in production | Local database configuration and Agno database adapter |
 | Artifacts | Cloud Storage with metadata/revision references in PostgreSQL | Planned |
 | Hosting | Cloud Run for the Python service and server-capable Next.js | Planned |
-| Identity | JWT authentication plus company-scoped backend authorization | Optional RS256 JWT/scope enforcement and user isolation configured and tested; actual control-plane key and company authorization remain pending |
+| Identity | JWT authentication plus company-scoped backend authorization | Optional RS256 JWT/scope enforcement and user isolation configured and tested; real control-plane key installed and authenticated discovery verified; company authorization remains pending |
 
 Agno agents are reasoning roles, not independent services. Workflow state connects their inputs and outputs. Deterministic code must own validation, authorization, calculations, and execution controls. Preserve the root README's product story and architecture map.
 

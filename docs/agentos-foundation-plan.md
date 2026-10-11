@@ -14,19 +14,18 @@ and [skills example](https://docs.agno.com/examples/agent-os/skills/basic).
    starter prompts, ordered step events, PostgreSQL sessions, and history follow-ups.
 3. **Done:** local bearer access, optional RS256 JWT scope enforcement with user
    isolation, restricted CORS, offline checks, and live API verification.
-4. **Blocked on hosted connection creation:** sign-in and manual local health
-   succeed, but Agno's hosted `POST /api/v1/operating-systems/` returns 403, as
-   shown by the user's DevTools capture. No JWT public key has been installed.
-   Resolve the hosted access failure, then complete local JWT and UI acceptance.
+4. **Connected; execution acceptance partial:** Samurai Local was created in a
+   separate Chrome window at `localhost:8000/agentos`. Its public key is configured
+   locally; JWT discovery, starter prompts and workflow WebSocket access succeed.
+   The first UI run stalled in its draft step and was cancelled visibly.
 5. **Partial:** native tracing is enabled and HTTP traces persist. Workflow/session
    correlation is not observed with the installed instrumentation; use stored run
    events for step/skill evidence. This is not a claim of complete trace coverage.
 
 ## Next implementation sequence
 
-1. Finish the local browser connection once localhost access is available. Install
-   Samurai's own public verification key, verify starter prompts, run a new idea,
-   reload its session, and ask a follow-up. Preserve the existing Reporting connection.
+1. Diagnose the first-step stall in the UI's WebSocket run, then complete a new
+   idea and reload/follow-up acceptance. JWT connection no longer blocks this work.
 2. Add typed research evidence and Gemini Search grounding. Store source URLs,
    timestamps, supported claims, conflicting evidence, and explicit uncertainty.
 3. Add strategy and product-plan steps consuming that evidence, followed by a

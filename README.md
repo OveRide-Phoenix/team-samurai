@@ -119,7 +119,7 @@ Requirements: Python 3.14, uv, Node.js 24 or 26, npm, and a running Podman machi
 
 Health endpoints show process liveness, not proof of Gemini access or a completed business workflow. Keep the shared backend key server-side; this local bootstrap must not be exposed as a multi-user service.
 
-PostgreSQL sessions and restart follow-ups now pass after restarting only Samurai's container. Manual navigation to the local health endpoint works in the in-built browser, but the `os.agno.com` connection remains incomplete. [Setup verification](docs/setup-verification.md) distinguishes passing API checks from pending browser acceptance.
+PostgreSQL sessions and restart follow-ups now pass after restarting only Samurai's container. The `os.agno.com` Samurai Local connection now authenticates with JWT and displays the workflow and starter prompts. The first UI workflow run stalled and was cancelled, so full UI execution acceptance remains open. [Setup verification](docs/setup-verification.md) records the evidence.
 
 ## Contributing
 
