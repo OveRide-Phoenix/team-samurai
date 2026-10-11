@@ -15,6 +15,10 @@ if TYPE_CHECKING:
 
 RESOURCES: Final = Path(__file__).parent
 WORKFLOW_ID: Final = "company-foundation"
+WORKFLOW_NAME: Final = "Samurai — Build My Business"
+WORKFLOW_DESCRIPTION: Final = (
+    "Clarify a company idea, preserve assumptions, and identify missing context."
+)
 STARTER_PROMPTS: Final = [
     "Build my business: an AI receptionist for Indian dental clinics. Start with a company brief.",
     "Help me clarify my customer, budget, skills, and goals before planning my business.",
@@ -88,8 +92,8 @@ def create_foundation(db: BaseDb, model: Gemini) -> Workflow:
     main_agent.telemetry = False
     return Workflow(
         id=WORKFLOW_ID,
-        name="Samurai — Build My Business",
-        description="Clarify a company idea, preserve assumptions, and identify missing context.",
+        name=WORKFLOW_NAME,
+        description=WORKFLOW_DESCRIPTION,
         db=db,
         agent=main_agent,
         steps=[

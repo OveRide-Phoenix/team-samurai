@@ -9,14 +9,24 @@ from agno.os import AgentOS
 from agno.os.authz import Authorization
 from agno.os.config import AgentOSConfig, ChatConfig
 from agno.os.settings import AgnoAPISettings
+from agno.workflow import WorkflowFactory
 from fastapi import FastAPI
 from pydantic import Field, PostgresDsn, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from samurai.foundation import STARTER_PROMPTS, WORKFLOW_ID, create_foundation
+from samurai.foundation import (
+    STARTER_PROMPTS,
+    WORKFLOW_DESCRIPTION,
+    WORKFLOW_ID,
+    WORKFLOW_NAME,
+    create_foundation,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
+
+    from agno.factory import RequestContext
+    from agno.workflow import Workflow
 
 
 class Settings(BaseSettings):
@@ -35,28 +45,45 @@ class Settings(BaseSettings):
     jwt_verification_key: str | None = None
 
 
+def create_foundation_workflow(db: PostgresDb, settings: Settings) -> Workflow:
+    """Build one request-scoped workflow with a fresh Gemini model."""
+    api_key = settings.google_api_key.get_secret_value()
+
+    return create_foundation(
+        db,
+        Gemini(
+            id=settings.gemini_model,
+            api_key=api_key,
+            max_output_tokens=4096,
+            timeout=60,
+        ),
+    )
+
+
+def _create_foundation_factory(db: PostgresDb, settings: Settings) -> WorkflowFactory:
+    def build_foundation(_context: RequestContext) -> Workflow:
+        return create_foundation_workflow(db, settings)
+
+    return WorkflowFactory(
+        id=WORKFLOW_ID,
+        name=WORKFLOW_NAME,
+        description=WORKFLOW_DESCRIPTION,
+        db=db,
+        factory=build_foundation,
+    )
+
+
 def create_app() -> FastAPI:
     """Build a local secured runtime; registration does not invoke Gemini."""
     settings = Settings.model_validate({})
     db = PostgresDb(id="samurai", db_url=str(settings.database_url))
     api_key = settings.google_api_key.get_secret_value()
+
     runtime = AgentOS(
         id="samurai",
         name="AI Idea to Company",
         db=db,
-        workflows=[
-            create_foundation(
-                db,
-                Gemini(
-                    id=settings.gemini_model,
-                    api_key=api_key,
-                    max_output_tokens=4096,
-                    timeout=60,
-                ),
-            ),
-        ]
-        if api_key
-        else [],
+        workflows=[_create_foundation_factory(db, settings)] if api_key else [],
         config=AgentOSConfig(chat=ChatConfig(quick_prompts={WORKFLOW_ID: STARTER_PROMPTS})),
         settings=AgnoAPISettings(os_security_key=settings.os_security_key.get_secret_value()),
         authorization=Authorization(

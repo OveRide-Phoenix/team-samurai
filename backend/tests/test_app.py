@@ -1,4 +1,5 @@
 import pytest
+from agno.db.postgres import PostgresDb
 from agno.os.routers.workflows.schema import WorkflowResponse
 from agno.os.schema import ConfigResponse
 from fastapi.testclient import TestClient
@@ -59,10 +60,24 @@ def test_config_exposes_conversational_workflow(monkeypatch: pytest.MonkeyPatch)
     assert config.workflows[0].id == "company-foundation"
     assert config.chat is not None
     assert len(config.chat.quick_prompts["company-foundation"]) == 3
-    assert detail.workflow_agent is True
-    assert detail.steps is not None
-    assert len(detail.steps) == 2
+    assert detail.is_factory is True
     assert cors.headers["access-control-allow-origin"] == "https://os.agno.com"
+
+
+def test_workflow_builder_creates_fresh_models(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given a model-enabled workflow factory.
+    monkeypatch.setenv("GOOGLE_API_KEY", "not-a-real-key")
+    settings = app.Settings.model_validate({})
+    db = PostgresDb(id="samurai", db_url=str(settings.database_url))
+    # When two independent workflow requests are resolved.
+    first = app.create_foundation_workflow(db, settings)
+    second = app.create_foundation_workflow(db, settings)
+    # Then neither request can inherit mutable Gemini state from the other.
+    assert first.agent is not None
+    assert second.agent is not None
+    assert first.agent.model is not second.agent.model
 
 
 def test_agentos_mount_keeps_root_routes_separate() -> None:
