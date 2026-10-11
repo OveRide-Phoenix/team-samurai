@@ -37,7 +37,7 @@ from agno.session.workflow import WorkflowSession
 from agno.skills import LocalSkills, Skills
 from agno.tools.function import Function
 from agno.workflow import Step, StepInput, Workflow
-from pydantic import AwareDatetime, ConfigDict, ValidationError
+from pydantic import AwareDatetime, ConfigDict, JsonValue, ValidationError
 
 from samurai.agents import ROLE_CAPABILITIES, create_role_catalog
 from samurai.analysis_workflow import (
@@ -93,6 +93,20 @@ STARTER_PROMPTS: Final = [
     "Create reviewable Builder, Marketer, and Sales drafts from my verified plan.",
     "Analyze these provenance-labelled business metrics and recommend what to improve.",
 ]
+METRIC_INPUT_QUESTIONS: Final = (
+    "What exact unit, UTC window_start, UTC window_end, and UTC collected_at apply to each metric?",
+    "What source_label identifies where each founder-supplied metric came from?",
+)
+ANALYZE_METRICS_PARAMETERS: Final[dict[str, JsonValue]] = {
+    "type": "object",
+    "properties": {
+        "measurements": {
+            "type": "array",
+            "items": FounderMetricInput.model_json_schema(),
+        }
+    },
+    "required": ["measurements"],
+}
 
 
 class CompanyStateSummary(Contract):
@@ -714,6 +728,29 @@ async def _analyze_metrics(
     return result
 
 
+def _requires_metrics(
+    db: BaseDb,
+    run_context: RunContext,
+    *,
+    ask_for_details: bool = False,
+) -> WorkflowResult:
+    _, state = _child_state(db, run_context)
+    if state is None:
+        raise ParentContextError(ParentContextIssue.JOURNEY_REQUIRED_FOR_ANALYSIS)
+    if ask_for_details:
+        return WorkflowResult(
+            company_id=state.context.company_id,
+            revision=state.current_revision,
+            outcome="needs_input",
+            questions=METRIC_INPUT_QUESTIONS,
+        )
+    return WorkflowResult(
+        company_id=state.context.company_id,
+        revision=state.current_revision,
+        outcome="requires_metrics",
+    )
+
+
 def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded tool surface.
     db: BaseDb,
     settings: Settings,
@@ -822,18 +859,25 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
         return _ParentWorkflowResult.model_validate(result)
 
     async def analyze_metrics(
-        measurements: tuple[_FounderMetricToolInput, ...],
         run_context: RunContext,
+        measurements: tuple[_FounderMetricToolInput, ...] = (),
     ) -> WorkflowResult:
         """Analyze eligible founder metrics without changing their provenance."""
-        metrics = tuple(FounderMetricInput.model_validate(metric) for metric in measurements)
+        if not measurements:
+            result = _requires_metrics(db, run_context)
+            return _ParentWorkflowResult.model_validate(result.model_dump())
+        try:
+            metrics = tuple(FounderMetricInput.model_validate(metric) for metric in measurements)
+        except ValidationError:
+            result = _requires_metrics(db, run_context, ask_for_details=True)
+            return _ParentWorkflowResult.model_validate(result.model_dump())
         try:
             result = await _analyze_metrics(db, settings, metrics, run_context)
         except ParentContextError, StopAgentRun:
             raise
         except Exception:  # noqa: BLE001 - child details must stop before Agno logs them.
             raise _ChildWorkflowError from None
-        return _ParentWorkflowResult.model_validate(result)
+        return _ParentWorkflowResult.model_validate(result.model_dump())
 
     def read_company_state(run_context: RunContext) -> CompanyStateSummary:
         """Read the canonical company state bound to this parent session."""
@@ -891,10 +935,20 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
         for tool in (
             run_company_journey,
             create_launch_drafts,
-            analyze_metrics,
             read_company_state,
         )
     ]
+    tools.insert(
+        2,
+        Function(
+            name=analyze_metrics.__name__,
+            entrypoint=analyze_metrics,
+            parameters=ANALYZE_METRICS_PARAMETERS,
+            skip_entrypoint_processing=True,
+            stop_after_tool_call=True,
+            show_result=True,
+        ),
+    )
     skills = _BoundedSkills(
         loaders=[
             LocalSkills(

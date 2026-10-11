@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Never, cast, final, override
 from uuid import UUID
 
 import anyio
+import pytest
 from agno.agent import Agent
 from agno.db.base import SessionType
 from agno.db.sqlite import SqliteDb
@@ -19,14 +20,16 @@ from agno.run.cancel import aget_active_runs
 from agno.session.agent import AgentSession
 from agno.session.workflow import WorkflowSession
 from agno.tools.function import Function
+from agno.utils.gemini import format_function_definitions
 from agno.workflow import Step, StepInput, StepOutput, Workflow
 from fastapi.testclient import TestClient
-from pydantic import HttpUrl
+from pydantic import HttpUrl, JsonValue
 
 from samurai.agents import ROLE_CAPABILITIES, ConfiguredRole
 from samurai.app import create_app
 from samurai.config import Settings
 from samurai.contracts import (
+    AnalysisArtifact,
     Assumption,
     CompanyBrief,
     CompanyState,
@@ -40,6 +43,7 @@ from samurai.contracts import (
     VerificationArtifact,
     VerificationFinding,
     WorkflowResult,
+    create_company_state,
 )
 from samurai.parent import (
     PARENT_AGENT_ID,
@@ -52,9 +56,15 @@ if TYPE_CHECKING:
     import pathlib
     from collections.abc import Awaitable, Callable
 
-    import pytest
     from agno.models.message import Message
     from agno.run.agent import RunOutput
+
+NOW = datetime(2026, 10, 11, tzinfo=UTC)
+METRIC_TIME_FIELDS = "unit, UTC window_start, UTC window_end, and UTC collected_at"
+EXPECTED_METRIC_QUESTIONS = (
+    f"What exact {METRIC_TIME_FIELDS} apply to each metric?",
+    "What source_label identifies where each founder-supplied metric came from?",
+)
 
 
 @final
@@ -303,6 +313,245 @@ def test_parent_exposes_only_four_bounded_business_tools(tmp_path: pathlib.Path)
         "get_skill_reference",
     }
     assert all(not tool.stop_after_tool_call for tool in agent.skills.get_tools())
+
+
+def test_native_parent_advertises_complete_gemini_metric_schema(
+    tmp_path: pathlib.Path,
+) -> None:
+    model = _ToolSequenceModel()
+    agent = create_parent_agent(
+        SqliteDb(db_file=str(tmp_path / "metric-schema.db")),
+        Settings.model_validate({}),
+        model=model,
+    )
+
+    result = anyio.run(_run_agent, agent, "What metrics can you analyze?", "schema-session")
+    advertised = cast("list[dict[str, JsonValue]]", json.loads(model.advertised_tools_json))
+    metric_function = next(
+        cast("dict[str, JsonValue]", item["function"])
+        for item in advertised
+        if cast("dict[str, JsonValue]", item["function"])["name"] == "analyze_metrics"
+    )
+    parameters = cast("dict[str, JsonValue]", metric_function["parameters"])
+    measurement_array = cast(
+        "dict[str, JsonValue]",
+        cast("dict[str, JsonValue]", parameters["properties"])["measurements"],
+    )
+    measurement = cast("dict[str, JsonValue]", measurement_array["items"])
+    required_fields = [
+        "name",
+        "value",
+        "unit",
+        "window_start",
+        "window_end",
+        "source_label",
+        "collected_at",
+    ]
+
+    gemini_tool = format_function_definitions(advertised)
+    assert gemini_tool is not None
+    gemini_payload = cast(
+        "dict[str, JsonValue]", gemini_tool.model_dump(mode="json", exclude_none=True)
+    )
+    declarations = cast("list[dict[str, JsonValue]]", gemini_payload["function_declarations"])
+    gemini_function = next(item for item in declarations if item["name"] == "analyze_metrics")
+    gemini_parameters = cast("dict[str, JsonValue]", gemini_function["parameters"])
+    gemini_measurement_array = cast(
+        "dict[str, JsonValue]",
+        cast("dict[str, JsonValue]", gemini_parameters["properties"])["measurements"],
+    )
+    gemini_measurement = cast("dict[str, JsonValue]", gemini_measurement_array["items"])
+
+    assert result.status == RunStatus.completed
+    assert list(cast("dict[str, JsonValue]", measurement["properties"])) == required_fields
+    assert measurement["required"] == required_fields
+    assert list(cast("dict[str, JsonValue]", gemini_measurement["properties"])) == required_fields
+    assert gemini_measurement["required"] == required_fields
+
+
+@pytest.mark.parametrize(
+    ("arguments", "expected_outcome", "expected_questions"),
+    [
+        ({}, "requires_metrics", ()),
+        ({"measurements": []}, "requires_metrics", ()),
+        (
+            {
+                "measurements": [
+                    {
+                        "timeframe": "30 days",
+                        "metric_name": "qualified_leads",
+                        "metric_value": 12,
+                    }
+                ]
+            },
+            "needs_input",
+            EXPECTED_METRIC_QUESTIONS,
+        ),
+        (
+            {
+                "measurements": [
+                    {
+                        "time_window": "last 7 days",
+                        "source_label": "manual founder spreadsheet",
+                        "metric_value": 12,
+                        "metric_name": "qualified leads",
+                    }
+                ]
+            },
+            "needs_input",
+            EXPECTED_METRIC_QUESTIONS,
+        ),
+    ],
+    ids=["omitted", "empty", "unlabeled", "labeled-relative-window"],
+)
+def test_incomplete_metric_calls_require_exact_evidence_without_child_run(
+    arguments: dict[str, JsonValue],
+    expected_outcome: str,
+    expected_questions: tuple[str, ...],
+    tmp_path: pathlib.Path,
+) -> None:
+    parent_session_id = "metric-input-session"
+    database = SqliteDb(db_file=str(tmp_path / "metric-input.db"))
+    original_state = create_company_state(parent_session_id, created_at=NOW)
+    child_id = child_session_id("founder", parent_session_id)
+    _ = database.upsert_session(
+        WorkflowSession(
+            session_id=child_id,
+            user_id="founder",
+            workflow_id="company-journey",
+            session_data={"session_state": {"company": original_state.model_dump(mode="json")}},
+        )
+    )
+    model = _ToolSequenceModel(
+        "analyze_metrics",
+        arguments={"analyze_metrics": json.dumps(arguments)},
+    )
+    settings = Settings.model_validate({})
+    with TestClient(
+        create_app(
+            db=database,
+            settings=settings,
+            parent_model_factory=lambda: model,
+        )
+    ) as client:
+        response = client.post(
+            "/agentos/agents/samurai/runs",
+            headers={"Authorization": f"Bearer {settings.os_security_key.get_secret_value()}"},
+            data={
+                "message": "Analyze the founder metric without inventing missing evidence.",
+                "session_id": parent_session_id,
+                "user_id": "founder",
+                "stream": "false",
+            },
+        )
+
+    payload = cast("dict[str, object]", response.json())
+    result = WorkflowResult.model_validate_json(cast("str", payload["content"]))
+    child = database.get_session(child_id, user_id="founder")
+
+    assert response.status_code == 200
+    assert payload["status"] == RunStatus.completed.value
+    assert result.outcome == expected_outcome
+    assert result.artifacts == ()
+    assert result.questions == expected_questions
+    assert isinstance(child, WorkflowSession)
+    assert child.runs in (None, [])
+    assert child.session_data == {
+        "session_state": {"company": original_state.model_dump(mode="json")}
+    }
+
+
+def test_complete_metric_call_remains_conditional_and_founder_supplied(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parent_session_id = "complete-metric-session"
+    database = SqliteDb(db_file=str(tmp_path / "complete-metric.db"))
+    original_state = create_company_state(parent_session_id, created_at=NOW)
+    child_id = child_session_id("founder", parent_session_id)
+    _ = database.upsert_session(
+        WorkflowSession(
+            session_id=child_id,
+            user_id="founder",
+            workflow_id="company-journey",
+            session_data={"session_state": {"company": original_state.model_dump(mode="json")}},
+        )
+    )
+    assessment = AnalysisArtifact(
+        metric_ids=(UUID("00000000-0000-0000-0000-000000000201"),),
+        findings=("Twelve qualified leads were founder supplied.",),
+        recommendations=("Verify the lead count through a trusted connector.",),
+        basis="connected_measurements",
+    )
+    analyst = Agent(
+        id="test-analyst",
+        model=_StaticRoleModel(assessment.model_dump_json()),
+        output_schema=AnalysisArtifact,
+        telemetry=False,
+    )
+
+    def analyst_catalog(_settings: Settings) -> dict[Role, ConfiguredRole]:
+        return {
+            Role.ANALYST: ConfiguredRole(
+                agent_id="test-analyst",
+                agent=analyst,
+                capability=ROLE_CAPABILITIES[Role.ANALYST],
+                instructions="test",
+            )
+        }
+
+    monkeypatch.setattr(
+        "samurai.parent.create_role_catalog",
+        analyst_catalog,
+    )
+    arguments = {
+        "measurements": [
+            {
+                "name": "qualified_leads",
+                "value": 12,
+                "unit": "leads",
+                "window_start": "2026-10-04T00:00:00Z",
+                "window_end": "2026-10-10T23:00:00Z",
+                "source_label": "manual founder spreadsheet",
+                "collected_at": "2026-10-11T00:00:00Z",
+            }
+        ]
+    }
+    model = _ToolSequenceModel(
+        "analyze_metrics",
+        arguments={"analyze_metrics": json.dumps(arguments)},
+    )
+    settings = Settings.model_validate({})
+    with TestClient(
+        create_app(
+            db=database,
+            settings=settings,
+            parent_model_factory=lambda: model,
+        )
+    ) as client:
+        response = client.post(
+            "/agentos/agents/samurai/runs",
+            headers={"Authorization": f"Bearer {settings.os_security_key.get_secret_value()}"},
+            data={
+                "message": "Analyze this complete founder-supplied metric conditionally.",
+                "session_id": parent_session_id,
+                "user_id": "founder",
+                "stream": "false",
+            },
+        )
+
+    payload = cast("dict[str, object]", response.json())
+    result = WorkflowResult.model_validate_json(cast("str", payload["content"]))
+    measurement = result.artifacts[0].measurements[0]
+
+    assert response.status_code == 200
+    assert payload["status"] == RunStatus.completed.value
+    assert result.outcome == "based_on_founder_supplied_metrics"
+    assert measurement.provenance == "founder_supplied"
+    assert measurement.trusted_connector_receipt is None
+    assert measurement.source_label == "manual founder spreadsheet"
+    assert measurement.name == "qualified_leads"
+    assert measurement.value == 12
 
 
 def test_company_journey_requires_all_brief_fields_before_child_start(
