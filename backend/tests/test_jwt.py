@@ -24,7 +24,7 @@ def test_jwt_mode_rejects_shared_key_and_accepts_signed_identity(
     token = jwt.encode(
         {
             "sub": "local-test-founder",
-            "scopes": ["agent_os:admin"],
+            "scopes": ["config:read"],
             "exp": datetime.now(UTC) + timedelta(minutes=5),
         },
         private_key,
