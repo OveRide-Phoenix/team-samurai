@@ -161,6 +161,19 @@ def _test_app(db: SqliteDb, model: Model, public_key: str) -> FastAPI:
     )
 
 
+def _create_completed_run(client: TestClient, headers: dict[str, str], session_id: str) -> str:
+    response = client.post(
+        "/agentos/agents/samurai/runs",
+        headers=headers,
+        data={"message": "start", "session_id": session_id, "stream": "false"},
+    )
+    assert response.status_code == 200
+    payload = cast("dict[str, object]", response.json())
+    run_id = payload["run_id"]
+    assert isinstance(run_id, str)
+    return run_id
+
+
 def create_restart_app() -> FastAPI:
     db_file = os.environ["BOUNDARY_DB_FILE"]
     public_key = os.environ["BOUNDARY_PUBLIC_KEY"]
@@ -527,6 +540,90 @@ def test_oversized_duplicate_message_fails_before_model_or_session(
     assert response.status_code == 422
     assert models == []
     assert db.get_session(f"duplicate-{encoding}") is None
+
+
+@pytest.mark.parametrize("field", ["input", "additional_instructions"])
+def test_oversized_duplicate_continuation_field_fails_before_model(
+    tmp_path: Path, field: str
+) -> None:
+    # Given a completed native factory run and a hidden oversized duplicate continuation value.
+    private_key, public_key = _key_pair()
+    headers = {"Authorization": f"Bearer {_token(private_key, 'continue-user')}"}
+    db = SqliteDb(db_file=str(tmp_path / f"continue-{field}.db"))
+    models: list[DeterministicTextModel] = []
+
+    def model_factory() -> DeterministicTextModel:
+        model = DeterministicTextModel()
+        models.append(model)
+        return model
+
+    with TestClient(
+        create_app(
+            db=db,
+            settings=Settings.model_validate({"jwt_verification_key": public_key}),
+            parent_model_factory=model_factory,
+        )
+    ) as client:
+        run_id = _create_completed_run(client, headers, "continue-session")
+        response = client.post(
+            f"/agentos/agents/samurai/runs/{run_id}/continue",
+            headers={**headers, "Content-Type": "application/x-www-form-urlencoded"},
+            content=urlencode(
+                [
+                    ("session_id", "continue-session"),
+                    (field, "short"),
+                    (field, "x" * 20_001),
+                    ("stream", "false"),
+                ]
+            ),
+        )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "request contains forbidden or oversized context"}
+    assert len(models) == 1
+    assert models[0].calls == 1
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected_detail"),
+    [
+        (b"session_id=continue-session&input=\xff&stream=false", "invalid request body"),
+        (b"padding=" + b"x" * 200_000, "request contains forbidden or oversized context"),
+    ],
+    ids=["malformed-utf8", "body-cap"],
+)
+def test_invalid_or_excessive_continuation_body_fails_before_model(
+    tmp_path: Path, payload: bytes, expected_detail: str
+) -> None:
+    # Given a completed native factory run and a malformed or excessive continuation form body.
+    private_key, public_key = _key_pair()
+    headers = {"Authorization": f"Bearer {_token(private_key, 'continue-body-user')}"}
+    db = SqliteDb(db_file=str(tmp_path / f"continue-body-{len(payload)}.db"))
+    models: list[DeterministicTextModel] = []
+
+    def model_factory() -> DeterministicTextModel:
+        model = DeterministicTextModel()
+        models.append(model)
+        return model
+
+    with TestClient(
+        create_app(
+            db=db,
+            settings=Settings.model_validate({"jwt_verification_key": public_key}),
+            parent_model_factory=model_factory,
+        )
+    ) as client:
+        run_id = _create_completed_run(client, headers, "continue-session")
+        response = client.post(
+            f"/agentos/agents/samurai/runs/{run_id}/continue",
+            headers={**headers, "Content-Type": "application/x-www-form-urlencoded"},
+            content=payload,
+        )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": expected_detail}
+    assert len(models) == 1
+    assert models[0].calls == 1
 
 
 @pytest.mark.parametrize("forbidden_field", ["session_state", "dependencies"])

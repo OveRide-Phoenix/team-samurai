@@ -41,6 +41,9 @@ if TYPE_CHECKING:
     from starlette.types import ASGIApp, Message, Receive, Scope, Send
 RUN_PATH: Final = f"/agentos/agents/{PARENT_AGENT_ID}/runs"
 RUN_READ_PATH: Final = "/agents/{agent_id}/runs/{run_id}"
+RUN_CONTINUE_PREFIX: Final = f"{RUN_PATH}/"
+RUN_CONTINUE_SUFFIX: Final = "/continue"
+CONTINUE_FORM_OVERHEAD_BYTES: Final = 16_384
 
 
 class _FactoryRunReadRouteMissingError(RuntimeError):
@@ -109,6 +112,20 @@ class _HttpRequestMessage(BaseModel):
     more_body: bool = False
 
 
+def _input_fields_for_path(path: str) -> tuple[str, ...] | None:
+    if path == RUN_PATH:
+        return ("message",)
+    run_id = path[len(RUN_CONTINUE_PREFIX) : -len(RUN_CONTINUE_SUFFIX)]
+    if (
+        path.startswith(RUN_CONTINUE_PREFIX)
+        and path.endswith(RUN_CONTINUE_SUFFIX)
+        and run_id
+        and "/" not in run_id
+    ):
+        return ("input", "additional_instructions")
+    return None
+
+
 @final
 @dataclass(frozen=True, slots=True)
 class _ParentInputBoundary:
@@ -116,9 +133,18 @@ class _ParentInputBoundary:
     max_input_chars: int
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or scope["method"] != "POST" or scope["path"] != RUN_PATH:
+        if scope["type"] != "http" or scope["method"] != "POST":
             await self.app(scope, receive, send)
             return
+        input_fields = _input_fields_for_path(cast("str", scope["path"]))
+        if input_fields is None:
+            await self.app(scope, receive, send)
+            return
+        max_body_bytes = (
+            None
+            if input_fields == ("message",)
+            else self.max_input_chars * 8 + CONTINUE_FORM_OVERHEAD_BYTES
+        )
 
         body = bytearray()
         more_body = True
@@ -128,6 +154,13 @@ class _ParentInputBoundary:
                 await self.app(scope, receive, send)
                 return
             body.extend(message.body)
+            if max_body_bytes is not None and len(body) > max_body_bytes:
+                response = JSONResponse(
+                    status_code=422,
+                    content={"detail": "request contains forbidden or oversized context"},
+                )
+                await response(scope, receive, send)
+                return
             more_body = message.more_body
         payload = bytes(body)
 
@@ -135,20 +168,31 @@ class _ParentInputBoundary:
             return {"type": "http.request", "body": payload, "more_body": False}
 
         try:
+            headers = cast("list[tuple[bytes, bytes]]", scope.get("headers", []))
+            if b"application/x-www-form-urlencoded" in dict(headers).get(b"content-type", b""):
+                _ = payload.decode("utf-8")
             form = await Request(scope, replay).form()
         except MultiPartException, UnicodeDecodeError:
             response = JSONResponse(status_code=422, content={"detail": "invalid request body"})
             await response(scope, replay, send)
             return
-        messages = form.getlist("message")
+        input_values = [value for field in input_fields for value in form.getlist(field)]
+        invalid_encoding = any(
+            isinstance(value, str) and "\ufffd" in value for value in input_values
+        )
         forbidden_context = "session_state" in form or "dependencies" in form
         oversized = any(
-            isinstance(message, str) and len(message) > self.max_input_chars for message in messages
+            isinstance(value, str) and len(value) > self.max_input_chars for value in input_values
         )
-        if forbidden_context or oversized:
+        detail = (
+            "invalid request body"
+            if invalid_encoding
+            else "request contains forbidden or oversized context"
+        )
+        if invalid_encoding or forbidden_context or oversized:
             response = JSONResponse(
                 status_code=422,
-                content={"detail": "request contains forbidden or oversized context"},
+                content={"detail": detail},
             )
             await response(scope, replay, send)
             return
