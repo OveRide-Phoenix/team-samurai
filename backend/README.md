@@ -14,11 +14,15 @@ Owns the server-side behavior for **AI Idea → Company**. Read the root [AGENTS
 
 Python 3.14, Agno AgentOS, Gemini, Pydantic, and PostgreSQL. See [the architecture decision](../docs/architecture.md) and [backend contributor instructions](AGENTS.md). Exact versions are pinned in `pyproject.toml` and `uv.lock`.
 
-The runtime exposes one conversational workflow, `company-foundation`, named **Samurai — Build My Business**, when `GOOGLE_API_KEY` is configured. Its native Agno `WorkflowAgent` routes new ideas and revisions through two ordered steps: draft a typed company brief, then deterministically check its structure and missing context. Follow-ups can use stored workflow history without rerunning the steps.
+When a Gemini model is configured, the current source registers one ordinary AgentOS agent, `samurai`, named **Samurai**. It is the only founder-facing agent; specialist agents are internal workflow executors. Its four bounded tools are `run_company_journey`, `create_launch_drafts`, `analyze_metrics`, and `read_company_state`. The model does not choose arbitrary role or workflow IDs, and trusted `RunContext` supplies user, parent session, child-session binding, company, and revision.
 
-The internal brief agent loads the instruction-only `company-intake` and `evidence-discipline` skills from `src/samurai/skills/`. Prompts live in `src/samurai/prompts/`; AgentOS exposes three starter prompts. These runtime skills are separate from contributor OMo/Ponytail skills. The main agent and brief agent have independent model instances for nested streaming.
+`run_company_journey` invokes the explicit intake → brief check → research → evidence check → strategy → product plan → verification workflow. `create_launch_drafts` runs Builder, Marketer, and Sales only after verified strategy and product inputs, and creates drafts only. `analyze_metrics` accepts eligible provenance-labelled metrics; founder-supplied metrics remain conditional and unverified. `read_company_state` returns a summary of canonical state for the current parent session. None of these tools sends, publishes, spends, contacts prospects, runs ads, or deploys.
 
-The result always reports `evidence_status=unverified`: schema validation is not research or market validation. Grounded research, strategy, launch kits, business record schemas, Cloud Storage, and production company authorization remain later phases. See [the foundation plan](../docs/agentos-foundation-plan.md).
+The parent session stores only `child_session_id`, `company_id`, and `current_revision`. The deterministic child workflow session owns canonical `CompanyState`: a backend-generated company ID and a contiguous, accepted artifact history. Every artifact records its input revision, producer, status, founder statements, assumptions, sources, claims, measurements where applicable, and verification findings. Stale or mismatched context is rejected before state changes.
+
+All internal roles load the local `evidence-discipline` and `action-boundaries` skills. Their native skill interface exposes only `get_skill_instructions`, `get_skill_reference`, and `get_skill_script` for inspection; it does not add execution authority. Prompts live in `src/samurai/prompts/`. These runtime skills are separate from contributor OMo/Ponytail skills.
+
+The parent-agent source is still under acceptance verification. The earlier 85-test baseline, a three-source Gemini Search smoke, and offline core-journey confirmation do not prove the new parent API, local HTTP/SSE, AgentOS UI, cancellation, restart recall, or deployment. The approved post-fix live journey ran but stopped at evidence verification with zero retained sources, `insufficient_evidence`, and partial artifacts; it did not satisfy journey acceptance. A structural contradiction is confirmed: Skills advertises tools while Google Search disables external tools. The fix and live-journey rerun remain pending. The current full suite reports 101 passing tests and two unresolved failures: sandbox local-port permission and an unnamed native-workflow/global-tracing interaction. Focused parent-boundary and restart checks pass, while full parent acceptance remains pending. See [setup verification](../docs/setup-verification.md) for the status boundary and [the parent-agent plan](../.omo/plans/samurai-parent-agents.md) for the acceptance scenarios.
 
 ## Local setup
 
@@ -69,9 +73,9 @@ Tests isolate configuration and verify AgentOS authentication without a Google k
 ## Route isolation and Reporting reference
 
 AgentOS is mounted at `/agentos` in a parent FastAPI application. Its authentication,
-CORS, discovery, workflow/session endpoints and API docs stay inside that mount.
+CORS, discovery, agent/session endpoints and API docs stay inside that mount.
 The parent explicitly runs the child lifespan so startup and shutdown are preserved.
-Root-level `/config`, `/workflows`, and `/health` are no longer AgentOS endpoints.
+Root-level `/config`, `/workflows`, and `/health` are not AgentOS endpoints.
 This uses FastAPI's [sub-application pattern](https://fastapi.tiangolo.com/advanced/sub-applications/).
 
 The active Reporting reference uses `/agentos` on port 8311, explicit child lifespan,

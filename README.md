@@ -8,9 +8,13 @@ Software generation is a supporting capability when the company needs it. The pr
 
 Product direction, UI principles, and competition requirements are documented in [AGENTS.md](AGENTS.md). Samurai brand assets are available in [assets/samurai-logo](assets/samurai-logo).
 
-The repository has a conversational Agno AgentOS foundation workflow, a Next.js application with a health endpoint, local PostgreSQL in Podman, environment templates, and locked dependencies. Samurai drafts a typed company brief, identifies missing context, and retains unverified assumptions. Native runtime skills, starter prompts, persisted sessions, and history-aware follow-ups are configured. Grounded research, strategy, the designed frontend, production company authorization, and cloud deployment remain later phases.
+The repository has a Next.js application with a health endpoint, local PostgreSQL in Podman, environment templates, and locked dependencies. When a Gemini model is configured, the current parent-agent source registers one ordinary AgentOS agent, **Samurai**, as the conversational entry point. It has four bounded tools: run or continue the company journey, create launch drafts, analyze provenance-labelled metrics, and read current company state. The nine specialist roles remain internal workflow executors.
 
-The selected stack and phased implementation plan are in [docs/architecture.md](docs/architecture.md), with the [AgentOS foundation plan](docs/agentos-foundation-plan.md) covering the current increment. This foundation is not yet the complete company-building product.
+The source defines the core journey as intake → brief check → grounded research → evidence check → strategy → product plan → verification. It retains typed, revisioned artifacts with founder statements, assumptions, source references, claims, and verification findings. Builder, Marketer, and Sales produce reviewable drafts only; Analyst requires eligible metrics and labels founder-supplied metrics as conditional. No current tool can publish, send, spend, contact prospects, run ads, or deploy.
+
+This parent-agent increment is still being verified. Before the parent registration and boundary changes, 85 combined backend tests passed. A Task 5 real-Gemini Search smoke retained three sources, and the core journey has offline confirmation. The approved post-fix live journey ran but stopped at evidence verification with zero retained sources, `insufficient_evidence`, and partial artifacts; it did not satisfy journey acceptance. A structural contradiction is confirmed: Skills advertises tools while Google Search disables external tools. The fix and live-journey rerun remain pending. The current full suite reports 101 passing tests and two unresolved failures: sandbox local-port permission and an unnamed native-workflow/global-tracing interaction. Focused parent-boundary and restart checks pass, but this is not full parent, AgentOS UI, SSE, cancellation, or deployment acceptance.
+
+The selected stack and phased implementation boundary are in [docs/architecture.md](docs/architecture.md). The active parent-agent acceptance work is in [the parent-agent plan](.omo/plans/samurai-parent-agents.md); the [AgentOS foundation plan](docs/agentos-foundation-plan.md) remains a historical record. This is not yet the complete company-building product.
 
 ## The idea: “Build my business.”
 
@@ -24,6 +28,7 @@ They interact with one company workspace, not seven separate agent chats. Behind
 
 | Role | Produces or discovers |
 |---|---|
+| **Intake** | Preserves the founder's idea, customer, geography, budget, skills, goal, corrections, unknowns, and next decision. |
 | **Researcher** | Competitors, pricing, target markets, reviews, and pain points, with sources and uncertainties. |
 | **Strategist** | Ideal customer profile (ICP), positioning, pricing, offer, and business model grounded in the research. |
 | **Product Manager** | MVP scope, user stories, delivery requirements, architecture when software is needed, and a roadmap. |
@@ -31,6 +36,7 @@ They interact with one company workspace, not seven separate agent chats. Behind
 | **Marketer** | Landing pages, Google Ads drafts, social posts, and email campaigns aligned with the offer. |
 | **Sales Agent** | Qualified prospect lists, outreach drafts, sales scripts, and objection handling. |
 | **Analyst** | Evaluation of measured performance and recommendations that feed back into strategy and execution. |
+| **Verifier** | Checks artifact lineage, retained source support, conflicts, and unsupported numeric assumptions. |
 
 For example, given connected analytics, the Analyst might report: “Your landing page gets traffic but conversion is only 0.8%. Here are the three changes I'd make.” This is an illustrative scenario, not an observed result or implemented capability.
 
@@ -79,7 +85,7 @@ team-samurai/
 ├── AGENTS.md             # Shared contributor instructions and product constraints
 ├── README.md             # Product overview and logical architecture
 ├── backend/
-│   ├── src/samurai/      # AgentOS application factory
+│   ├── src/samurai/      # AgentOS parent agent, internal workflows, and contracts
 │   ├── pyproject.toml    # Python dependencies and checks; uv.lock pins resolution
 │   └── README.md         # Backend setup and boundaries
 ├── frontend/
@@ -119,7 +125,7 @@ Requirements: Python 3.14, uv, Node.js 24 or 26, npm, and a running Podman machi
 
 Health endpoints show process liveness, not proof of Gemini access or a completed business workflow. Keep the shared backend key server-side; this local bootstrap must not be exposed as a multi-user service.
 
-PostgreSQL sessions and restart follow-ups now pass after restarting only Samurai's container. The `os.agno.com` Samurai Local connection authenticates with JWT and completes the two-step workflow over its WebSocket path. AgentOS now constructs a fresh workflow and Gemini model for every request; three consecutive UI runs reached 2/2, a registered cancellation settled in both the UI and database, and an independent JWT SSE run completed both ordered steps. [Setup verification](docs/setup-verification.md) records the evidence and remaining limits.
+The local AgentOS surface is `/agentos` on port 8000. JWT is the intended control-plane mode; use the actual AgentOS OpenAPI at `/agentos/docs` for the installed route schema. Historical foundation evidence and the current parent-agent verification boundary are recorded separately in [setup verification](docs/setup-verification.md). Persisted sessions do not establish resumable interrupted work.
 
 ## Contributing
 

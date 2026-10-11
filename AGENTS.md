@@ -8,7 +8,7 @@ This is the parent repository for **AI Idea → Company**, a general-purpose com
 - Always use the applicable **OMo and Ponytail skills for planning, coding, and execution**. Read their instructions before acting. OMo supplies the relevant development workflow; Ponytail keeps changes small, complete, and verified. These are contributor tools, not application runtime dependencies.
 - If the required skills are unavailable, report that limitation before implementation; do not claim to have followed a skill you could not read.
 - Preserve existing work and product decisions. Do not replace the README, brand assets, or established UI direction as part of unrelated changes.
-- Continue the AgentOS foundation on `Kalyan/agentos-foundation`, committing verified changes locally as work progresses. The initial setup was merged into local `main`. Push only when Kalyan explicitly requests it.
+- Continue the current parent-agent increment on `Kalyan/parent-agent`, committing only verified changes locally as work progresses. The initial setup was merged into local `main`. Push only when Kalyan explicitly requests it.
 
 ## Repository ownership and architecture
 
@@ -69,6 +69,7 @@ These are the product vision, not a claim of implemented capabilities or a requi
 
 | Role | Responsibility |
 |---|---|
+| Intake | Preserve founder context, unknowns, corrections, and the next decision without converting them into evidence. |
 | Researcher | Find competitors, pricing, target markets, reviews, and pain points, preserving sources and uncertainties. |
 | Strategist | Develop the ideal customer profile, positioning, offer, pricing, and business model from evidence. |
 | Product Manager | Define the minimum viable offering, delivery requirements, user stories, and roadmap; architecture when software is needed. |
@@ -141,7 +142,7 @@ The user specifically likes Hark's conversational interface, persistent left pan
 | Firebase Authentication | Candidate for founder identity; end-user/company authorization is not implemented by the local shared service key. |
 | Gemini | Reason over business context, perform grounded research, generate business artifacts, invoke tools, and recommend evidence-based changes. |
 
-Google Search grounding can support current research and citations; the verifier must still assess whether sources support a claim. Outreach, ads, payments, and sales measurement require their relevant APIs and connected accounts. Cloud services and grounding are planned integrations. The repository bootstrap provides local runtime configuration, not the completed business workflow. Persistent sessions alone do not establish restart-safe execution; implement and test durable queue behavior before claiming resumable work.
+Google Search grounding can support current research and citations; the verifier must still assess whether sources support a claim. The parent-agent source retains bounded source lineage, but the post-fix live journey stopped at evidence verification with zero retained sources and `insufficient_evidence`. Skills advertising tools while Google Search disables external tools is a confirmed structural contradiction; the fix and live-journey rerun remain pending. The current full suite reports 101 passing tests and two unresolved failures: sandbox local-port permission and an unnamed native-workflow/global-tracing interaction. Focused parent-boundary and restart checks pass, while full parent API/UI acceptance remains pending. Outreach, ads, payments, and sales measurement require their relevant APIs and connected accounts. The repository bootstrap provides local runtime configuration, not the completed business workflow. Persistent sessions alone do not establish restart-safe execution; implement and test durable queue behavior before claiming resumable work.
 
 ## Judging rubric
 
