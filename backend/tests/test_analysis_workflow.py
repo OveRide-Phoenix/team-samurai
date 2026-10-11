@@ -71,9 +71,7 @@ class _AnalysisDraftModel(Model):
             Gemini.__dict__["_format_messages"],
         )
         contents, _ = formatter(Gemini(api_key="offline-test-key"), messages)
-        request_json = json.dumps(
-            [content.model_dump(mode="json") for content in contents]
-        )
+        request_json = json.dumps([content.model_dump(mode="json") for content in contents])
         assert contents
         assert '"role": "user"' in request_json
         assert "qualified_leads" in request_json
@@ -85,9 +83,7 @@ class _AnalysisDraftModel(Model):
                 "recommendations": ["Verify the lead count through a trusted connector."],
             }
         )
-        return ModelResponse(
-            content=json.dumps(content)
-        )
+        return ModelResponse(content=json.dumps(content))
 
     @override
     def invoke_stream(self, *_args: Never, **_kwargs: Never) -> abc.Iterator[ModelResponse]:
@@ -100,9 +96,7 @@ class _AnalysisDraftModel(Model):
         yield ModelResponse()
 
     @override
-    def _parse_provider_response(
-        self, response: ModelResponse, **_kwargs: Never
-    ) -> ModelResponse:
+    def _parse_provider_response(self, response: ModelResponse, **_kwargs: Never) -> ModelResponse:
         return response
 
     @override
@@ -208,9 +202,7 @@ def test_parent_analysis_persists_json_safe_child_run_and_preserves_sources(
         session_state={},
     )
 
-    result = anyio.run(
-        partial(ANALYZE_METRICS, database, settings, (metric,), parent_context)
-    )
+    result = anyio.run(partial(ANALYZE_METRICS, database, settings, (metric,), parent_context))
 
     child = database.get_session(
         child_id,
@@ -229,9 +221,10 @@ def test_parent_analysis_persists_json_safe_child_run_and_preserves_sources(
     assert persisted_run.status == RunStatus.completed
     assert persisted_result == result
     assert result.outcome == "based_on_founder_supplied_metrics"
-    assert measurement.model_dump(
-        exclude={"metric_id", "provenance", "trusted_connector_receipt"}
-    ) == metric.model_dump()
+    assert (
+        measurement.model_dump(exclude={"metric_id", "provenance", "trusted_connector_receipt"})
+        == metric.model_dump()
+    )
     assert measurement.provenance == "founder_supplied"
     assert measurement.trusted_connector_receipt is None
     assert persisted_state.artifacts[0].sources == original_state.artifacts[0].sources
@@ -247,9 +240,7 @@ def test_invalid_analysis_output_fails_without_mutating_company_state(
     child_id = child_session_id(user_id, parent_session_id)
     database = SqliteDb(db_file=str(tmp_path / "invalid-analysis.db"))
     original_state = _grounded_state(parent_session_id)
-    expected_session_data = {
-        "session_state": {"company": original_state.model_dump(mode="json")}
-    }
+    expected_session_data = {"session_state": {"company": original_state.model_dump(mode="json")}}
     _ = database.upsert_session(
         WorkflowSession(
             session_id=child_id,
@@ -283,9 +274,7 @@ def test_invalid_analysis_output_fails_without_mutating_company_state(
     )
 
     with pytest.raises(RuntimeError, match="invalid analyst output"):
-        _ = anyio.run(
-            partial(ANALYZE_METRICS, database, settings, (metric,), parent_context)
-        )
+        _ = anyio.run(partial(ANALYZE_METRICS, database, settings, (metric,), parent_context))
 
     child = database.get_session(
         child_id,
@@ -293,8 +282,9 @@ def test_invalid_analysis_output_fails_without_mutating_company_state(
         user_id=user_id,
     )
     assert isinstance(child, WorkflowSession)
-    assert cast("dict[str, object]", child.session_data)["session_state"] == (
-        expected_session_data["session_state"]
+    assert (
+        cast("dict[str, object]", child.session_data)["session_state"]
+        == (expected_session_data["session_state"])
     )
     assert child.runs is not None
     failed_run = next(run for run in child.runs if run.workflow_id == "company-analysis")
