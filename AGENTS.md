@@ -8,7 +8,7 @@ This is the parent repository for **AI Idea → Company**, a general-purpose com
 - Always use the applicable **OMo and Ponytail skills for planning, coding, and execution**. Read their instructions before acting. OMo supplies the relevant development workflow; Ponytail keeps changes small, complete, and verified. These are contributor tools, not application runtime dependencies.
 - If the required skills are unavailable, report that limitation before implementation; do not claim to have followed a skill you could not read.
 - Preserve existing work and product decisions. Do not replace the README, brand assets, or established UI direction as part of unrelated changes.
-- Continue the current parent-agent increment on `Kalyan/parent-agent`, committing only verified changes locally as work progresses. The initial setup was merged into local `main`. Push only when Kalyan explicitly requests it.
+- Work from the current branch and preserve unrelated edits. Commit only verified changes locally; push only when Kalyan explicitly requests it after the final checks.
 
 ## Repository ownership and architecture
 
@@ -43,6 +43,12 @@ The [architecture map in README.md](README.md#logical-architecture) describes re
 5. Verify through the actual affected surface. Exercise the successful path and relevant failures, such as rejected access, conflicting evidence, failed work, or denied approval. Add focused checks for meaningful new behavior; use the project's real commands once they exist.
 6. Update documentation alongside behavior. Include reproducible setup commands and sanitized configuration examples when a runnable component exists. Distinguish planned, implemented, locally verified, and deployed capabilities.
 7. Hand off with changed files, verification evidence, limitations, and remaining decisions. Commit, push, publish, deploy, or submit only when the user authorizes those actions.
+
+### Local onboarding and plans
+
+- Use the root Taskfile for repeatable local setup: `task setup`, `task backend:dev`, `task health`, and optional `task frontend:dev`. Do not replace private `.env` files, recreate the Samurai database unnecessarily, or touch Reporting services.
+- Read [docs/local-development.md](docs/local-development.md) before changing startup behavior. The AgentOS console is a technical backend test surface with raw structured JSON; the custom founder UI and frontend/backend integration remain pending.
+- [`.omo/plans/`](.omo/plans/README.md) contains portable status records only. Keep new runtime boulders, ledgers, screenshots, evidence, credentials, and local browser artifacts ignored; retain already tracked historical records.
 
 ### Shared implementation requirements
 
@@ -142,7 +148,7 @@ The user specifically likes Hark's conversational interface, persistent left pan
 | Firebase Authentication | Candidate for founder identity; end-user/company authorization is not implemented by the local shared service key. |
 | Gemini | Reason over business context, perform grounded research, generate business artifacts, invoke tools, and recommend evidence-based changes. |
 
-Google Search grounding can support current research and citations; the verifier must still assess whether sources support a claim. Intake, Strategist, Product Manager, and Verifier preload validated local skill text with no runtime function tools; Researcher has native Gemini Search only; Builder, Marketer, Sales, Analyst, and the parent use bounded local read-only skill access. At local final HEAD `9002382`, 131 tests, Ruff, and basedpyright pass. The API and Chrome acceptance paths verified five-artifact primary journeys, source lineage with unverified claims and `needs_rework`, conditional founder-supplied metrics, owner isolation, recall/reload persistence, and cancellation without late artifacts. This does not authorize launch-draft generation, outreach, ads, payments, sales measurement, push, or deployment. Persistent sessions alone do not establish resumable in-progress work; implement and test durable queue behavior before claiming it.
+Google Search grounding can support current research and citations; the verifier must still assess whether sources support a claim. Intake, Strategist, Product Manager, and Verifier preload validated local skill text with no runtime function tools; Researcher has native Gemini Search only; Builder, Marketer, Sales, Analyst, and the parent use bounded local read-only skill access. Parent API and Chrome acceptance verified five-artifact primary journeys, source lineage with unverified claims and `needs_rework`, conditional founder-supplied metrics, owner isolation, recall/reload persistence, and cancellation without late artifacts. Local onboarding validation at `d6d05fb` passed `task check`: 141 backend tests, Ruff, formatting, basedpyright, and the frontend check, type generation, and build. This does not authorize launch-draft generation, outreach, ads, payments, sales measurement, push, or deployment. Persistent sessions alone do not establish resumable in-progress work; implement and test durable queue behavior before claiming it.
 
 ## Judging rubric
 

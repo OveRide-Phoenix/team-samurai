@@ -1,5 +1,9 @@
-# Local research and tool state
+# Local research and tool state. Existing tracked historical records remain retained.
 .omo/
+!/.omo/
+/.omo/*
+!/.omo/plans/
+!/.omo/plans/**
 .codex/
 .agents/
 .DS_Store

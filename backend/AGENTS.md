@@ -9,5 +9,6 @@ Read [../AGENTS.md](../AGENTS.md) and [README.md](README.md). Use `agno:agno`, `
 - Preserve the child deadline at seven configured model timeouts, cancellation-and-drain behavior, model cap at tool-call budget plus one, and sanitized typed workflow errors. Do not claim queue-backed resumability from persisted sessions.
 - Maintain the accepted local boundaries: parent/core journeys preserve unverified claims and `needs_rework`, founder metrics remain conditional, cancellation must stop and drain both runs without late artifacts, and launch drafts remain untested live and draft-only.
 - Run Ruff, basedpyright, pytest, and a real HTTP smoke check. Database and Gemini proof must be reported separately.
+- Start local backend work from the repository root with `task backend:dev`; use `task health` and the Samurai-only `task db:*` commands for checks and lifecycle. Preserve existing `.env` files, volumes, and Reporting services.
 - Shared bearer access is for local development. Add identity, company isolation, and action authorization before public access.
 - Keep `.env` ignored; document configuration in `.env.example`. Never include key values or database URLs with passwords in logs or handoffs.

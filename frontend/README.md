@@ -27,13 +27,12 @@ Use reusable components for generative UI. Model output must not become arbitrar
 Next.js App Router, React, strict TypeScript, Tailwind CSS, and Biome are configured with exact versions and `package-lock.json`. npm is used because it worked with this machine's configured registry when pnpm was rejected. Contributors can use their approved npm registry; no machine-specific registry URL or credential is committed.
 
 ```sh
-# From frontend/, copy only if .env.local does not already exist:
-cp .env.example .env.local
-npm ci
-npm run dev
+# From the repository root:
+task frontend:setup
+task frontend:dev
 ```
 
-Open `http://127.0.0.1:3000/api/health` for the process check. There is no home page or company UI yet; `/` currently returns 404. `BACKEND_URL` is reserved for the future server integration and is not consumed by the health endpoint.
+`task frontend:setup` preserves an existing private frontend environment file and runs `npm ci`; `task frontend:dev` checks port 3000 and starts the server in the foreground. Open `http://127.0.0.1:3000/api/health` for the process check. There is no home page or company UI yet; `/` currently returns 404. `BACKEND_URL` is reserved for the future server integration and is not consumed by the health endpoint. A passing frontend health check does not prove backend integration or the founder experience. The planned authenticated AgentOS request and SSE lifecycle contract is documented in [local development](../docs/local-development.md#planned-frontend-to-agentos-contract).
 
 ```sh
 npm run check

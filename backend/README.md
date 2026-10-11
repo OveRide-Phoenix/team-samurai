@@ -24,28 +24,26 @@ Intake, Strategist, Product Manager, and Verifier preload the validated `evidenc
 
 Each child workflow has a deadline of `GEMINI_TIMEOUT_SECONDS * 7` (420 seconds at the default 60-second timeout). On timeout, the parent cancels and drains child runs. Parent and child model calls are capped at `AGENT_TOOL_CALL_LIMIT + 1` (five at the default limit of four), and child failures are surfaced as sanitized typed errors rather than provider detail.
 
-At local final HEAD `9002382`, 131 backend tests pass; Ruff and basedpyright are clean. Authenticated API checks cover parent registration, run reads, restart/recall, owner isolation, input rejection, sanitized errors, the five-artifact core journey, and conditional metrics analysis. The API primary retained three unique grounded sources and nine propagated references; claims remained unverified and verification returned `needs_rework`. The metrics child completed revision 6 with all seven fields, founder-supplied provenance, no connector receipt, and `based_on_founder_supplied_metrics`.
+Local onboarding validation at `d6d05fb` passed `task check`: 141 backend tests, Ruff, formatting, and basedpyright, plus the frontend check, type generation, and build. Separately, authenticated parent API checks cover parent registration, run reads, restart/recall, owner isolation, input rejection, sanitized errors, the five-artifact core journey, and conditional metrics analysis. The API primary retained three unique grounded sources and nine propagated references; claims remained unverified and verification returned `needs_rework`. The metrics child completed revision 6 with all seven fields, founder-supplied provenance, no connector receipt, and `based_on_founder_supplied_metrics`.
 
 The final real TCP cancellation regression observed streamed child progress, returned cancellation in about 20 ms, persisted both parent and child as `CANCELLED`, emptied the active registry, and prevented a late artifact. Chrome independently completed the fictional five-artifact primary, state recall, and reload persistence. These are local acceptance results. No live launch-draft generation, push, deployment, or external action is claimed. See [setup verification](../docs/setup-verification.md) for the detailed evidence boundary and [the parent-agent plan](../.omo/plans/samurai-parent-agents.md) for the acceptance scenarios.
 
 ## Local setup
 
-1. In the repository root, copy `.env.example` to `.env` if it does not exist. Generate a local `POSTGRES_PASSWORD` with `openssl rand -hex 24`.
-2. With the Podman machine running, run `uv tool run --from podman-compose podman-compose up -d` from the root. The native provider avoids dependence on a Docker compatibility socket. The database listens only on `127.0.0.1:54329`; its named volume preserves data across container restarts. The image comes from the Docker Official Images ECR mirror.
-3. In `backend/`, copy `.env.example` to `.env` if it does not exist. Set `DATABASE_URL` using the root password and generate `OS_SECURITY_KEY` with `openssl rand -hex 32`. Local files already generated for this checkout must not be overwritten.
-4. Set `GOOGLE_API_KEY` when ready to call Gemini. Leave it blank for setup-only checks. `GEMINI_MODEL` can be changed explicitly; the tracked default is `gemini-3.8-flash`. For a lower-cost local experiment, set `GEMINI_MODEL=gemini-3.5-flash-lite` only in ignored `backend/.env`; do not commit that file.
-5. Run:
+From the repository root, run:
 
 ```sh
-uv sync --locked
-uv run uvicorn samurai.app:create_app --factory --app-dir src --host 127.0.0.1 --port 8000
+task setup
+task backend:dev
 ```
 
-`GET /agentos/health` is liveness only. `GET /agentos/config` requires `Authorization: Bearer <OS_SECURITY_KEY>`. Use AgentOS's OpenAPI docs at `/agentos/docs` to inspect the actual locked API. Model calls may incur costs; the setup checks do not make them.
+`task setup` installs locked Python dependencies, creates only missing root and backend `.env` files at owner-only permissions, and validates that their database credentials match. It never prints or replaces secrets. `task backend:dev` checks port 8000, starts only Samurai's PostgreSQL service, and runs Uvicorn in the foreground. `task health` checks PostgreSQL and `GET /agentos/health` without a model call. In shared-key mode, `GET /agentos/config` accepts `Authorization: Bearer <OS_SECURITY_KEY>`; when `JWT_VERIFICATION_KEY` is configured, use a valid user JWT instead. Use `/agentos/docs` for the installed API schema.
+
+Set `GOOGLE_API_KEY` only when ready to call Gemini. The tracked default remains `gemini-3.8-flash`; a lower-cost local experiment may set `GEMINI_MODEL=gemini-3.5-flash-lite` in ignored `backend/.env`. Never commit that file. See [local development](../docs/local-development.md) for the full command reference and JWT test surface.
 
 The runtime disables automatic database provisioning on startup so liveness/configuration checks work without a database. AgentOS creates required tables on its normal database write paths. Starting the process alone does not prove persistence. Use Cloud SQL and controlled schema management for deployment; do not expose this shared-key bootstrap publicly.
 
-Stop only this project's database with `uv tool run --from podman-compose podman-compose stop` from the root. Do not use `down -v` unless deleting this project's local database is intended.
+Use `task db:status`, `task db:logs`, and `task db:stop` from the root for Samurai-only database lifecycle actions. `db:stop` preserves the volume; do not use `down -v` unless deleting this project's local database is intended.
 
 ### Podman connection verification
 

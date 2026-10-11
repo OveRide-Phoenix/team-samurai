@@ -6,12 +6,12 @@ The owner's Agno proposal selects a workflow-first implementation of AI Idea →
 
 | Layer | Choice | Status |
 |---|---|---|
-| Founder workspace | Next.js App Router, TypeScript, Tailwind; shadcn/ui after the design system | Runtime and health endpoint configured; no product screens |
+| Founder workspace | Next.js App Router, TypeScript, Tailwind; shadcn/ui after the design system | Frontend scaffold and health endpoint run locally; no product screens or backend integration |
 | Agent runtime | Python, Agno AgentOS, FastAPI | With a configured Gemini model, current source registers one ordinary `Samurai` parent Agent with four bounded tools; local API and Chrome acceptance passed |
 | Orchestration | Explicit Agno Workflow stages, with bounded branching/parallelism | The local parent journey, conditional metrics analysis, restart/recall, and cancellation paths passed; launch drafts remain draft-only and were not generated live |
 | Intelligence | Gemini API initially; Vertex AI is a future deployment choice | Model configuration present; live access requires credentials |
 | Research | Native Gemini Search with bounded retained source evidence | The local API primary retained three unique sources and nine propagated references; the Chrome primary retained five unique sources. Claims remained unverified and verification returned `needs_rework` |
-| Records | PostgreSQL locally through Podman; Cloud SQL in production | Parent/child AgentOS session model and revisioned `CompanyState` passed local persistence, recall, reload, and cancellation checks; Cloud SQL remains planned |
+| Records | PostgreSQL locally through Podman; Cloud SQL in production | Parent/child AgentOS session model and revisioned `CompanyState` passed local persistence, recall, reload, and cancellation checks. Root Taskfile commands manage only the local Samurai PostgreSQL service; Cloud SQL remains planned |
 | Artifacts | Cloud Storage with metadata/revision references in PostgreSQL | Planned |
 | Hosting | Cloud Run for the Python service and server-capable Next.js | Planned |
 | Identity | JWT authentication plus company-scoped backend authorization | Optional RS256 JWT/scope enforcement and user isolation configured and tested; real control-plane key installed and authenticated discovery verified; company authorization remains pending |
@@ -45,6 +45,12 @@ Persistent AgentOS sessions are not, by themselves, proof that a job resumes aft
 Financial projections and market estimates must remain labeled assumptions or estimates. Search grounding cannot prove willingness to pay. External actions need explicit approval of the concrete action, and the backend must enforce it.
 
 The configured request boundary limits founder message input to 20,000 characters. The model token and timeout settings and the native parent tool-call limit are configured from the backend environment. Local JWT/API and Chrome acceptance verified port 8000 liveness, authorization and isolation, source-backed primary journeys, recall/reload, and cancellation. These results do not establish deployment or external action capability.
+
+## Local developer architecture
+
+The root Taskfile is the local entry point. It creates missing private configuration without overwriting it, installs locked dependencies, starts only Samurai PostgreSQL through the pinned Podman Compose provider, and runs backend or frontend servers in the foreground. `task health` checks PostgreSQL and AgentOS liveness without a model call.
+
+The saved **Samurai Local** AgentOS connection is a backend technical-console test path: it renders raw structured responses and verifies the parent agent, state persistence, and JWT boundary. It is not the Next.js founder workspace. The frontend currently has an independent health endpoint; the request/result contract and authenticated integration remain planned.
 
 ## Sources and update policy
 
