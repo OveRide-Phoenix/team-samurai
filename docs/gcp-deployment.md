@@ -1,8 +1,6 @@
-# Samurai backend deployment on Google Cloud
+# Samurai deployment and CI/CD on Google Cloud
 
-This is the deployment guide for the existing Gemini-backed Samurai AgentOS backend. The
-Cloud Run backend is deployed with public transport and JWT-protected application routes; the frontend, local Podman data, and durable
-background work are outside this deployment.
+This guide records the accepted Gemini-backed AgentOS backend and the team-only frontend deployment path. The backend uses public transport with JWT-protected application routes. Frontend IAP and CI/CD implementation are separate from live acceptance; their pending checks are recorded below. Local Podman data is not migrated and in-progress work is not durable.
 
 ## Target and prerequisites
 
@@ -14,7 +12,7 @@ Use the confirmed project and region:
 - Runtime service account: `samurai-runtime@samurai-ai-company-2026.iam.gserviceaccount.com`
 - Cloud SQL connection: `samurai-ai-company-2026:asia-south1:samurai-postgres`
 
-## Current revision
+## Previously accepted backend revision
 
 As verified on 12 October 2026, the native Linux/amd64 revision serves 100% of traffic
 with public transport for Agno Live and RS256 JWT protection on application routes:
@@ -118,11 +116,9 @@ the query value as its Unix-socket `host`. The database password remains part of
 single `DATABASE_URL` Secret Manager value. Keep the Cloud SQL instance in `asia-south1`
 and do not add public authorized networks for this service path.
 
-## Current Cloud Run configuration
+## Previously accepted backend configuration
 
-The following command records the final deployed configuration, including the Agno Live
-verification key at version 2. It is for an authorized redeployment of this service, not
-bootstrap setup. The original private phase and key rotation are recorded above.
+The following command records the earlier backend-only configuration, including the Agno Live verification key at version 2. It is historical evidence, not the frontend bootstrap or routine CI command: replaying `--set-secrets` would remove the new additive frontend trust setting. Routine deployment changes images only. The original private phase and key rotation are recorded above.
 
 ```sh
 gcloud run deploy samurai-backend \
@@ -171,18 +167,16 @@ The focused production-guard and Cloud SQL socket-parser checks, static checks, 
 Linux/amd64 image build passed locally. An earlier equivalent image returned health 200 and
 unauthenticated configuration access returned 401. The final-source image did not accept a
 local ARM-emulated loopback probe before its temporary container was removed, but subsequent native
-Cloud Run validation and the final public/browser checks above passed. The full local suite
-also has a cancellation timeout reproduced unchanged at base commit
-`14d47c2a70fd29999c0ca0ccacbd182e714dbc63`; do not represent that suite as green.
+Cloud Run validation and the final public/browser checks above passed. An earlier local suite encountered an intermittent cancellation timeout, also reproduced at base commit `14d47c2a70fd29999c0ca0ccacbd182e714dbc63`. The latest PR backend run passed 147 tests. Preserve the intermittent-timeout caveat when reporting results; each deployment still requires checks for its exact commit.
 
 ## Acceptance and recovery
 
-Deployment acceptance is complete: native startup, a controlled Gemini call, Cloud
+The earlier backend deployment acceptance is complete: native startup, a controlled Gemini call, Cloud
 SQL-backed owner-scoped readback, Agno-key rotation, missing/retired/invalid-JWT rejection,
 public transport checks, and authenticated Agno Live chat with reload persistence were
 observed. The original business workflow still requires resolving `needs_rework` before
 claiming verified business readiness. These checks do not establish durable recovery of
-in-progress work or a passing full local cancellation suite.
+in-progress work. The intermittent local cancellation-test timeout and later passing run are recorded separately above.
 
 If a revision fails, direct traffic back to the known-good revision using its actual
 revision name and a currently trusted JWT key; do not restore disabled bootstrap
@@ -193,6 +187,76 @@ Teardown is a separate, destructive decision: first remove callers and route tra
 then delete the Cloud Run service, retained image versions, secrets, and Cloud SQL data only
 under an approved retention plan. Deleting the service does not erase database or Secret
 Manager data automatically.
+
+## Team-only frontend and Google identity
+
+The production frontend is `samurai-frontend` in the same project and region. Its Node server serves the Vite assets and the narrow same-origin AgentOS proxy. Google IAP protects the Cloud Run service; the server verifies the signed assertion's issuer, signature, timestamps and exact audience before using `iap:<verified-sub>` as the application identity. It signs short-lived RS256 backend JWTs. Email headers, browser `user_id`, and browser authorization overrides are not trusted.
+
+| Service | Runtime identity | Configuration |
+| --- | --- | --- |
+| Frontend | `samurai-frontend@samurai-ai-company-2026.iam.gserviceaccount.com` | `IAP_AUDIENCE=/projects/590733583260/locations/asia-south1/services/samurai-frontend`; `PUBLIC_ORIGIN` is the canonical frontend HTTPS origin; `AGENTOS_BACKEND_URL=https://samurai-backend-590733583260.asia-south1.run.app` |
+| Frontend | Same identity | `AGENTOS_SIGNING_KEY=samurai-frontend-signing-key:1` from Secret Manager |
+| Backend | Existing `samurai-runtime@samurai-ai-company-2026.iam.gserviceaccount.com` | Add `FRONTEND_JWT_VERIFICATION_KEY=samurai-frontend-verification-key:1`; preserve `JWT_VERIFICATION_KEY=samurai-jwt-verification-key:2` and all other runtime settings |
+
+The signer and public-key secrets and scoped runtime access were provisioned during bootstrap and verified in the deployed frontend. Only the frontend runtime may read its private signer. The backend receives the public key; CI needs no secret payload access. Never put keys or tokens in image layers, committed files, browser storage, `VITE_` variables, workflow output, or command history. Current configuration accepts one Agno public key and one frontend public key; it does not support overlapping old/new frontend keys. Coordinate frontend signer and backend verification-key rotation during maintenance, or first extend and test frontend trust to allow an overlap before switching the signer. Preserve the Agno verification key throughout. Never restore disabled bootstrap key version 1.
+
+Bootstrap requires IAP enabled on the frontend, no anonymous Cloud Run invoker grant, and `roles/run.invoker` on that service for `service-590733583260@gcp-sa-iap.iam.gserviceaccount.com`. Configure the HTTP startup probe at `/healthz` and a request timeout compatible with backend streaming. Keep IAP off the backend so Agno Live continues to work with its application JWT.
+
+The initial authorized Google account is `teamsamurai.sksk@gmail.com`. Team membership is an explicit IAP IAM allowlist: grant approved users or a Google group `roles/iap.httpsResourceAccessor` on the frontend IAP resource. To onboard another member, obtain the approved Google account/group, add that principal, then verify sign-in and a separate user's data isolation. Do not grant `allUsers` IAP access. The OAuth brand has been created and approved. The custom IAP OAuth client is enabled; this account completed Google sign-in and a bounded live brief run on 12 October 2026. Signing in to Agno Live and signing in through IAP produce different application identities and do not automatically transfer existing sessions.
+
+## Main and manual CI/CD
+
+[deploy.yml](../.github/workflows/deploy.yml) runs on pushes to `main` and `workflow_dispatch`. Manual runs must select `main`; both the workflow and Google federation reject other refs. In GitHub Actions choose **Deploy production → Run workflow → main** for an authorized manual deployment. Production runs are serialized with `cancel-in-progress: false`.
+
+The workflow calls [checks.yml](../.github/workflows/checks.yml) for the same commit: locked dependency installs, backend Ruff/format/basedpyright/pytest, frontend check/build/Sites/server tests, and deployment-script checks. It builds both Linux/amd64 images before cloud authentication, pushes commit-tagged images, resolves immutable digests, and invokes [deploy-cloud-run.sh](../scripts/deploy-cloud-run.sh).
+
+The Google OIDC federation provider is `projects/590733583260/locations/global/workloadIdentityPools/github/providers/github-main`. It accepts the immutable repository ID `1413923270`, owner ID `24836702`, main ref, and intended `deploy.yml` push/manual claims. It impersonates `samurai-deployer@samurai-ai-company-2026.iam.gserviceaccount.com`. No service-account JSON key is used. WIF and the deployer account have been bootstrapped; successful GitHub credential exchange and rollout remain acceptance checks.
+
+Routine deployer permissions are Cloud Run Developer on the two existing services, Artifact Registry Writer on the `samurai` repository, and Service Account User on the two runtime accounts. The repository federation principal receives Workload Identity User on the deployer. Bootstrap IAM, secrets, IAP, runtime configuration and initial service creation are separate from the image-update workflow.
+
+Both services must exist before routine deployment. The script requires a single ready revision serving 100% for each service and records both previous revisions/digests in the Actions summary before updating either. It updates only the backend image, then only the frontend image, preserving runtime accounts, secrets, Cloud SQL, IAP and probes. It checks readiness, deployed digests and traffic, backend liveness, and anonymous frontend protection. These checks do not prove authenticated founder or Agno Live behavior.
+
+## Rollback and rollout limits
+
+Two service updates are not atomic. If frontend deployment fails after backend succeeds, the backend may already be serving the new image. The workflow stops; it does not automatically retry a run POST or roll back services. Avoid active long runs during rollout because cancellation remains process-local and revision replacement cannot resume in-flight work. Health GET retries are separate from business execution.
+
+Use the Actions summary to identify the previous revision for each affected service, then route traffic explicitly after reviewing compatibility:
+
+```sh
+gcloud run services update-traffic samurai-frontend \
+  --project=samurai-ai-company-2026 --region=asia-south1 \
+  --to-revisions=PREVIOUS_FRONTEND_REVISION=100
+gcloud run services update-traffic samurai-backend \
+  --project=samurai-ai-company-2026 --region=asia-south1 \
+  --to-revisions=PREVIOUS_BACKEND_REVISION=100
+```
+
+Rollback frontend before removing backend trust it requires. The original `00002` backend revision lacks frontend JWT trust; restoring it can keep Agno Live working while breaking the IAP frontend. Keep a known-good additive-trust revision once accepted. If secret/configuration changes are involved, check the selected revision's pinned versions and access before restoring traffic. After traffic rollback the latest-ready revision may differ from the serving revision; the routine script intentionally refuses that state. Reconcile by deploying the known-good image with the intended current configuration and verify it before the next automatic rollout. Never retry an interrupted business run without checking its persisted status.
+
+## Frontend and CI acceptance record
+
+As verified on 12 October 2026, the approved Google account signed in through IAP, loaded backend intake questions, completed a fictional dental-receptionist brief, and retained the rendered brief after a full browser reload. Research was not started. Anonymous frontend requests redirect to Google sign-in (302); backend liveness returns 200 and unauthenticated configuration returns 401.
+
+Bootstrap source `65bff23ecedafa62c32d67f9b56a7c520d2580f8` was built natively in Cloud Build `4c4a8d10-edc8-4b61-ba2f-98f6145e3a7b`:
+
+| Service | Bootstrap revision | Immutable image digest |
+| --- | --- | --- |
+| Backend | `samurai-backend-00003-wpr` | `backend@sha256:74bead66c7bb97f95590c0a644d6d83bc9fa119d4c32b73ef5d80b46d86f5c5b` |
+| Frontend | `samurai-frontend-00001-6rw` | `frontend@sha256:cb9e87e5d5e739f78ffafb1fa302c06d5ae585dae106f2f07e6920ea8a2f041e` |
+
+Both images are in `asia-south1-docker.pkg.dev/samurai-ai-company-2026/samurai`. The frontend URL is https://samurai-frontend-590733583260.asia-south1.run.app. The one-time native build used `samurai-builder`, repository-scoped Artifact Registry Writer, Logs Writer, and object read access on the private source bucket `samurai-ai-company-2026-build-source`. Routine GitHub deployment builds images on its runner and does not use this builder.
+
+Integrated [GitHub checks](https://github.com/OveRide-Phoenix/team-samurai/actions/runs/38261179631) passed for `51b9d4022b0f14b6b732b751553add8ed02b48c1`, including 157 backend tests and frontend checks. Local frontend verification passed 79 Vitest, 33 server, and four Sites tests plus type checking/build. Local backend verification passed 156 tests with one pre-existing intermittent cancellation timeout. The new JWT isolation test cleans its cancellation state.
+
+- [x] Production auth/proxy tests, additive JWT trust, both native containers, and deployment script checks.
+- [x] Scoped production security review for source `65bff23ecedafa62c32d67f9b56a7c520d2580f8`.
+- [x] Frontend IAP, startup probe, pinned secrets, scoped runtime identity and approved-account sign-in.
+- [x] Live brief creation and browser reload, with research deliberately paused.
+- [x] Automated owner-isolation and missing/forged/expired/wrong-audience assertion rejection tests.
+- [ ] A second approved Google account has not been supplied; two-account live acceptance is unverified. Browser namespaces do not prevent manual access to localStorage in a shared browser profile.
+- [ ] Existing Agno Live regression after additive JWT trust.
+- [ ] Main automatic and manual GitHub deployment acceptance; WIF is provisioned, but successful credential exchange and rollout must still be observed.
+
 
 ## References
 

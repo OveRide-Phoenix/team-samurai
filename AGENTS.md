@@ -28,7 +28,7 @@ The [architecture map in README.md](README.md#logical-architecture) describes re
 
 - Shared: `ponytail:ponytail` and applicable `omo:*` skills. Skill names are references to installed contributor tools, not imports or vendor-specific absolute paths.
 - Backend: `agno:agno` for agents, AgentOS, workflows, persistence, and Gemini integration; `omo:programming` for Python; `omo:debugging` for runtime failures.
-- Frontend: `omo:programming` for TypeScript; `omo:frontend` before React/components/design work; `omo:visual-qa` after UI changes. Establish `DESIGN.md` and the skill's development tooling before adding visual components. Use shadcn/ui's current Next.js/Tailwind instructions when components are introduced.
+- Frontend: `omo:programming` for TypeScript; `omo:frontend` before React/components/design work; `omo:visual-qa` after UI changes. Establish `DESIGN.md` and the skill's development tooling before adding visual components. Use React/Vite-compatible component instructions when components are introduced.
 - Resolve current APIs through Context7 and official framework documentation before implementation or upgrades. Installed skill examples can lag the framework; check the locked package's actual signatures.
 - Use latest stable compatible releases, exact direct dependency versions, and generated lockfiles. Do not use floating `latest` in committed manifests or change versions at application startup. Regenerate lockfiles with the package manager, run checks, and review migration notes before accepting updates.
 - Daily Dependabot checks are configured for backend/frontend dependencies, with weekly container updates. They take effect only after this configuration reaches GitHub's default branch and Dependabot is enabled. Updates require review and verification; no automatic merge is configured.
@@ -47,7 +47,7 @@ The [architecture map in README.md](README.md#logical-architecture) describes re
 ### Local onboarding and plans
 
 - Use the root Taskfile for repeatable local setup: `task setup`, `task backend:dev`, `task health`, and optional `task frontend:dev`. Do not replace private `.env` files, recreate the Samurai database unnecessarily, or touch Reporting services.
-- Read [docs/local-development.md](docs/local-development.md) before changing startup behavior. The AgentOS console is a technical backend test surface with raw structured JSON; the custom founder UI is a local preview in `frontend/`; local frontend/backend plumbing is implemented; successful provider execution remains unverified.
+- Read [docs/local-development.md](docs/local-development.md) before changing startup behavior. The AgentOS console is a technical backend test surface with raw structured JSON; the custom founder UI is a local preview in `frontend/`; local frontend/backend plumbing and provider intake are implemented; grounded research outcomes still require source verification.
 - [`.omo/plans/`](.omo/plans/README.md) contains portable status records only. Keep new runtime boulders, ledgers, screenshots, evidence, credentials, and local browser artifacts ignored; retain already tracked historical records.
 
 ### Shared implementation requirements
@@ -142,13 +142,13 @@ The user specifically likes Hark's conversational interface, persistent left pan
 
 | Service | Intended responsibility |
 |---|---|
-| Cloud Run | AgentOS backend revision `samurai-backend-00002-p4s` is deployed on `Kalyan/gcp-deployment` with public transport and JWT-protected application routes. Agno Live connection, key rotation, authenticated chat, and reload persistence are verified; see [the deployment guide](docs/gcp-deployment.md) for evidence and remaining business-verification limits. |
+| Cloud Run | AgentOS backend and the team-only frontend are deployed with public transport and JWT-protected application routes. Agno Live connection, key rotation, authenticated chat, and reload persistence are verified; see [the deployment guide](docs/gcp-deployment.md) for evidence and remaining business-verification limits. |
 | Cloud SQL for PostgreSQL | Persist AgentOS sessions and company records. Local development uses PostgreSQL in Podman. |
 | Cloud Storage | Store generated artifacts; integration is planned. |
-| Firebase Authentication | Candidate for founder identity; end-user/company authorization is not implemented by the local shared service key. |
+| Google IAP | Selected team-only frontend identity; Node verifies IAP assertions and supplies per-user AgentOS JWTs. Google sign-in, live brief creation and reload are verified; see the deployment guide for CI/CD acceptance. |
 | Gemini | Reason over business context, perform grounded research, generate business artifacts, invoke tools, and recommend evidence-based changes. |
 
-Google Search grounding can support current research and citations; the verifier must still assess whether sources support a claim. Intake, Strategist, Product Manager, and Verifier preload validated local skill text with no runtime function tools; Researcher has no external tools in the free-tier runtime; Builder, Marketer, Sales, Analyst, and the parent use bounded local read-only skill access. Parent API and Chrome acceptance verified five-artifact primary journeys, source lineage with unverified claims and `needs_rework`, conditional founder-supplied metrics, owner isolation, recall/reload persistence, and cancellation without late artifacts. Local onboarding validation at `d6d05fb` passed `task check`: 141 backend tests, Ruff, formatting, basedpyright, and the frontend check, type generation, and build. This does not authorize launch-draft generation, outreach, ads, payments, sales measurement, push, or deployment. Persistent sessions alone do not establish resumable in-progress work; implement and test durable queue behavior before claiming it.
+Google Search grounding can support current research and citations; the verifier must still assess whether sources support a claim. Intake, Strategist, Product Manager, and Verifier preload validated local skill text with no runtime function tools; Researcher has native Gemini Search enabled; provider quota and source quality must be verified independently; Builder, Marketer, Sales, Analyst, and the parent use bounded local read-only skill access. Parent API and Chrome acceptance verified five-artifact primary journeys, source lineage with unverified claims and `needs_rework`, conditional founder-supplied metrics, owner isolation, recall/reload persistence, and cancellation without late artifacts. Local onboarding validation at `d6d05fb` passed `task check`: 141 backend tests, Ruff, formatting, basedpyright, and the frontend check, type generation, and build. This does not authorize launch-draft generation, outreach, ads, payments, sales measurement, push, or deployment. Persistent sessions alone do not establish resumable in-progress work; implement and test durable queue behavior before claiming it.
 
 ## Judging rubric
 

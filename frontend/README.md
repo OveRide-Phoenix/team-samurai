@@ -1,6 +1,6 @@
 # Samurai UI
 
-The React/Vite founder workspace for AI Idea → Company. New companies use the configured local AgentOS backend; existing and demo companies retain labelled Preview mode. Live Gemini runs may incur provider charges. The workspace does not send, publish or deploy; production proxy/auth deployment remains pending.
+The React/Vite founder workspace for AI Idea → Company. New companies use the configured local AgentOS backend; existing and demo companies retain labelled Preview mode. Live Gemini runs may incur provider charges. The workspace does not send, publish or deploy; the production Node proxy uses team-only Google IAP, with Google sign-in, live brief creation and reload verified.
 
 ## Run locally
 
@@ -21,7 +21,7 @@ Open http://127.0.0.1:4173. The former Next.js `/api/health` scaffold has been r
 - Company view, local search (Cmd/Ctrl+K), light/dark modes, and accessible Radix dialogs.
 - Fresh landing and empty-company states, with an always-present preview team.
 - Multiple companies with isolated conversations, pinned panels, shortlists, and draft reviews.
-- Browser-local persistence, including migration of the original dental preview.
+- Browser-local persistence; local preview retains the original dental-preview migration. Production caches use a SHA-256 namespace for the verified Google user before React mounts, without importing the legacy shared cache. Refresh after switching Google accounts; already-open tabs retain their loaded state until reload.
 - Inline search focused by Cmd/Ctrl+K, and subtle reduced-motion-aware transitions.
 - Be UI is used selectively for the sliding tab indicator; the core controls keep Samurai styling.
 - `liquid-glass-react` adds actual backdrop refraction to the navigation, search and composer without filtering their content. Safari and Firefox support is partial; local verification used Chromium.
@@ -38,9 +38,11 @@ Preview companies need no Gemini credentials. Live companies require the ignored
 ```sh
 npm run check
 npm run build
+npm run test:sites
+npm run test:server
 ```
 
-The inherited build emits `dist/client/` plus optional Sites packaging. Deploy `dist/client/` to Firebase Hosting when deployment is requested. No cloud deployment is configured yet.
+The build emits `dist/client/` plus Sites packaging. The Cloud Run container serves these assets through the production Node server and proxies the allowed AgentOS API routes. Static hosting alone cannot provide the authenticated live transport. See [Google Cloud deployment and CI/CD](../docs/gcp-deployment.md) for bootstrap, team access, and acceptance status.
 
 ## Open-source dependencies
 
@@ -58,6 +60,6 @@ The landing send button opens three required intake pages fetched from the backe
 
 ### Local UI integration — 11 October 2026
 
-New companies use native AgentOS SSE through the Vite server proxy. Configure `AGENTOS_USER_TOKEN` in ignored `frontend/.env.local` and the matching `JWT_VERIFICATION_KEY` in ignored `backend/.env`; restart the backend after changing its configuration. `GEMINI_MODEL` is locked to `gemini-3.5-flash-lite`, with no fallback. The original 2.5 Flash-Lite request returned HTTP 404 for this new account. The user then authorized 3.5 Flash-Lite on 12 October; verify its access separately. Existing and dental-demo companies retain Preview mode. Never call fixture tests proof of successful Gemini research. The static production build needs a production proxy/auth integration before live deployment.
+New companies use native AgentOS SSE through the Vite server proxy. Configure `AGENTOS_USER_TOKEN` in ignored `frontend/.env.local` and the matching `JWT_VERIFICATION_KEY` in ignored `backend/.env`; restart the backend after changing its configuration. `GEMINI_MODEL` is locked to `gemini-3.5-flash-lite`, with no fallback. The original 2.5 Flash-Lite request returned HTTP 404 for this new account. The user then authorized 3.5 Flash-Lite on 12 October; verify its access separately. Existing and dental-demo companies retain Preview mode. Never call fixture tests proof of successful Gemini research. Local tokens are development-only. Production verifies Google IAP assertions and mints short-lived per-user JWTs server-side; neither signing keys nor bearer tokens belong in `VITE_` variables.
 
-Team roles expand to show actual workflow start/completion history, retained per company and recovered from scoped backend runs. Missing evidence shows Researcher/Verifier blocked and Strategist waiting. A completed workflow is not proof of customer demand. Research remains insufficient without source evidence; paid Search grounding is disabled.
+Team roles expand to show actual workflow start/completion history, retained per company and recovered from scoped backend runs. Missing evidence shows Researcher/Verifier blocked and Strategist waiting. A completed workflow is not proof of customer demand. Research remains insufficient without source evidence; Researcher has native Gemini Search enabled; provider access, quota, and supported source evidence must be checked separately.
