@@ -42,7 +42,7 @@ before any visibility change. This document deliberately does not repeat them.
 
 | Surface | Result | Consequence |
 | --- | --- | --- |
-| Git LFS inventory | `git lfs` is not installed. A fallback search found no LFS pointer in accessible refs, but that is not an LFS metadata inventory. | Install/use an approved read-only Git LFS client and rerun `git lfs ls-files --all` before publication. |
+| Git LFS inventory | A temporary official Git LFS v3.8.0 macOS arm64 binary, verified against the release SHA-256, ran `git lfs ls-files --all` on a fresh seven-ref mirror. It exited 0 with zero LFS objects. | Complete for the audited refs; no LFS object existed to fetch or secret-scan. Rerun after any new ref is introduced. |
 | Releases, release assets, and Actions artifacts | The configured GitHub CLI credential is invalid. The GitHub API is reachable outside the sandbox, but anonymous repository, release, and Actions-artifact requests returned 404; no private artifact was downloaded. | Provide a read-only GitHub credential with repository and Actions metadata access, inventory release assets/artifact names and retention, then scan only authorized downloads. |
 | Actual repository visibility | Not queried successfully, and no change is authorized. | After explicit authorization only, use `gh repo view OveRide-Phoenix/team-samurai --json visibility` and record the result. |
 | Evaluator access | Evaluator Google identities/group, access period, removal owner, and explicit IAM authorization are absent. The excluded second-account live test was not performed. | Obtain organizer/user supplied identities, a least-privilege expiry/removal schedule, and explicit access approval. |
@@ -80,7 +80,7 @@ repository may be published or that an evaluator can access the application.
 - Explicit authorization for any GitHub visibility change, IAP IAM grant, link
   publication, upload, or submission.
 - A read-only GitHub credential or authorized operator for release and Actions
-  metadata inventory, plus approved Git LFS tooling.
+  metadata inventory.
 - The list of repository, deck, video, and prototype URLs intended for public
   evaluation.
 
@@ -92,7 +92,8 @@ repository may be published or that an evaluator can access the application.
 | Reachable-history scan | `gitleaks git --log-opts="--all" --redact --report-format json` over the disposable remote mirror | Exit `1`; one reviewed `generic-api-key` false positive at the path above | `.omo/evidence/readiness/task-13/remote-history-gitleaks.json` |
 | Intended public tree scan | `gitleaks dir --redact --report-format json` over an archive of remote `main` | Exit `1`; same reviewed false positive in the candidate tree | `.omo/evidence/readiness/task-13/public-candidate-gitleaks.json` |
 | Remote-ref and object audit | Mirror clone/fetch, `git for-each-ref`, `git fsck --full --no-reflogs`, and `git count-objects -vH` | Seven refs recorded; fsck exit `0` | `.omo/evidence/readiness/task-13/remote-refs.txt`, `git-fsck.txt`, `remote-object-inventory.txt` |
-| LFS/release/Actions inventory | `git lfs ls-files --all`, `gh release list`, and unauthenticated GitHub REST requests | LFS client unavailable; CLI/API authorization unavailable; coverage blocked | `.omo/evidence/readiness/task-13/lfs-inventory.txt`, `lfs-pointer-fallback.txt`, `gh-release-list.txt` |
+| Git LFS inventory | Verified temporary Git LFS v3.8.0 running `git lfs ls-files --all` on a fresh remote mirror | Exit `0`; zero LFS objects across seven refs, so no object download/scan was needed | `.omo/evidence/readiness/task-13/lfs-audit.md`, `lfs-inventory-v3.8.0.txt`, `lfs-fresh-remote-refs.txt` |
+| Release/Actions inventory | `gh release list` and unauthenticated GitHub REST requests | CLI/API authorization unavailable; coverage blocked | `.omo/evidence/readiness/task-13/gh-release-list.txt`, `github-api-inventory.txt` |
 | Manual artifact/configuration review | Tracked-file inventories, known-key-pattern scan, identifier review, image dimensions, and visual inspection | No known-key-pattern file; deployment identifiers require curation; reviewed image is branding only | `.omo/evidence/readiness/task-13/intended-public-inventory.txt`, `config-and-automation-inventory.txt`, `manual-known-secret-pattern-files.txt`, `manual-identifier-hits.txt` |
 
 The evidence reports contain redacted scanner output and finding type/path only;
