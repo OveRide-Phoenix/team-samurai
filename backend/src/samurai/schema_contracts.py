@@ -26,7 +26,7 @@ class LegacyMigrationIssue(StrEnum):
     COMPANY_CONFLICT = "existing founder-platform company conflicts with legacy state"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class LegacyMigrationError(Exception):
     """Expose one redacted refusal at the migration CLI boundary."""
 
