@@ -1,10 +1,13 @@
 """Validated runtime configuration and Gemini construction."""
 
-from typing import ClassVar
+from typing import ClassVar, Final, Literal, Self
 
 from agno.models.google import Gemini
-from pydantic import Field, PostgresDsn, SecretStr
+from pydantic import Field, PostgresDsn, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+PRODUCTION_JWT_KEY_REQUIRED: Final = "JWT_VERIFICATION_KEY is required in production"
+PRODUCTION_GEMINI_KEY_REQUIRED: Final = "GOOGLE_API_KEY is required in production"
 
 
 class Settings(BaseSettings):
@@ -18,6 +21,7 @@ class Settings(BaseSettings):
 
     os_security_key: SecretStr = Field(min_length=32)
     database_url: PostgresDsn
+    samurai_environment: Literal["development", "production"] = "development"
     google_api_key: SecretStr = SecretStr("")
     gemini_model: str = Field(default="gemini-3.8-flash", min_length=1)
     gemini_max_input_chars: int = Field(default=20_000, gt=0)
@@ -25,6 +29,18 @@ class Settings(BaseSettings):
     gemini_timeout_seconds: float = Field(default=60, gt=0)
     agent_tool_call_limit: int = Field(default=4, gt=0, le=16)
     jwt_verification_key: str | None = None
+
+    @model_validator(mode="after")
+    def _require_production_credentials(self) -> Self:
+        match self.samurai_environment:
+            case "development":
+                return self
+            case "production":
+                if not self.jwt_verification_key or not self.jwt_verification_key.strip():
+                    raise ValueError(PRODUCTION_JWT_KEY_REQUIRED)
+                if not self.google_api_key.get_secret_value().strip():
+                    raise ValueError(PRODUCTION_GEMINI_KEY_REQUIRED)
+                return self
 
 
 def create_model(settings: Settings) -> Gemini:
