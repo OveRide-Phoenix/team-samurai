@@ -152,7 +152,7 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
     append({ id: crypto.randomUUID(), role: 'user', text: input });
     if (!live && workspace.messages.length === 0 && !workspace.brief && !/sample/i.test(input)) {
       append({ id: crypto.randomUUID(), role: 'assistant', text: 'This preview can explore sample dental customers, offers, pricing, evidence and launch plans. Start a new company from Home for a live workflow.' });
-      controllerRef.current = null; setRunning(false); finish?.(); return;
+      controllerRef.current = null; completionRef.current = null; setRunning(false); finish?.(); return;
     }
     try {
       const initial = input === 'Start my company' && workspace.brief;
