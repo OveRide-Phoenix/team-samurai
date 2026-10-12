@@ -235,7 +235,11 @@ def create_app(
         config=AgentOSConfig(chat=ChatConfig(quick_prompts={PARENT_AGENT_ID: STARTER_PROMPTS})),
         settings=AgnoAPISettings(os_security_key=settings.os_security_key.get_secret_value()),
         authorization=Authorization(
-            verification_keys=[settings.jwt_verification_key],
+            verification_keys=[
+                key
+                for key in (settings.jwt_verification_key, settings.frontend_jwt_verification_key)
+                if key and key.strip()
+            ],
             algorithm="RS256",
         )
         if settings.jwt_verification_key

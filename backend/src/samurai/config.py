@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     gemini_timeout_seconds: float = Field(default=60, gt=0)
     agent_tool_call_limit: int = Field(default=4, gt=0, le=16)
     jwt_verification_key: str | None = None
+    frontend_jwt_verification_key: str | None = None
 
     @model_validator(mode="after")
     def _require_production_credentials(self) -> Self:
