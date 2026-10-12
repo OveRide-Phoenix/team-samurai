@@ -33,7 +33,7 @@ async function collect(events: AsyncIterable<WorkEvent>): Promise<WorkEvent[]> {
   return output;
 }
 function serve(data: string, split = false) {
-  const fetcher = vi.fn(async (_url: string, options?: RequestInit) => options?.method === 'POST' && options.body ? response(data, split) : new Response('{}'));
+  const fetcher = vi.fn(async (_url: string, options?: RequestInit) => options?.method === 'POST' && options.body ? response(data, split) : new Response(JSON.stringify(options?.method === 'GET' ? wire('RunCancelled', { status: 'CANCELLED' }) : {})));
   vi.stubGlobal('fetch', fetcher);
   return fetcher;
 }
@@ -95,15 +95,16 @@ describe('AgentOS transport wire boundary', () => {
     await expect(collect(transport('Second research', new AbortController().signal))).rejects.toThrow('another company');
   });
 
-  it('waits for cancel acknowledgement after an abort before RunStarted, without yielding late data', async () => {
+  it('keeps cancellation active after acknowledgement until the scoped run is terminal', async () => {
     const abort = new AbortController();
-    let started: ReadableStreamDefaultController<Uint8Array> | undefined;
     let acknowledge: ((value: Response) => void) | undefined;
     const ack = new Promise<Response>(resolve => { acknowledge = resolve; });
+    let confirm: ((value: Response) => void) | undefined;
+    const stored = new Promise<Response>(resolve => { confirm = resolve; });
     const fetcher = vi.fn(async (url: string, options?: RequestInit) => {
       if (url.includes('/cancel?')) return ack;
+      if (options?.method === 'GET') return stored;
       return new Response(new ReadableStream<Uint8Array>({ start(controller) {
-        started = controller;
         options?.signal?.addEventListener('abort', () => controller.error(new DOMException('Cancelled', 'AbortError')));
         abort.abort();
         controller.enqueue(new TextEncoder().encode(frame(wire('RunStarted'))));
@@ -115,8 +116,11 @@ describe('AgentOS transport wire boundary', () => {
     const output = collect(createAgentosTransport('session-1', run => statuses.push(run))('Check market', abort.signal)).then(events => { settled = true; return events; });
     await vi.waitFor(() => expect(fetcher.mock.calls.some(call => call[0].includes('/cancel?session_id=session-1'))).toBe(true));
     expect(settled).toBe(false);
-    started?.enqueue(new TextEncoder().encode(frame(wire('RunCompleted', { content: result }))));
     acknowledge?.(new Response('{}'));
+    await vi.waitFor(() => expect(fetcher.mock.calls.some(call => call[1]?.method === 'GET')).toBe(true));
+    expect(settled).toBe(false);
+    expect(statuses.at(-1)?.status).toBe('running');
+    confirm?.(new Response(JSON.stringify(wire('RunCancelled', { status: 'CANCELLED' }))));
     expect(await output).toEqual([]);
     expect(statuses.at(-1)?.status).toBe('cancelled');
   });
@@ -131,8 +135,8 @@ describe('AgentOS transport wire boundary', () => {
     const statuses: AgentosRun[] = [];
     await expect(collect(createAgentosTransport('session-1', run => statuses.push(run))('Check market', abort.signal))).rejects.toThrow('403');
     expect(statuses.at(-1)).toEqual({ runId: 'run-1', status: 'running' });
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}')));
-    await expect(cancelAgentosRun('session-1', 'run-1')).resolves.toBeUndefined();
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, options?: RequestInit) => new Response(JSON.stringify(options?.method === 'GET' ? wire('RunCancelled', { status: 'CANCELLED' }) : {}))));
+    await expect(cancelAgentosRun('session-1', 'run-1')).resolves.toMatchObject({ run: { runId: 'run-1', status: 'cancelled' }, events: [] });
   });
 
   it('adapts actual strategy and delivery fields without fabricating pricing', async () => {
@@ -302,4 +306,59 @@ it('keeps the offer concise while retaining all pricing options', () => {
   const messages = presentMessages([saved]);
   expect(messages.find(message => message.panel?.kind === 'offer')?.panel).toMatchObject({price: prices[0]});
   expect(messages.find(message => message.panel?.kind === 'pricing')?.panel).toMatchObject({options: prices.map((price, index) => ({name: `Assumption ${index + 1}`, price, description: ''}))});
+});
+
+
+describe('authoritative cancellation confirmation', () => {
+  it('polls both pending and running states before confirming cancellation', async () => {
+    let reads = 0;
+    const fetcher = vi.fn(async (_url: string, options?: RequestInit) => {
+      if (options?.method !== 'GET') return new Response('{}');
+      reads += 1;
+      return new Response(JSON.stringify(wire('RunStarted', { status: reads === 1 ? 'PENDING' : reads === 2 ? 'RUNNING' : 'CANCELLED' })));
+    });
+    vi.stubGlobal('fetch', fetcher);
+    expect((await cancelAgentosRun('session-1', 'run-1')).run.status).toBe('cancelled');
+    expect(reads).toBe(3);
+    for (const [url, options] of fetcher.mock.calls) if (options?.method === 'GET') expect(url).toContain('/run-1?session_id=session-1');
+  });
+
+  it('reports completed and recovers artifacts when completion wins the Stop race', async () => {
+    const abort = new AbortController();
+    vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+      if (url.includes('/cancel?')) return new Response('{}');
+      if (options?.method === 'GET') return new Response(JSON.stringify(wire('RunCompleted', { status: 'COMPLETED', content: result })));
+      abort.abort();
+      return response(frame(wire('RunStarted')));
+    }));
+    const statuses: AgentosRun[] = [];
+    const events = await collect(createAgentosTransport('session-1', run => statuses.push(run))('Research', abort.signal));
+    expect(statuses.at(-1)).toEqual({ runId: 'run-1', status: 'completed', companyId: company, revision: 1 });
+    expect(statuses.some(run => run.status === 'cancelled')).toBe(false);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ type: 'message', panel: { id: `artifact-${artifactId}` } });
+  });
+
+  it('does not reinterpret a stored error as cancellation', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, options?: RequestInit) => new Response(JSON.stringify(options?.method === 'GET' ? wire('RunError', { status: 'ERROR' }) : {}))));
+    expect((await cancelAgentosRun('session-1', 'run-1')).run.status).toBe('failed');
+  });
+
+  it('keeps the run possibly active when confirmation reads fail', async () => {
+    const abort = new AbortController();
+    vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+      if (url.includes('/cancel?')) return new Response('{}');
+      if (options?.method === 'GET') return new Response('{}', { status: 503 });
+      abort.abort();
+      return response(frame(wire('RunStarted')));
+    }));
+    const statuses: AgentosRun[] = [];
+    await expect(collect(createAgentosTransport('session-1', run => statuses.push(run))('Research', abort.signal))).rejects.toThrow('503');
+    expect(statuses.at(-1)).toEqual({runId:'run-1', status:'running'});
+  });
+
+  it('rejects confirmation from another session instead of unlocking the run', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, options?: RequestInit) => new Response(JSON.stringify(options?.method === 'GET' ? wire('RunCancelled', { status: 'CANCELLED', session_id: 'foreign' }) : {}))));
+    await expect(cancelAgentosRun('session-1', 'run-1')).rejects.toThrow('another session or run');
+  });
 });

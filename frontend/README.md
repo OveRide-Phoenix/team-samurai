@@ -1,6 +1,6 @@
 # Samurai UI
 
-The first frontend slice of AI Idea → Company. This is an interactive **local UI preview**, not a connected AI service. All clinics, business offers, prices, and agent activity use labelled demo fixtures. Nothing is sent, published, or billed.
+The React/Vite founder workspace for AI Idea → Company. New companies use the configured local AgentOS backend; existing and demo companies retain labelled Preview mode. Live Gemini runs may incur provider charges. The workspace does not send, publish or deploy; production proxy/auth deployment remains pending.
 
 ## Run locally
 

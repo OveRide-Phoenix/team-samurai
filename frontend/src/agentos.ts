@@ -40,6 +40,7 @@ const resultSchema = z.strictObject({ company_id: uuid, revision: z.number().int
 type WorkflowResult = z.infer<typeof resultSchema>;
 
 export type AgentosRun = { readonly runId: string; readonly status: 'running' | 'completed' | 'cancelled' | 'failed'; readonly companyId?: string; readonly revision?: number };
+type AgentosRunResult = { readonly run: AgentosRun; readonly events: readonly WorkEvent[] };
 export class AgentosError extends Error {
   readonly name = 'AgentosError';
   constructor(readonly code: 'http' | 'protocol' | 'scope' | 'stream' | 'cancel', message: string) { super(message); }
@@ -179,11 +180,23 @@ async function request(url: string, options: RequestInit): Promise<Response> {
 }
 
 
-export async function cancelAgentosRun(sessionId: string, runId: string): Promise<void> {
+export async function cancelAgentosRun(sessionId: string, runId: string, savedMessages: readonly Message[] = []): Promise<AgentosRunResult> {
   text.parse(sessionId); text.parse(runId);
-  const response = await request(`${base}/${encodeURIComponent(runId)}/cancel?session_id=${encodeURIComponent(sessionId)}`, { method: 'POST', signal: AbortSignal.timeout(15_000) });
-  const receipt = await response.text();
-  if (receipt.trim()) z.strictObject({}).parse(json(receipt));
+  const signal = AbortSignal.timeout(60_000);
+  try {
+    const response = await request(`${base}/${encodeURIComponent(runId)}/cancel?session_id=${encodeURIComponent(sessionId)}`, { method: 'POST', signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]) });
+    const receipt = await response.text();
+    if (receipt.trim()) z.strictObject({}).parse(json(receipt));
+    // Cancellation receipts acknowledge intent; only the scoped stored run establishes completion.
+    while (!signal.aborted) {
+      const recovered = await readAgentosRun(sessionId, runId, signal, savedMessages);
+      if (recovered.run.status !== 'running') return recovered;
+      await new Promise<void>(resolve => setTimeout(resolve, 500));
+    }
+  } catch (error) {
+    if (!signal.aborted) throw error;
+  }
+  throw new AgentosError('cancel', 'Stop has not been confirmed. This run may still be active; check again before starting another request.');
 }
 
 export function createAgentosTransport(sessionId: string, onRun?: (run: AgentosRun) => void, savedMessages: () => readonly Message[] = () => []): Transport {
@@ -195,11 +208,16 @@ export function createAgentosTransport(sessionId: string, onRun?: (run: AgentosR
     const timeout = setTimeout(() => controller.abort(), 600_000);
     let runId: string | undefined, revision: number | undefined;
     let terminal = false;
-    let cancellation: Promise<void> | undefined;
+    let cancellation: Promise<AgentosRunResult> | undefined;
     const notify = (status: AgentosRun['status']) => { if (runId) onRun?.({ runId, status, ...(companyId ? { companyId } : {}), ...(revision !== undefined ? { revision } : {}) }); };
     const cancel = () => {
       if (!runId || terminal || cancellation) return;
-      cancellation = cancelAgentosRun(sessionId, runId).then(() => { if (signal.aborted) notify('cancelled'); }).catch(error => { notify('running'); throw error; }).finally(() => controller.abort());
+      cancellation = cancelAgentosRun(sessionId, runId, savedMessages()).then(recovered => {
+        if (companyId && recovered.run.companyId && companyId !== recovered.run.companyId) throw new AgentosError('scope', 'AgentOS returned a result for another company.');
+        companyId = recovered.run.companyId ?? companyId; revision = recovered.run.revision ?? revision;
+        terminal = true; notify(recovered.run.status);
+        return recovered;
+      }).catch(error => { notify('running'); throw error; }).finally(() => controller.abort());
       // The generator awaits and surfaces cancellation failures; attach a handler immediately to prevent an unhandled rejection.
       void cancellation.catch(() => undefined);
     };
@@ -210,7 +228,7 @@ export function createAgentosTransport(sessionId: string, onRun?: (run: AgentosR
       form.set('message', text.parse(input)); form.set('session_id', sessionId); form.set('stream', 'true'); form.set('background', 'false');
       const response = await request(base, { method: 'POST', body: form, signal: controller.signal });
       if (!response.body || !response.headers.get('content-type')?.includes('text/event-stream')) throw new AgentosError('protocol', 'AgentOS did not return an event stream.');
-      for await (const raw of frames(response.body)) {
+      stream: for await (const raw of frames(response.body)) {
         const event = envelope(raw);
         if (!event) continue;
         if (event.session_id !== sessionId || (runId && event.run_id !== runId)) throw new AgentosError('scope', 'AgentOS returned an event for another session or run.');
@@ -218,7 +236,7 @@ export function createAgentosTransport(sessionId: string, onRun?: (run: AgentosR
           if (event.event !== 'RunStarted') throw new AgentosError('protocol', 'AgentOS omitted RunStarted.');
           runId = event.run_id; notify('running');
         }
-        if (signal.aborted) { cancel(); if (cancellation) { await cancellation; return; } }
+        if (signal.aborted) { cancel(); break stream; }
         if (event.event === 'CustomEvent' && (event.kind === 'workflow_progress' || event.kind === undefined)) {
           const activity = progressEvent(event.content);
           if (activity) yield activity;
@@ -230,7 +248,7 @@ export function createAgentosTransport(sessionId: string, onRun?: (run: AgentosR
             if (companyId && companyId !== result.company_id) throw new AgentosError('scope', 'AgentOS returned a result for another company.');
             companyId = result.company_id; revision = result.revision; notify('running');
             for (const output of resultEvents(result, seen)) {
-              if (signal.aborted) { cancel(); if (cancellation) await cancellation; return; }
+              if (signal.aborted) { cancel(); break stream; }
               yield output;
             }
           } else if (event.event === 'RunCompleted' && typeof event.content === 'string' && event.content.trim()) yield { type: 'message', text: event.content };
@@ -238,9 +256,10 @@ export function createAgentosTransport(sessionId: string, onRun?: (run: AgentosR
         if (event.event === 'RunError') { terminal = true; throw new AgentosError('stream', 'Samurai could not complete this run.'); }
         if (event.event === 'RunCompleted' || event.event === 'RunCancelled') { terminal = true; notify(event.event === 'RunCancelled' ? 'cancelled' : 'completed'); return; }
       }
+      if (cancellation) { for (const output of (await cancellation).events) yield output; return; }
       throw new AgentosError('stream', 'AgentOS stream ended before a terminal event.');
     } catch (error) {
-      if (cancellation) { await cancellation; return; }
+      if (cancellation) { for (const output of (await cancellation).events) yield output; return; }
       notify('failed');
       throw error;
     } finally {
@@ -251,7 +270,7 @@ export function createAgentosTransport(sessionId: string, onRun?: (run: AgentosR
   };
 }
 
-export async function readAgentosRun(sessionId: string, runId: string, signal?: AbortSignal, savedMessages: readonly Message[] = []): Promise<{ readonly run: AgentosRun; readonly events: readonly WorkEvent[] }> {
+export async function readAgentosRun(sessionId: string, runId: string, signal?: AbortSignal, savedMessages: readonly Message[] = []): Promise<AgentosRunResult> {
   text.parse(sessionId); text.parse(runId);
   const response = await request(`${base}/${encodeURIComponent(runId)}?session_id=${encodeURIComponent(sessionId)}`, { method: 'GET', signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000) });
   const wire = recordSchema.parse(json(await response.text()));

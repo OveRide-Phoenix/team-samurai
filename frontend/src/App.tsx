@@ -142,7 +142,7 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
   const append = (message: Message) => setWorkspace(current => ({ ...current, messages: [...current.messages, message].slice(-200), pinned: message.panel ? current.pinned.map(panel => panel.id === message.panel!.id ? message.panel! : panel) : current.pinned }));
   const onNew = async (message: AppendMessage) => {
     const input = message.content.filter(part => part.type === 'text').map(part => part.text).join('\n').trim();
-    if (!input || recoveringRef.current || controllerRef.current || backendRunning()) return;
+    if (!input || recoveringRef.current || controllerRef.current || completionRef.current || backendRunning()) return;
     const controller = new AbortController();
     controllerRef.current = controller;
     let finish: (() => void) | undefined;
@@ -163,7 +163,7 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
         events = transport(initial ? initialCompanyPrompt(initial) : input, controller.signal);
       } else events = initial ? onboardingPreview(initial, controller.signal) : demoTransport(input, controller.signal);
       for await (const raw of events) {
-        if (controller.signal.aborted) break;
+        if (controller.signal.aborted && !live) break;
         const event = eventSchema.parse(raw);
         if (event.type === 'activity') {
           setActivities(current => ({ ...current, [event.agent]: event }));
@@ -176,24 +176,28 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
         }
         else append({ id: crypto.randomUUID(), role: 'assistant', text: event.text, panel: event.panel });
       }
-      if (live && backendRunRef.current?.status === 'cancelled') append({ id: crypto.randomUUID(), role: 'assistant', text: 'The backend acknowledged cancellation.' });
+      if (live && backendRunRef.current?.status === 'cancelled') append({ id: crypto.randomUUID(), role: 'assistant', text: 'The backend confirmed cancellation.' });
     } catch (error) {
       if (!live && controller.signal.aborted) append({ id: crypto.randomUUID(), role: 'assistant', text: 'Stopped the preview. Nothing was sent or published.' });
       else setRunError(error instanceof Error ? error.message : 'Samurai could not complete this request.');
-    } finally { controllerRef.current = null; setRunning(live && backendRunning()); finish?.(); completionRef.current = null; }
+    } finally { controllerRef.current = null; if (live && backendRunRef.current) recordRun(backendRunRef.current); setRunning(live && backendRunning()); finish?.(); completionRef.current = null; }
   };
   const onCancel = async () => {
     if (recoveringRef.current) return;
     if (controllerRef.current) { controllerRef.current.abort(); await completionRef.current; return; }
+    if (completionRef.current) { await completionRef.current; return; }
     const saved = backendRunRef.current;
     if (live && saved?.status === 'running') {
       setRunError('');
-      try {
-        await cancelAgentosRun(company.id, saved.runId);
-        recordRun({ ...saved, status: 'cancelled' });
-        append({ id: crypto.randomUUID(), role: 'assistant', text: 'The backend acknowledged cancellation of the saved run.' });
+      const stopping = cancelAgentosRun(company.id, saved.runId, messagesRef.current).then(recovered => {
+        recordRun(recovered.run);
+        for (const event of recovered.events) if (event.type === 'message') setWorkspace(current => applyBackendEvent(current, saved.runId, event));
+        if (recovered.run.status === 'cancelled') append({ id: crypto.randomUUID(), role: 'assistant', text: 'The backend confirmed cancellation of the saved run.' });
+        if (recovered.run.status === 'failed') setRunError('The saved backend run failed. You can send a new request.');
         setRunning(false);
-      } catch (error) { setRunError(error instanceof Error ? error.message : 'Cancellation was not acknowledged.'); }
+      }).catch(error => { setRunError(error instanceof Error ? error.message : 'Cancellation was not confirmed.'); });
+      completionRef.current = stopping;
+      try { await stopping; } finally { completionRef.current = null; }
     }
   };
   const chatMessages = presentMessages(workspace.messages);
