@@ -244,7 +244,7 @@ async def run_analysis(
             current_revision=result.revision,
             artifacts=(*state.artifacts, *result.artifacts),
         )
-        save_company_state(updated, run_context)
+        updated = save_company_state(updated, run_context, db=workflow.db)
         _ = await workflow.aupdate_session_state(
             {"company": updated.model_dump(mode="json")},
             session_id=run_context.session_id,

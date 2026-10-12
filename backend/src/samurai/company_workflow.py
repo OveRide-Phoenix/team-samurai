@@ -200,14 +200,18 @@ def _envelope(state: CompanyState, candidate: _ArtifactCandidate) -> ArtifactEnv
     )
 
 
-def _save(state: CompanyState, envelope: ArtifactEnvelope, run_context: RunContext) -> CompanyState:
+def _save(
+    state: CompanyState,
+    envelope: ArtifactEnvelope,
+    run_context: RunContext,
+    db: BaseDb,
+) -> CompanyState:
     updated = accept_artifact(
         state,
         envelope,
         authenticated_session_id=state.context.authenticated_session_id,
     )
-    save_company_state(updated, run_context)
-    return updated
+    return save_company_state(updated, run_context, db=db)
 
 
 def _request(step_input: StepInput) -> CompanyJourneyRequest:
@@ -315,6 +319,7 @@ async def _agent_payload[PayloadT: BaseModel](
 
 @dataclass(frozen=True, slots=True)
 class _Journey:
+    db: BaseDb
     intake_agent: ResearchAgent
     research_agent: ResearchAgent
     strategy_agent: ResearchAgent
@@ -388,7 +393,7 @@ class _Journey:
                 ),
             ),
         )
-        _ = _save(state, envelope, context)
+        _ = _save(state, envelope, context, self.db)
         return _step_output(envelope)
 
     def brief_check(
@@ -487,7 +492,7 @@ class _Journey:
                 assumptions=research.assumptions,
             ),
         )
-        updated = _save(state, envelope, context)
+        updated = _save(state, envelope, context, self.db)
         return _step_output(
             envelope if outcome == "complete" else _result(updated, outcome),
             stop=outcome != "complete",
@@ -539,7 +544,7 @@ class _Journey:
                 ),
             ),
         )
-        _ = _save(state, envelope, context)
+        _ = _save(state, envelope, context, self.db)
         return _step_output(envelope)
 
     async def product(
@@ -584,7 +589,7 @@ class _Journey:
                 claims=research.claims,
             ),
         )
-        _ = _save(state, envelope, context)
+        _ = _save(state, envelope, context, self.db)
         return _step_output(envelope)
 
     async def verify(
@@ -663,7 +668,7 @@ class _Journey:
                 findings=tuple(findings),
             ),
         )
-        updated = _save(state, envelope, context)
+        updated = _save(state, envelope, context, self.db)
         questions = (
             ("Which founder decision remains unresolved before verification?",)
             if outcome == "needs_input"
@@ -678,6 +683,7 @@ def create_company_workflow(
     """Create the ordered company journey without registering it in AgentOS."""
     catalog = create_role_catalog(settings)
     journey = _Journey(
+        db=db,
         intake_agent=catalog[Role.INTAKE].agent,
         research_agent=catalog[Role.RESEARCHER].agent,
         strategy_agent=catalog[Role.STRATEGIST].agent,

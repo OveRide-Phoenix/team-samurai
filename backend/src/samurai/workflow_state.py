@@ -6,7 +6,9 @@ from dataclasses import dataclass
 from enum import StrEnum, unique
 from typing import TYPE_CHECKING, override
 
-from pydantic import Field, ValidationError
+from agno.db.postgres import PostgresDb
+from pydantic import Field, ValidationError, model_validator
+from pydantic_core import PydanticCustomError
 
 from samurai.contracts import (
     CompanyMismatchError,
@@ -17,6 +19,7 @@ from samurai.contracts import (
     WorkflowRequest,
     create_company_state,
 )
+from samurai.execution_state import AcceptanceToken, SamuraiPostgresDb
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -28,6 +31,20 @@ class _TrustedWorkflowContext(Contract):
     trusted_parent_session_id: str = Field(min_length=1)
     trusted_user_id: str = Field(min_length=1)
     child_session_id: str = Field(min_length=1)
+    parent_run_id: str | None = None
+    worker_id: str | None = None
+    attempt: int | None = Field(default=None, ge=1)
+    fingerprint: str | None = Field(default=None, min_length=64, max_length=64)
+
+    @model_validator(mode="after")
+    def _complete_acceptance_identity(self) -> _TrustedWorkflowContext:
+        fields = (self.parent_run_id, self.worker_id, self.attempt, self.fingerprint)
+        if any(value is not None for value in fields) and not all(
+            value is not None for value in fields
+        ):
+            code = "partial_acceptance_identity"
+            raise PydanticCustomError(code, "partial acceptance identity")
+        return self
 
 
 @unique
@@ -97,13 +114,20 @@ def load_company_state(
     return state
 
 
-def save_company_state(state: CompanyState, run_context: RunContext) -> None:
+def save_company_state(
+    state: CompanyState,
+    run_context: RunContext,
+    *,
+    db: object | None = None,
+) -> CompanyState:
     """Save canonical state only after revalidating its trusted parent binding."""
     trusted = _trusted_context(run_context)
     if state.context.authenticated_session_id != trusted.trusted_parent_session_id:
         raise SessionMismatchError(
             state.context.authenticated_session_id, trusted.trusted_parent_session_id
         )
+    if isinstance(db, PostgresDb) and not isinstance(db, SamuraiPostgresDb):
+        raise WorkflowContextError(WorkflowContextIssue.INVALID_DEPENDENCIES)
     session_state = run_context.session_state
     if session_state is None:
         session_state = {}
@@ -118,4 +142,24 @@ def save_company_state(state: CompanyState, run_context: RunContext) -> None:
             or retained_history != current.artifacts
         ):
             raise WorkflowContextError(WorkflowContextIssue.STATE_REWRITE)
-    session_state["company"] = state.model_dump(mode="json")
+    accepted = state
+    if isinstance(db, SamuraiPostgresDb):
+        if (
+            trusted.parent_run_id is None
+            or trusted.worker_id is None
+            or trusted.attempt is None
+            or trusted.fingerprint is None
+        ):
+            raise WorkflowContextError(WorkflowContextIssue.INVALID_DEPENDENCIES)
+        token = AcceptanceToken(
+            parent_run_id=trusted.parent_run_id,
+            owner_id=trusted.trusted_user_id,
+            parent_session_id=trusted.trusted_parent_session_id,
+            child_session_id=trusted.child_session_id,
+            worker_id=trusted.worker_id,
+            attempt=trusted.attempt,
+            fingerprint=trusted.fingerprint,
+        )
+        accepted = db.accept_company_state(state, token)
+    session_state["company"] = accepted.model_dump(mode="json")
+    return accepted

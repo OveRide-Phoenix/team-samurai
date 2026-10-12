@@ -237,7 +237,8 @@ async def run_launch_drafts(
             authenticated_session_id=state.context.authenticated_session_id,
         )
         artifacts.append(state.artifacts[-1])
-    save_company_state(state, run_context)
+    database = next(iter(workflows.values())).db
+    state = save_company_state(state, run_context, db=database)
     return WorkflowResult(
         company_id=state.context.company_id,
         revision=state.current_revision,
