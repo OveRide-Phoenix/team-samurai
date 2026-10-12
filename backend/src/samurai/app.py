@@ -124,7 +124,7 @@ def _coordination_available(redis_url: str) -> bool:
     try:
         ping = cast("Callable[[], bool]", client.ping)
         return ping()
-    except (OSError, RedisError):
+    except OSError, RedisError:
         return False
     finally:
         client.close()
@@ -151,16 +151,13 @@ async def _queue_readiness_response(
     scopes = cast("object", getattr(request.state, "scopes", None))
     if not isinstance(scopes, list):
         raise HTTPException(status_code=401, detail="authenticated queue operator is required")
-    typed_scopes = [
-        scope for scope in cast("list[object]", scopes) if isinstance(scope, str)
-    ]
+    typed_scopes = [scope for scope in cast("list[object]", scopes) if isinstance(scope, str)]
     if "agent_os:admin" not in typed_scopes and "*" not in typed_scopes:
         raise HTTPException(status_code=403, detail="queue diagnostics require admin scope")
     request_app = cast("FastAPI", request.app)
     worker_available = getattr(request_app.state, "queue_worker", None) is not None
-    coordination_available = (
-        redis_url is not None
-        and await run_in_threadpool(_coordination_available, redis_url)
+    coordination_available = redis_url is not None and await run_in_threadpool(
+        _coordination_available, redis_url
     )
     stats = (
         _NativeQueueStats.model_validate(await run_in_threadpool(runtime_db.queue_stats))
@@ -216,13 +213,9 @@ def _work_approval(runtime_db: BaseDb | None, scope: Scope, form: FormData) -> W
         message = "authenticated durable owner is required"
         raise PermissionError(message)
     headers = dict(cast("list[tuple[bytes, bytes]]", scope.get("headers", [])))
-    operation = WorkOperation(
-        headers.get(b"x-samurai-operation", b"journey").decode("ascii")
-    )
+    operation = WorkOperation(headers.get(b"x-samurai-operation", b"journey").decode("ascii"))
     stage = ApprovedStage(headers.get(b"x-samurai-stage", b"brief").decode("ascii"))
-    expected_revision = int(
-        headers.get(b"x-samurai-expected-revision", b"0").decode("ascii")
-    )
+    expected_revision = int(headers.get(b"x-samurai-expected-revision", b"0").decode("ascii"))
     child_id = child_session_id(cast("str", owner_id), cast("str", session_id))
     company = _canonical_company(
         runtime_db,
@@ -352,10 +345,7 @@ class _DurableRunBoundary:
         send: Send,
     ) -> None:
         path = cast("str", scope["path"])
-        if (
-            scope["type"] != "http"
-            or scope["method"] != "POST"
-        ):
+        if scope["type"] != "http" or scope["method"] != "POST":
             await self.app(scope, receive, send)
             return
         cancel_run_id = _cancel_run_id(path)
@@ -536,9 +526,7 @@ def create_app(
         required=settings.samurai_environment == "production",
         db=runtime_db,
         redis_url=(
-            settings.redis_url.get_secret_value()
-            if settings.redis_url is not None
-            else None
+            settings.redis_url.get_secret_value() if settings.redis_url is not None else None
         ),
     )
 
@@ -591,9 +579,7 @@ def create_app(
         return await _queue_readiness_response(
             request,
             runtime_db,
-            settings.redis_url.get_secret_value()
-            if settings.redis_url is not None
-            else None,
+            settings.redis_url.get_secret_value() if settings.redis_url is not None else None,
         )
 
     @asynccontextmanager

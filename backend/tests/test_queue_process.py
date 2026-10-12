@@ -378,9 +378,7 @@ def queue_environment(
     schema = f"task6_queue_{uuid4().hex}"
     environment = {
         **os.environ,
-        "PYTHONPATH": os.pathsep.join(
-            (str(backend_root / "src"), str(backend_root))
-        ),
+        "PYTHONPATH": os.pathsep.join((str(backend_root / "src"), str(backend_root))),
         "SAMURAI_QUEUE_DATABASE_URL": database_url,
         "SAMURAI_QUEUE_REDIS_URL": redis_url,
         "SAMURAI_QUEUE_PUBLIC_KEY_FILE": str(public_key_file),
@@ -455,11 +453,7 @@ def test_native_queue_recovers_once_replays_sse_and_exhausts_after_second_kill( 
         assert recovered.attempt == 2
         _wait_for_marker(recovered_marker)
         events = _resume_events(recovered_port, token, recovered)
-        indices = [
-            cast("int", event["event_index"])
-            for event in events
-            if "event_index" in event
-        ]
+        indices = [cast("int", event["event_index"]) for event in events if "event_index" in event]
         assert indices == sorted(set(indices))
         assert any(event.get("event") == "RunCompleted" for event in events)
     finally:
@@ -527,16 +521,14 @@ def test_native_queue_recovers_once_replays_sse_and_exhausts_after_second_kill( 
                     "first": first_receipt.model_dump(mode="json"),
                     "terminal": recovered.model_dump(mode="json"),
                     "event_indices": indices,
-                    "run_completed": any(
-                        event.get("event") == "RunCompleted" for event in events
-                    ),
+                    "run_completed": any(event.get("event") == "RunCompleted" for event in events),
                 },
                 "exhaustion": {
                     "second_attempt": exhausted_receipt.model_dump(mode="json"),
                     "terminal": terminal.model_dump(mode="json"),
                     "third_model_invocation": third_marker.exists(),
                 },
-            }
+            },
         )
     finally:
         stop_test_process(third_process, third_log, kill=False)
@@ -817,8 +809,8 @@ def test_native_http_idempotency_is_scoped_by_owner_and_rejects_changed_payload(
         )
         assert first_receipt.run_id != second_receipt.run_id
         model_invocations = (
-            tmp_path / "idempotency-model"
-        ).read_text(encoding="utf-8").splitlines()
+            (tmp_path / "idempotency-model").read_text(encoding="utf-8").splitlines()
+        )
         assert len(model_invocations) == 2
         cross_owner = _receipt(port, second_token, first_session, submission_id)
         cross_session = _receipt(port, first_token, second_session, submission_id)
@@ -991,9 +983,7 @@ def test_redis_outage_rejects_admission_and_reports_admin_unhealthy(
         )
         admin = httpx.get(
             f"http://127.0.0.1:{port}/agentos/queue/samurai-readiness",
-            headers={
-                "Authorization": f"Bearer {environment['SAMURAI_QUEUE_ADMIN_TOKEN']}"
-            },
+            headers={"Authorization": f"Bearer {environment['SAMURAI_QUEUE_ADMIN_TOKEN']}"},
             timeout=5,
         )
         assert non_admin.status_code == 403
@@ -1068,9 +1058,7 @@ def test_admin_diagnostics_reports_delayed_old_pending_job(
         assert admitted["accepted"] is True
         response = httpx.get(
             f"http://127.0.0.1:{port}/agentos/queue/samurai-readiness",
-            headers={
-                "Authorization": f"Bearer {environment['SAMURAI_QUEUE_ADMIN_TOKEN']}"
-            },
+            headers={"Authorization": f"Bearer {environment['SAMURAI_QUEUE_ADMIN_TOKEN']}"},
             timeout=5,
         )
         assert response.status_code == 200, response.text

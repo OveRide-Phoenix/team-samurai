@@ -492,8 +492,7 @@ def test_queue_compatible_copies_isolate_owner_model_and_tool_state(
 
     results = anyio.run(scenario)
     summaries = [
-        CompanyStateSummary.model_validate_json(cast("str", result.content))
-        for result in results
+        CompanyStateSummary.model_validate_json(cast("str", result.content)) for result in results
     ]
     functions_a = [
         tool for tool in cast("list[object]", owner_a.tools) if isinstance(tool, Function)

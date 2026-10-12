@@ -233,9 +233,9 @@ def create_queue_process_app() -> FastAPI:
             "database_url": os.environ["SAMURAI_QUEUE_DATABASE_URL"],
             "queue_enabled": True,
             "redis_url": os.environ["SAMURAI_QUEUE_REDIS_URL"],
-            "jwt_verification_key": Path(
-                os.environ["SAMURAI_QUEUE_PUBLIC_KEY_FILE"]
-            ).read_text(encoding="utf-8"),
+            "jwt_verification_key": Path(os.environ["SAMURAI_QUEUE_PUBLIC_KEY_FILE"]).read_text(
+                encoding="utf-8"
+            ),
             "google_api_key": "unused-test-key",
             "os_security_key": "queue-process-test-key-32-bytesx",
         }

@@ -97,9 +97,7 @@ class BoundWorkIntent(Contract):
     token: AcceptanceToken
 
 
-type WorkReceiptStatus = Literal[
-    "PENDING", "RUNNING", "PAUSED", "COMPLETED", "ERROR", "CANCELLED"
-]
+type WorkReceiptStatus = Literal["PENDING", "RUNNING", "PAUSED", "COMPLETED", "ERROR", "CANCELLED"]
 
 
 class WorkReceipt(Contract):

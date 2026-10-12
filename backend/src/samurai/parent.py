@@ -732,9 +732,7 @@ def _ensure_durable_child_session(
             user_id=owner_id,
             workflow_id=WORKFLOW_ID,
             session_data={
-                "session_state": {}
-                if state is None
-                else {"company": state.model_dump(mode="json")}
+                "session_state": {} if state is None else {"company": state.model_dump(mode="json")}
             },
         )
     )
@@ -1121,6 +1119,7 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
     """Create a fresh ordinary Samurai Agent and its bounded native tools."""
     if model_factory is None:
         if model is None:
+
             def build_model() -> Model:
                 return create_model(settings)
         else:

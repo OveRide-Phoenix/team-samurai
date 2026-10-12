@@ -304,9 +304,10 @@ def test_work_receipt_is_scoped_to_owner_session_and_submission(
     # Given a durable ticket keyed by the founder's persisted submission UUID.
     intent = _intent()
     submission_id = uuid4()
-    assert database.enqueue_job(
-        _job("run-receipt", intent, key=str(submission_id))
-    )["accepted"] is True
+    assert (
+        database.enqueue_job(_job("run-receipt", intent, key=str(submission_id)))["accepted"]
+        is True
+    )
 
     # When receipt lookup uses the authenticated owner, session, and submission UUID.
     receipt = database.get_work_receipt(
@@ -341,12 +342,13 @@ def test_same_submission_uuid_is_independent_for_two_owners(
         child_session_id="child-b",
     )
 
-    assert database.enqueue_job(
-        _job("run-owner-a", first, key=str(submission_id))
-    )["accepted"] is True
-    assert database.enqueue_job(
-        _job("run-owner-b", second, key=str(submission_id))
-    )["accepted"] is True
+    assert (
+        database.enqueue_job(_job("run-owner-a", first, key=str(submission_id)))["accepted"] is True
+    )
+    assert (
+        database.enqueue_job(_job("run-owner-b", second, key=str(submission_id)))["accepted"]
+        is True
+    )
 
     first_receipt = database.get_work_receipt(
         first.owner_id,
@@ -362,16 +364,22 @@ def test_same_submission_uuid_is_independent_for_two_owners(
     assert second_receipt is not None
     assert first_receipt.run_id == "run-owner-a"
     assert second_receipt.run_id == "run-owner-b"
-    assert database.get_work_receipt(
-        first.owner_id,
-        second.parent_session_id,
-        submission_id,
-    ) is None
-    assert database.get_work_receipt(
-        second.owner_id,
-        first.parent_session_id,
-        submission_id,
-    ) is None
+    assert (
+        database.get_work_receipt(
+            first.owner_id,
+            second.parent_session_id,
+            submission_id,
+        )
+        is None
+    )
+    assert (
+        database.get_work_receipt(
+            second.owner_id,
+            first.parent_session_id,
+            submission_id,
+        )
+        is None
+    )
 
 
 def test_acceptance_native_enqueue_rejects_missing_trusted_approval(
