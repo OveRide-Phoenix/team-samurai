@@ -1,0 +1,33 @@
+import { z } from 'zod';
+import { portfolioKey, restorePortfolio, storageKey, type Portfolio } from './model';
+
+const identity = z.object({ configured: z.literal(true), storageNamespace: z.string().regex(/^[a-f0-9]{64}$/).brand<'StorageNamespace'>() });
+export type BrowserScope = { readonly kind: 'development' } | { readonly kind: 'user'; readonly namespace: z.infer<typeof identity>['storageNamespace'] };
+export class BrowserIdentityError extends Error {
+  readonly name = 'BrowserIdentityError';
+  constructor() { super('Sign in to Samurai and reload to open your workspace.'); }
+}
+
+export async function resolveBrowserScope(production: boolean, request: typeof fetch = fetch): Promise<BrowserScope> {
+  if (!production) return { kind: 'development' };
+  const response = await request('/api/agentos/connection', {
+    credentials: 'same-origin', cache: 'no-store', redirect: 'error',
+    headers: { 'X-Samurai-Client': '1' }, signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) throw new BrowserIdentityError();
+  const data: unknown = await response.json();
+  const result = identity.safeParse(data);
+  if (!result.success) throw new BrowserIdentityError();
+  return { kind: 'user', namespace: result.data.storageNamespace };
+}
+
+export function portfolioStorageKey(scope: BrowserScope): string {
+  switch (scope.kind) {
+    case 'development': return portfolioKey;
+    case 'user': return `${portfolioKey}:${scope.namespace}`;
+  }
+}
+
+export function loadPortfolio(storage: Pick<Storage, 'getItem'>, scope: BrowserScope): Portfolio {
+  return restorePortfolio(storage.getItem(portfolioStorageKey(scope)), scope.kind === 'development' ? storage.getItem(storageKey) : null);
+}

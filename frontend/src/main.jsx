@@ -3,9 +3,20 @@ import { createRoot } from "react-dom/client";
 import { App } from "./Portfolio.tsx";
 import "@fontsource-variable/inter";
 import "./styles.css";
+import { resolveBrowserScope } from "./browserStorage";
 
-createRoot(document.getElementById("root")).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
+async function start() {
+  const root = document.getElementById("root");
+  try {
+    const scope = await resolveBrowserScope(import.meta.env.PROD);
+    createRoot(root).render(
+      <React.StrictMode>
+        <App scope={scope} />
+      </React.StrictMode>,
+    );
+  } catch {
+    root.setAttribute("role", "alert");
+    root.textContent = "Sign in to Samurai and reload to open your workspace.";
+  }
+}
+void start();

@@ -5,12 +5,14 @@ import { useEffect, useState } from 'react';
 import { MotionConfig } from 'motion/react';
 import { ArrowRight, ArrowUp, Building2 } from 'lucide-react';
 import { CompanyWorkspace } from './App';
-import { emptyWorkspace, portfolioKey, restorePortfolio, storageKey, type Portfolio, type Workspace } from './model';
+import { emptyWorkspace, restorePortfolio, type Portfolio, type Workspace } from './model';
+import { loadPortfolio, portfolioStorageKey, type BrowserScope } from './browserStorage';
 import { ModeToggle, SearchBar } from './ShellParts';
 
-export function App() {
+export function App({ scope }: { readonly scope: BrowserScope }) {
+  const scopedStorageKey = portfolioStorageKey(scope);
   const [portfolio, setPortfolio] = useState<Portfolio>(() => {
-    try { return restorePortfolio(localStorage.getItem(portfolioKey), localStorage.getItem(storageKey)); }
+    try { return loadPortfolio(localStorage, scope); }
     catch { return restorePortfolio(null, null); }
   });
   const [name, setName] = useState('');
@@ -19,9 +21,9 @@ export function App() {
   useEffect(() => {
     document.documentElement.dataset.mode = portfolio.mode;
     document.documentElement.style.colorScheme = portfolio.mode;
-    try { localStorage.setItem(portfolioKey, JSON.stringify(portfolio)); setStorageError(false); }
+    try { localStorage.setItem(scopedStorageKey, JSON.stringify(portfolio)); setStorageError(false); }
     catch { setStorageError(true); }
-  }, [portfolio]);
+  }, [portfolio, scopedStorageKey]);
   const toggleMode = () => setPortfolio(current => ({ ...current, mode: current.mode === 'light' ? 'dark' : 'light' }));
   const open = (activeId: string | null) => { setOnboarding(false); setPortfolio(current => ({ ...current, activeId })); };
   const create = (companyName: string, workspace = emptyWorkspace()) => {
