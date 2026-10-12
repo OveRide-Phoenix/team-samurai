@@ -1,0 +1,58 @@
+name: Deploy production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    if: github.ref == 'refs/heads/main' && github.repository == 'OveRide-Phoenix/team-samurai'
+    uses: ./.github/workflows/checks.yml
+
+  deploy:
+    needs: checks
+    if: github.ref == 'refs/heads/main' && github.repository == 'OveRide-Phoenix/team-samurai'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PROJECT_ID: samurai-ai-company-2026
+      REGION: asia-south1
+      REGISTRY: asia-south1-docker.pkg.dev/samurai-ai-company-2026/samurai
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Build both tested images before cloud authentication
+        run: |
+          docker build --platform linux/amd64 --tag "$REGISTRY/backend:$GITHUB_SHA" backend
+          docker build --platform linux/amd64 --tag "$REGISTRY/frontend:$GITHUB_SHA" frontend
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          project_id: samurai-ai-company-2026
+          workload_identity_provider: projects/590733583260/locations/global/workloadIdentityPools/github/providers/github-main
+          service_account: samurai-deployer@samurai-ai-company-2026.iam.gserviceaccount.com
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+      - name: Push images and resolve immutable digests
+        run: |
+          gcloud auth configure-docker asia-south1-docker.pkg.dev --quiet
+          for component in backend frontend; do
+            image="$REGISTRY/$component:$GITHUB_SHA"
+            docker push "$image"
+            digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$image")
+            [[ "$digest" =~ ^${REGISTRY}/${component}@sha256:[a-f0-9]{64}$ ]]
+            printf '%s_IMAGE=%s\n' "${component^^}" "$digest" >> "$GITHUB_ENV"
+          done
+      - name: Deploy backend, then protected frontend
+        run: bash scripts/deploy-cloud-run.sh
