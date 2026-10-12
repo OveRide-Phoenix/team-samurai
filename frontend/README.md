@@ -1,45 +1,63 @@
-# Frontend
+# Samurai UI
 
-Owns the founder-facing **AI Idea → Company** workspace. Read the root [AGENTS.md](../AGENTS.md) and [logical architecture](../README.md#logical-architecture) first.
+The React/Vite founder workspace for AI Idea → Company. New companies use the configured local AgentOS backend; existing and demo companies retain labelled Preview mode. Live Gemini runs may incur provider charges. The workspace does not send, publish or deploy; production proxy/auth deployment remains pending.
 
-## Responsibilities
+## Run locally
 
-- Present one conversational entry point: “What do you want to build?” and “Build my business.”
-- Provide a persistent left pane for company context, work status, founder decisions, and useful pinned panels.
-- Render interactive research, pricing, prospect, offer, campaign, artifact, and performance views from validated structured data.
-- Show sources, assumptions, verification results, conflicts, and limitations where users need them.
-- Present approval controls with clear action details and visible pending, success, and failure outcomes.
-
-## Design direction
-
-Preserve the Hark Pro-inspired direction documented in the root instructions: atmospheric backgrounds, frosted surfaces, restrained floating controls, soft top blur, readable content, and progressive disclosure. Reuse the existing [Samurai brand assets](../assets/samurai-logo/).
-
-Keep chat central and panels useful. Provide accessible controls, usable small-screen layouts, and reduced-motion behavior. Display actual work status; label demo data and never represent simulated activity as live execution.
-
-## Backend boundary
-
-The backend owns orchestration, tool execution, company authorization, verification, persistence, and secrets through Agno AgentOS. Agree structured inputs, outputs, work states, errors, evidence references, and approval behavior before implementing integration. See [the selected architecture](../docs/architecture.md) and [frontend contributor instructions](AGENTS.md).
-
-Use reusable components for generative UI. Model output must not become arbitrary executable code in the founder's session. Approval controls request backend actions; they do not replace backend authorization.
-
-## Development and verification
-
-Next.js App Router, React, strict TypeScript, Tailwind CSS, and Biome are configured with exact versions and `package-lock.json`. npm is used because it worked with this machine's configured registry when pnpm was rejected. Contributors can use their approved npm registry; no machine-specific registry URL or credential is committed.
+From the repository root, use `task frontend:setup` and `task frontend:dev`. Alternatively, use Node 24 from `frontend/`, then:
 
 ```sh
-# From the repository root:
-task frontend:setup
-task frontend:dev
+npm ci
+npm run dev
 ```
 
-`task frontend:setup` preserves an existing private frontend environment file and runs `npm ci`; `task frontend:dev` checks port 3000 and starts the server in the foreground. Open `http://127.0.0.1:3000/api/health` for the process check. There is no home page or company UI yet; `/` currently returns 404. `BACKEND_URL` is reserved for the future server integration and is not consumed by the health endpoint. A passing frontend health check does not prove backend integration or the founder experience. The planned authenticated AgentOS request and SSE lifecycle contract is documented in [local development](../docs/local-development.md#planned-frontend-to-agentos-contract).
+Open http://127.0.0.1:4173. The former Next.js `/api/health` scaffold has been replaced. The server binds to loopback only.
+
+## Included
+
+- Hark-inspired atmospheric workspace, frosted Home panels, floating navigation, and top blur.
+- assistant-ui conversation runtime, message primitives, composer, cancellation, and custom tool rendering.
+- Interactive prospect filtering and shortlisting, offer review, pricing views, and pinning to Home.
+- Company view, local search (Cmd/Ctrl+K), light/dark modes, and accessible Radix dialogs.
+- Fresh landing and empty-company states, with an always-present preview team.
+- Multiple companies with isolated conversations, pinned panels, shortlists, and draft reviews.
+- Browser-local persistence, including migration of the original dental preview.
+- Inline search focused by Cmd/Ctrl+K, and subtle reduced-motion-aware transitions.
+- Be UI is used selectively for the sliding tab indicator; the core controls keep Samurai styling.
+- `liquid-glass-react` adds actual backdrop refraction to the navigation, search and composer without filtering their content. Safari and Firefox support is partial; local verification used Chromium.
+- Responsive mobile layout and reduced-motion support.
+
+## Backend handoff
+
+The backend is in `backend/`. New companies use the authenticated native AgentOS transport; legacy/sample companies use the labelled preview transport. See [BACKEND_CONTRACT.md](BACKEND_CONTRACT.md). Validated UI schemas live in `src/model.ts`, the live adapter in `src/agentos.ts`, and preview fixtures in `src/demo.ts`.
+
+Preview companies need no Gemini credentials. Live companies require the ignored server-side configuration described below. Provider secrets never enter the browser.
+
+## Checks
 
 ```sh
 npm run check
 npm run build
-npm start
 ```
 
-Tailwind's PostCSS setup and base CSS are ready. Import `globals.css` in the root layout when the visual app is introduced. Before adding components, establish `DESIGN.md` and the frontend skill's React development tooling; initialize shadcn/ui using its [current Next.js instructions](https://ui.shadcn.com/docs/installation/next). No unused stock components or visual design are generated by this infrastructure setup.
+The inherited build emits `dist/client/` plus optional Sites packaging. Deploy `dist/client/` to Firebase Hosting when deployment is requested. No cloud deployment is configured yet.
 
-For UI changes, verify interactions in a real browser, including relevant loading, empty, error, and approval states, keyboard access, and small-screen behavior. Close task-opened browser sessions afterward while preserving user-owned tabs.
+## Open-source dependencies
+
+React, Vite, TypeScript, Tailwind CSS, assistant-ui, Radix UI, Lucide, Zod, and Vitest use permissive open-source licenses. Inter is distributed under the SIL Open Font License. No assistant-cloud account or paid UI service is required. Package versions are recorded in `package-lock.json`.
+
+Panels expand inside Home. Use Company or the expand control at the top of the left pane to open the full-width dashboard; Chat with Samurai returns to the retained conversation draft and scroll position. Search opens panels inline, with the full dashboard used on mobile. Settings use a themed dropdown; panel creation choices use a dialog.
+
+Generative UI catalog: offer, prospects, pricing, evidence review, and launch plan. Use Add a panel → Evidence review or Launch plan, or ask “Show sample validation evidence” / “Show sample launch plan”. Preview streams demonstrate template components; live streams render validated backend artifacts. Launch task checkmarks persist per company.
+
+The atmospheric mesh background uses `@paper-design/shaders-react` (Apache-2.0), the shader engine used by Be UI. It freezes under reduced motion and retains the existing CSS atmosphere when WebGL2 is unavailable.
+
+Company panels use masonry columns. Choose Edit card order in the settings dropdown, then drag a handle or use the earlier/later buttons; Done hides these controls. The order is saved per company in this browser. Switch companies from Home; the current company name appears once as a prominent heading. The expanded dashboard has no sidebar rail; its larger team card describes idle roles and shows activity during preview runs.
+
+The landing send button opens three required intake pages fetched from the backend. Idea, customers, location, budget, founder skills/resources and first milestone become the saved brief. Completing intake starts a cancellable live run once on first entry. Back preserves answers; leaving or reloading unfinished onboarding discards that draft. All page/view reveals use an 850 ms blur-and-grain fade, disabled for reduced motion.
+
+### Local UI integration — 11 October 2026
+
+New companies use native AgentOS SSE through the Vite server proxy. Configure `AGENTOS_USER_TOKEN` in ignored `frontend/.env.local` and the matching `JWT_VERIFICATION_KEY` in ignored `backend/.env`; restart the backend after changing its configuration. `GEMINI_MODEL` is locked to `gemini-3.5-flash-lite`, with no fallback. The original 2.5 Flash-Lite request returned HTTP 404 for this new account. The user then authorized 3.5 Flash-Lite on 12 October; verify its access separately. Existing and dental-demo companies retain Preview mode. Never call fixture tests proof of successful Gemini research. The static production build needs a production proxy/auth integration before live deployment.
+
+Team roles expand to show actual workflow start/completion history, retained per company and recovered from scoped backend runs. Missing evidence shows Researcher/Verifier blocked and Strategist waiting. A completed workflow is not proof of customer demand. Research remains insufficient without source evidence; paid Search grounding is disabled.

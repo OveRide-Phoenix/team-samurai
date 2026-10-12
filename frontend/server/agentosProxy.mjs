@@ -1,0 +1,81 @@
+import fs from 'node:fs';
+import { parseEnv } from 'node:util';
+import { URL } from 'node:url';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+
+const BACKEND = 'http://127.0.0.1:8000';
+const RUN = /^\/api\/agentos\/agents\/samurai\/runs$/;
+const SAFE_ID = '[A-Za-z0-9_-]{1,200}';
+const RUN_ID = new RegExp(`^/api/agentos/agents/samurai/runs/(${SAFE_ID})$`);
+const CANCEL = new RegExp(`^/api/agentos/agents/samurai/runs/(${SAFE_ID})/cancel$`);
+
+function envFile(path) {
+  try { return parseEnv(fs.readFileSync(path, 'utf8')); } catch { return {}; }
+}
+function envValue(text, key) {
+  return text[key]?.trim() ?? '';
+}
+function config(root) {
+  const frontend = envFile(`${root}/.env.local`);
+  const backend = envFile(`${root}/../backend/.env`);
+  const token = envValue(frontend, 'AGENTOS_USER_TOKEN');
+  const verificationKey = envValue(backend, 'JWT_VERIFICATION_KEY');
+  const model = envValue(backend, 'GEMINI_MODEL');
+  return { token, configured: Boolean(token && verificationKey && model === 'gemini-3.5-flash-lite') };
+}
+
+function reject(response, status, message) {
+  response.statusCode = status;
+  response.setHeader('Content-Type', 'application/json');
+  response.end(JSON.stringify({ detail: message }));
+}
+
+export function agentosProxy(root, fetchImpl = fetch) {
+  return async (req, res, next) => {
+    if (!req.url?.startsWith('/api/agentos/')) return next();
+    if (req.headers['x-samurai-client'] !== '1' || req.headers.authorization) return reject(res, 403, 'invalid local client');
+    const host = String(req.headers.host ?? '').split(':')[0];
+    const origin = req.headers.origin;
+    if (!['127.0.0.1', 'localhost'].includes(host) || (origin && !/^https?:\/\/(127\.0\.0\.1|localhost):4173$/.test(origin))) return reject(res, 403, 'invalid local origin');
+    const url = new URL(req.url, 'http://127.0.0.1:4173');
+    const { token, configured } = config(root);
+    if (url.pathname === '/api/agentos/connection' && req.method === 'GET' && !url.search) {
+      res.statusCode = configured ? 200 : 503;
+      res.setHeader('Content-Type', 'application/json');
+      return res.end(JSON.stringify({ backend: BACKEND, configured, auth: 'jwt' }));
+    }
+    if (!configured) return reject(res, 503, 'Samurai AgentOS is not configured.');
+    const isIntake = url.pathname === '/api/agentos/intake' && req.method === 'GET' && !url.search;
+    const match = url.pathname.match(RUN) ?? url.pathname.match(RUN_ID) ?? url.pathname.match(CANCEL);
+    const isRun = RUN.test(url.pathname) && req.method === 'POST';
+    const isRead = RUN_ID.test(url.pathname) && req.method === 'GET';
+    const isCancel = CANCEL.test(url.pathname) && req.method === 'POST';
+    if (!isIntake && (!match || (!isRun && !isRead && !isCancel))) return reject(res, 404, 'route not available');
+    const sessions = url.searchParams.getAll('session_id');
+    if ([...url.searchParams.keys()].some(key => key !== 'session_id') || (isRun && url.search) || (!isRun && !isIntake && (sessions.length !== 1 || !/^[A-Za-z0-9_-]{1,200}$/.test(sessions[0])))) return reject(res, 400, 'query not allowed');
+    const target = isIntake ? `${BACKEND}/api/company/intake` : `${BACKEND}/agentos${url.pathname.slice('/api/agentos'.length)}${url.search}`;
+    const headers = { authorization: `Bearer ${token}`, 'x-samurai-client': '1' };
+    if (req.headers['content-type']) headers['content-type'] = req.headers['content-type'];
+    const controller = new AbortController();
+    res.once('close', () => { if (!res.writableFinished) controller.abort(); });
+    try {
+      const upstream = await fetchImpl(target, { signal: controller.signal, method: req.method, headers, body: isRun ? req : undefined, ...(isRun ? { duplex: 'half' } : {}) });
+      res.statusCode = upstream.status;
+      if (upstream.headers.get('content-type')) res.setHeader('Content-Type', upstream.headers.get('content-type'));
+      if (!upstream.ok && (upstream.status === 401 || upstream.status >= 500)) {
+        res.statusCode = upstream.status >= 500 ? 503 : 401;
+        res.setHeader('Content-Type', 'application/json');
+        return res.end(JSON.stringify({ detail: upstream.status === 401 ? 'AgentOS authentication failed.' : 'Samurai AgentOS is unavailable.' }));
+      }
+      if (!upstream.body) return res.end();
+      await pipeline(Readable.fromWeb(upstream.body), res);
+    } catch {
+      if (res.destroyed) return;
+      if (res.headersSent) return res.destroy();
+      return reject(res, 502, 'Samurai AgentOS is unavailable.');
+    }
+  };
+}
+
+export const __private__ = { config, envValue };

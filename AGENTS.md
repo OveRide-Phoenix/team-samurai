@@ -22,7 +22,7 @@ This is the parent repository for **AI Idea → Company**, a general-purpose com
 
 The [architecture map in README.md](README.md#logical-architecture) describes responsibilities and data flow, not deployed infrastructure. Read [backend/README.md](backend/README.md) or [frontend/README.md](frontend/README.md) before working in that area. This root instruction file applies to both; future directory-specific `AGENTS.md` files may add narrower guidance.
 
-**Selected architecture:** Python with Agno AgentOS and explicit Agno workflows; Gemini for reasoning; PostgreSQL/Cloud SQL for durable records; Cloud Storage for artifacts; Next.js App Router, TypeScript, Tailwind CSS, and shadcn/ui for the frontend. Use Podman for local PostgreSQL. See [docs/architecture.md](docs/architecture.md) for the build sequence and current implementation boundary. This supersedes the earlier Firestore persistence plan. .NET is not part of this stack.
+**Selected architecture:** Python with Agno AgentOS and explicit Agno workflows; Gemini for reasoning; PostgreSQL/Cloud SQL for durable records; Cloud Storage for artifacts; the existing React/Vite, TypeScript, Tailwind CSS, assistant-ui, and Radix UI in `frontend/`. The user requested moving the working UI here rather than keeping the Next.js starter scaffold. Use Podman for local PostgreSQL. See [docs/architecture.md](docs/architecture.md) for the build sequence and current implementation boundary. This supersedes the earlier Firestore persistence plan. .NET is not part of this stack.
 
 ### Skills and current framework guidance
 
@@ -47,7 +47,7 @@ The [architecture map in README.md](README.md#logical-architecture) describes re
 ### Local onboarding and plans
 
 - Use the root Taskfile for repeatable local setup: `task setup`, `task backend:dev`, `task health`, and optional `task frontend:dev`. Do not replace private `.env` files, recreate the Samurai database unnecessarily, or touch Reporting services.
-- Read [docs/local-development.md](docs/local-development.md) before changing startup behavior. The AgentOS console is a technical backend test surface with raw structured JSON; the custom founder UI and frontend/backend integration remain pending.
+- Read [docs/local-development.md](docs/local-development.md) before changing startup behavior. The AgentOS console is a technical backend test surface with raw structured JSON; the custom founder UI is a local preview in `frontend/`; local frontend/backend plumbing is implemented; successful provider execution remains unverified.
 - [`.omo/plans/`](.omo/plans/README.md) contains portable status records only. Keep new runtime boulders, ledgers, screenshots, evidence, credentials, and local browser artifacts ignored; retain already tracked historical records.
 
 ### Shared implementation requirements
@@ -142,13 +142,13 @@ The user specifically likes Hark's conversational interface, persistent left pan
 
 | Service | Intended responsibility |
 |---|---|
-| Cloud Run | Target for the AgentOS backend and server-capable Next.js deployment; deployment is not configured yet. |
+| Cloud Run | Target for the AgentOS backend and founder UI deployment; deployment is not configured yet. |
 | Cloud SQL for PostgreSQL | Persist AgentOS sessions and company records. Local development uses PostgreSQL in Podman. |
 | Cloud Storage | Store generated artifacts; integration is planned. |
 | Firebase Authentication | Candidate for founder identity; end-user/company authorization is not implemented by the local shared service key. |
 | Gemini | Reason over business context, perform grounded research, generate business artifacts, invoke tools, and recommend evidence-based changes. |
 
-Google Search grounding can support current research and citations; the verifier must still assess whether sources support a claim. Intake, Strategist, Product Manager, and Verifier preload validated local skill text with no runtime function tools; Researcher has native Gemini Search only; Builder, Marketer, Sales, Analyst, and the parent use bounded local read-only skill access. Parent API and Chrome acceptance verified five-artifact primary journeys, source lineage with unverified claims and `needs_rework`, conditional founder-supplied metrics, owner isolation, recall/reload persistence, and cancellation without late artifacts. Local onboarding validation at `d6d05fb` passed `task check`: 141 backend tests, Ruff, formatting, basedpyright, and the frontend check, type generation, and build. This does not authorize launch-draft generation, outreach, ads, payments, sales measurement, push, or deployment. Persistent sessions alone do not establish resumable in-progress work; implement and test durable queue behavior before claiming it.
+Google Search grounding can support current research and citations; the verifier must still assess whether sources support a claim. Intake, Strategist, Product Manager, and Verifier preload validated local skill text with no runtime function tools; Researcher has no external tools in the free-tier runtime; Builder, Marketer, Sales, Analyst, and the parent use bounded local read-only skill access. Parent API and Chrome acceptance verified five-artifact primary journeys, source lineage with unverified claims and `needs_rework`, conditional founder-supplied metrics, owner isolation, recall/reload persistence, and cancellation without late artifacts. Local onboarding validation at `d6d05fb` passed `task check`: 141 backend tests, Ruff, formatting, basedpyright, and the frontend check, type generation, and build. This does not authorize launch-draft generation, outreach, ads, payments, sales measurement, push, or deployment. Persistent sessions alone do not establish resumable in-progress work; implement and test durable queue behavior before claiming it.
 
 ## Judging rubric
 
@@ -183,3 +183,13 @@ The prototype must use Gemini or Gemma, or a listed agentic platform, and be dep
 ## Prize objectives
 
 Target the overall prizes first: **Winner — USD 10,000**, **First Runner-up — USD 7,000**, then **Second Runner-up — USD 5,000**. Every project decision should also preserve a credible path to one or more specialist awards: **Best Use of Google Cloud AI Tools — USD 2,000**, **Most Impactful Solution — USD 2,000**, **Social Choice Award — USD 2,000**, and **Best UI/UX — USD 2,000**.
+
+### Local UI integration — 11 October 2026
+
+New companies use native AgentOS SSE through the Vite server proxy. Configure `AGENTOS_USER_TOKEN` in ignored `frontend/.env.local` and the matching `JWT_VERIFICATION_KEY` in ignored `backend/.env`; restart the backend after changing its configuration. `GEMINI_MODEL` is locked to `gemini-3.5-flash-lite`, with no fallback. The original 2.5 Flash-Lite request returned HTTP 404 for this new account. The user then authorized 3.5 Flash-Lite on 12 October; verify its access separately. Existing and dental-demo companies retain Preview mode. Never call fixture tests proof of successful Gemini research. The static production build needs a production proxy/auth integration before live deployment.
+
+### Model configuration restored — 12 October 2026
+The user explicitly restored Kalyan's main setup, superseding the earlier free-only Lite restriction: default `gemini-3.8-flash`, configurable through `GEMINI_MODEL`, with native Google Search only for Researcher. Evidence gates, JWT auth, limits, per-run model construction and UI integration remain. The user prohibits API calls during this restoration because they may incur cost; leave the local backend stopped and do not run provider smoke tests or browser workflows until explicitly authorized. Restoring configuration does not change account billing or verify provider access.
+
+### Paid-account Flash-Lite testing — 12 October 2026
+The user funded the API account and now requests `gemini-3.5-flash-lite` with native Google Search. This supersedes the preceding 3.8 restoration and temporary no-call instruction. Keep all roles on Flash-Lite and enable Search only for Researcher. Initial live verification is one bounded research call; do not launch bulk/full-journey tests without discussing measured cost. Billing allowance and tax are estimates until confirmed in the account. Keep the local backend stopped outside explicitly requested testing to avoid accidental charges.

@@ -39,7 +39,7 @@ task backend:dev
 
 `task setup` installs locked Python dependencies, creates only missing root and backend `.env` files at owner-only permissions, and validates that their database credentials match. It never prints or replaces secrets. `task backend:dev` checks port 8000, starts only Samurai's PostgreSQL service, and runs Uvicorn in the foreground. `task health` checks PostgreSQL and `GET /agentos/health` without a model call. In shared-key mode, `GET /agentos/config` accepts `Authorization: Bearer <OS_SECURITY_KEY>`; when `JWT_VERIFICATION_KEY` is configured, use a valid user JWT instead. Use `/agentos/docs` for the installed API schema.
 
-Set `GOOGLE_API_KEY` only when ready to call Gemini. The tracked default remains `gemini-3.8-flash`; a lower-cost local experiment may set `GEMINI_MODEL=gemini-3.5-flash-lite` in ignored `backend/.env`. Never commit that file. See [local development](../docs/local-development.md) for the full command reference and JWT test surface.
+Set `GOOGLE_API_KEY` only when ready to call Gemini. The model is locked to `gemini-3.5-flash-lite`, as requested; other model IDs fail configuration validation. Never commit that file. See [local development](../docs/local-development.md) for the full command reference and JWT test surface.
 
 The runtime disables automatic database provisioning on startup so liveness/configuration checks work without a database. AgentOS creates required tables on its normal database write paths. Starting the process alone does not prove persistence. Use Cloud SQL and controlled schema management for deployment; do not expose this shared-key bootstrap publicly.
 
@@ -86,3 +86,14 @@ keeps port 8000 and native Agno authentication. Its JWT mode intentionally rejec
 the shared key. Reporting's custom authentication, queues, AG-UI integration and
 business routes are not prerequisites for this foundation and were not copied.
 The path change does not prove that Agno's hosted connection-creation 403 is fixed.
+
+Google Search grounding is disabled in this free-tier 3.5 Flash-Lite runtime. Research without citations remains insufficient evidence; no paid search or billing was enabled.
+
+### Model configuration restored — 12 October 2026
+The user explicitly restored Kalyan's main setup, superseding the earlier free-only Lite restriction: default `gemini-3.8-flash`, configurable through `GEMINI_MODEL`, with native Google Search only for Researcher. Evidence gates, JWT auth, limits, per-run model construction and UI integration remain. The user prohibits API calls during this restoration because they may incur cost; leave the local backend stopped and do not run provider smoke tests or browser workflows until explicitly authorized. Restoring configuration does not change account billing or verify provider access.
+
+### Paid-account Flash-Lite testing — 12 October 2026
+The user funded the API account and now requests `gemini-3.5-flash-lite` with native Google Search. This supersedes the preceding 3.8 restoration and temporary no-call instruction. Keep all roles on Flash-Lite and enable Search only for Researcher. Initial live verification is one bounded research call; do not launch bulk/full-journey tests without discussing measured cost. Billing allowance and tax are estimates until confirmed in the account. Keep the local backend stopped outside explicitly requested testing to avoid accidental charges.
+
+### Paid Flash-Lite acceptance — 12 October 2026
+A fresh authenticated AgentOS console run on `gemini-3.5-flash-lite` completed a synthetic fitness-app journey in about 16 seconds. The saved parent and child runs are COMPLETED. Canonical state reached revision 5: intake, research, strategy, product plan and verification. Research retained two sources and one mapped but unverified claim, propagated into strategy/product planning; final verification was `needs_rework` because conflicts remained. This verifies native Search access on the currently configured account, not customer demand or factual validation. Parent metrics recorded 1,858 input and 143 output tokens; child workflow metrics did not aggregate its model usage, so these are not a full billing receipt. No launch drafts, outreach or deployment were performed.

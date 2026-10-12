@@ -713,6 +713,7 @@ def test_native_http_parent_runs_real_company_workflow_to_five_artifacts(
             "budget": "INR 50000",
             "founder_skills": "Python and Next.js",
             "goal": "Validate demand in 30 days",
+            "stage": "plan",
         }
     )
     database = SqliteDb(db_file=str(tmp_path / "parent-real-core.db"))
@@ -824,6 +825,7 @@ def test_real_core_step_failure_is_fail_closed_before_state_mutation(
             "budget": "INR 50000",
             "founder_skills": "Python and Next.js",
             "goal": "Validate demand in 30 days",
+            "stage": "plan",
         }
     )
     database = SqliteDb(db_file=str(tmp_path / "parent-real-core-failure.db"))
@@ -1054,6 +1056,7 @@ def test_parent_tool_emits_progress_before_blocked_research_and_closes_cross_tas
             budget="INR 50000",
             founder_skills="Python and Next.js",
             goal="Validate demand in 30 days",
+            stage="plan",
         )
         first = await anext(stream)
         assert isinstance(first, CustomEvent)
@@ -1077,7 +1080,9 @@ def test_child_failure_is_sanitized_and_parent_is_terminal_error(
     provider_marker = "child-provider-secret-marker"
     attempts = 0
 
-    def failing_workflow(_db: SqliteDb, _settings: Settings) -> Workflow:
+    def failing_workflow(_db: SqliteDb, _settings: Settings, *, stage: str) -> Workflow:
+        assert stage == "brief"
+
         async def fail(_: StepInput) -> StepOutput:
             nonlocal attempts
             attempts += 1
@@ -1137,7 +1142,8 @@ def test_child_timeout_cancels_drains_and_returns_terminal_error(
         await anyio.sleep_forever()
         raise AssertionError
 
-    def hanging_workflow(_db: SqliteDb, _settings: Settings) -> Workflow:
+    def hanging_workflow(_db: SqliteDb, _settings: Settings, *, stage: str) -> Workflow:
+        assert stage == "brief"
         return Workflow(
             id="company-journey",
             name="Hanging child",
@@ -1254,3 +1260,58 @@ def test_nonstreaming_child_failures_share_sanitized_terminal_boundary(
         caplog.clear()
 
     assert attempts == len(cases)
+
+
+def test_parent_stream_reports_start_and_completion_for_real_workflow_steps(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    catalog = _deterministic_catalog()
+
+    def catalog_factory(_settings: Settings) -> dict[Role, ConfiguredRole]:
+        return catalog
+
+    monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
+    monkeypatch.setattr("samurai.company_workflow.run_research", _mapped_research)
+    database = SqliteDb(db_file=str(tmp_path / "step-completion.db"))
+    agent = create_parent_agent(database, Settings.model_validate({}), model=_ToolSequenceModel())
+    raw_tools = cast("list[object]", agent.tools)
+    tool = next(
+        item
+        for item in raw_tools
+        if isinstance(item, Function) and item.name == "run_company_journey"
+    )
+    entrypoint = cast("Callable[..., abc.AsyncGenerator[CustomEvent | str]]", tool.entrypoint)
+
+    async def scenario() -> list[str]:
+        return [
+            cast("dict[str, str]", event.to_dict()["content"])["detail"]
+            async for event in entrypoint(
+                run_context=RunContext(
+                    run_id="completion-run",
+                    session_id="completion-session",
+                    user_id="founder",
+                    session_state={},
+                ),
+                idea="Synthetic test business",
+                target_customer="Test customers",
+                geography="Test market",
+                budget="No budget",
+                founder_skills="Test delivery skills",
+                goal="Validate a test offer",
+                stage="plan",
+            )
+            if isinstance(event, CustomEvent)
+        ]
+
+    progress = anyio.run(scenario)
+    for step in (
+        "Intake",
+        "Research",
+        "Verify evidence",
+        "Strategy",
+        "Product plan",
+        "Verify journey",
+    ):
+        assert f"{step} started" in progress
+        assert f"{step} completed" in progress
+        assert progress.index(f"{step} started") < progress.index(f"{step} completed")

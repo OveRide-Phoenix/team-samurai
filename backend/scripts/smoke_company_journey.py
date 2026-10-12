@@ -92,7 +92,7 @@ async def run_smoke(arguments: SmokeArguments) -> None:
             "os_security_key": os.environ.get("OS_SECURITY_KEY", ""),
             "database_url": os.environ.get("DATABASE_URL", ""),
             "google_api_key": os.environ.get("GOOGLE_API_KEY", ""),
-            "gemini_model": os.environ.get("GEMINI_MODEL", "gemini-3.8-flash"),
+            "gemini_model": os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite"),
         }
     )
     evidence_dir = Path(__file__).parents[1] / ".omo" / "evidence"

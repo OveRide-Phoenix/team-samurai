@@ -43,9 +43,7 @@ class _FakeAgent:
         *,
         stream: Literal[False] = False,
     ) -> RunOutput:
-        assert input.startswith(
-            "Use Google Search for current public competitor and pricing evidence"
-        )
+        assert CompanyBrief.model_validate_json(input[input.index("{") :]) == _brief()
         assert stream is False
         self.calls += 1
         return self.output

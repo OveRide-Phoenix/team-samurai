@@ -1,4 +1,6 @@
-# Setup verification — 11 October 2026
+# Setup verification
+
+Historical scaffold evidence: the user subsequently requested consolidating the working React/Vite UI into frontend/. The Next.js health endpoint described below is no longer the current frontend. — 11 October 2026
 
 ## Scope note
 

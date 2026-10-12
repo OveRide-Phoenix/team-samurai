@@ -224,6 +224,7 @@ def create_cancel_stream_app() -> FastAPI:
             "budget": "INR 50000",
             "founder_skills": "Python and Next.js",
             "goal": "Validate demand in 30 days",
+            "stage": "plan",
         }
     )
     app = create_app(
@@ -904,7 +905,9 @@ def test_cancellation_settles_parent_and_child_then_allows_owner_continue(
     child_started = threading.Event()
     child_settled = threading.Event()
 
-    def blocking_workflow(_db: SqliteDb, _settings: Settings) -> Workflow:
+    def blocking_workflow(_db: SqliteDb, _settings: Settings, *, stage: str) -> Workflow:
+        assert stage == "brief"
+
         async def blocking_step(_: StepInput) -> abc.AsyncIterator[StepProgress | StepOutput]:
             child_started.set()
             try:
@@ -1184,7 +1187,8 @@ def test_http_stream_cancel_after_real_core_progress_settles_both_runs(  # noqa:
                         run_id = candidate
                     if (
                         current_event == "CustomEvent"
-                        and payload.get("content") == "Research started"
+                        and payload.get("content")
+                        == {"kind": "workflow_progress", "detail": "Research started"}
                         and not cancelled
                     ):
                         assert run_id

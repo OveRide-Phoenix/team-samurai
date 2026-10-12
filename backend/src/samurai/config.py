@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     os_security_key: SecretStr = Field(min_length=32)
     database_url: PostgresDsn
     google_api_key: SecretStr = SecretStr("")
-    gemini_model: str = Field(default="gemini-3.8-flash", min_length=1)
+    gemini_model: str = Field(default="gemini-3.5-flash-lite", min_length=1)
     gemini_max_input_chars: int = Field(default=20_000, gt=0)
     gemini_max_output_tokens: int = Field(default=4096, gt=0)
     gemini_timeout_seconds: float = Field(default=60, gt=0)

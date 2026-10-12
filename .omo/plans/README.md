@@ -11,4 +11,4 @@ Current product and onboarding status:
 
 - The parent-agent workflow is locally accepted with source lineage, conditional founder metrics, cancellation, persistence, and technical-console checks.
 - Local onboarding commands completed repeatable setup, health, cleanup, and `task check` validation. Git remote state determines whether publication occurred.
-- The custom founder UI, frontend/backend integration, live launch-draft generation, connected metrics, durable resumability, cloud deployment, external actions, and competition submission remain pending.
+- The custom founder UI and local authenticated frontend/backend intake, workflow progress and saved-result recovery are implemented. Gemini 3.5 Flash-Lite intake/research were exercised locally; research stopped honestly at the missing-source gate. Live strategy beyond that gate, launch drafts, connected metrics, durable resumability, cloud deployment, external actions and submission remain unverified/pending.

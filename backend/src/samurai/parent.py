@@ -27,6 +27,7 @@ from agno.run import RunContext
 from agno.run.agent import CustomEvent, RunOutput
 from agno.run.cancel import acancel_run, acleanup_run, ais_cancelled
 from agno.run.workflow import (
+    StepCompletedEvent,
     StepProgressEvent,
     StepStartedEvent,
     WorkflowCancelledEvent,
@@ -47,7 +48,7 @@ from samurai.analysis_workflow import (
     create_analysis_workflow,
     run_analysis,
 )
-from samurai.company_workflow import CompanyJourneyRequest, create_company_workflow
+from samurai.company_workflow import CompanyJourneyRequest, JourneyStage, create_company_workflow
 from samurai.config import Settings, create_model
 from samurai.contracts import (
     CompanyBrief,
@@ -526,7 +527,7 @@ def _progress(run_context: RunContext, child_id: str, content: str) -> CustomEve
         agent_name=PARENT_AGENT_NAME,
         run_id=run_context.run_id,
         session_id=run_context.session_id,
-        content=content,
+        content={"kind": "workflow_progress", "detail": content},
         kind="workflow_progress",
         child_session_id=child_id,
     )
@@ -833,6 +834,7 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
         goal: str,
         supplied_context: tuple[str, ...] = (),
         assumptions: tuple[str, ...] = (),
+        stage: JourneyStage = "brief",
     ) -> abc.AsyncIterator[CustomEvent | str]:
         """Run or continue the verified company journey for this parent session.
 
@@ -846,6 +848,7 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
             goal: Exact founder-supplied outcome and timeframe; empty if not supplied.
             supplied_context: Other exact context explicitly supplied by the founder.
             assumptions: Founder-labelled hypotheses, never inferred facts.
+            stage: Founder-requested phase; new companies start with brief.
 
         """
         child_id, state = _child_state(db, run_context)
@@ -864,7 +867,7 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
             assumptions=assumptions,
         )
         workflow = _sanitize_workflow(
-            create_company_workflow(db, settings),
+            create_company_workflow(db, settings, stage=stage),
             max_model_calls=settings.agent_tool_call_limit + 1,
         )
         cancelled = False
@@ -891,6 +894,10 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
                         run_context,
                         child_id,
                         f"{event.step_name or 'Workflow step'} started",
+                    )
+                if isinstance(event, StepCompletedEvent):
+                    yield _progress(
+                        run_context, child_id, f"{event.step_name or 'Workflow step'} completed"
                     )
                 if isinstance(event, StepProgressEvent):
                     yield _progress(run_context, child_id, str(event.content))

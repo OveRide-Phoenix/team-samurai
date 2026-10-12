@@ -23,6 +23,7 @@ from starlette.formparsers import MultiPartException
 from starlette.requests import Request
 
 from samurai.config import Settings
+from samurai.intake import INTAKE_PAGES, IntakePage
 from samurai.parent import (
     PARENT_AGENT_ID,
     STARTER_PROMPTS,
@@ -259,6 +260,10 @@ def create_app(
             yield
 
     app = FastAPI(title="Samurai API", lifespan=lifespan, docs_url=None, redoc_url=None)
+
+    @app.get("/api/company/intake")
+    def company_intake() -> tuple[IntakePage, ...]:
+        return INTAKE_PAGES
 
     app.mount("/agentos", runtime, name="agentos")
     app.add_middleware(_ParentInputBoundary, max_input_chars=settings.gemini_max_input_chars)
