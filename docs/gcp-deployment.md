@@ -1,7 +1,7 @@
 # Samurai backend deployment on Google Cloud
 
-This is the deployment guide for the existing Gemini-backed Samurai AgentOS backend. A
-private Cloud Run revision is now deployed; the frontend, local Podman data, and durable
+This is the deployment guide for the existing Gemini-backed Samurai AgentOS backend. The
+Cloud Run backend is deployed with public transport and JWT-protected application routes; the frontend, local Podman data, and durable
 background work are outside this deployment.
 
 ## Target and prerequisites
@@ -14,16 +14,19 @@ Use the confirmed project and region:
 - Runtime service account: `samurai-runtime@samurai-ai-company-2026.iam.gserviceaccount.com`
 - Cloud SQL connection: `samurai-ai-company-2026:asia-south1:samurai-postgres`
 
-## Current private revision
+## Current revision
 
-The following native Linux/amd64 Cloud Run revision is deployed with private transport:
+As verified on 12 October 2026, the native Linux/amd64 revision serves 100% of traffic
+with public transport for Agno Live and RS256 JWT protection on application routes:
 
-- Revision: `samurai-backend-00001-9mx`
+- Revision: `samurai-backend-00002-p4s`
 - Service URL: `https://samurai-backend-590733583260.asia-south1.run.app`
 - Image: `asia-south1-docker.pkg.dev/samurai-ai-company-2026/samurai/samurai-backend@sha256:ea7ad0802e3f33a2ece0312b7258f055175aef926f208bb2b9abd63e0e2d8ba8`
 - Source commit: `dad101bb1b0e59c993802ca1c0338b4ef6b146cb`
 
-The private revision proved the native startup path that the local ARM-emulated final-image
+## Earlier private-phase validation
+
+The initial revision `samurai-backend-00001-9mx` used private transport and proved the native startup path that the local ARM-emulated final-image
 probe could not. Anonymous health access returned HTTP 403, an authorized IAM request to
 `/agentos/health` returned success, and an IAM-only request to `/agentos/config` returned
 HTTP 401. The same request with IAM authentication plus the temporary bootstrap application
@@ -36,9 +39,29 @@ readback returned HTTP 200 with `COMPLETED`, proving the Cloud SQL-backed record
 call for this controlled run. Five artifacts were accepted, but overall verification
 remained `needs_rework`, so this is not verified business readiness.
 
-Agno sign-in and Cloud Run connection registration are pending, followed by production-key
-rotation and private JWT/no-JWT validation. Public transport remains disabled until those
-private checks complete; browser acceptance follows the public transition.
+## Final JWT and browser acceptance
+
+Agno sign-in and registration of **Samurai GCP** are complete. Its Agno-issued public
+verification key is pinned as `samurai-jwt-verification-key:2` in revision
+`samurai-backend-00002-p4s`. The image digest, runtime account, Cloud SQL attachment, and
+runtime settings were preserved. Before opening transport, IAM health returned 200,
+IAM-only configuration returned 401, and the retired bootstrap JWT returned 401.
+After enabling `allUsers` Cloud Run invoker access, anonymous `/agentos/health` returned
+200; anonymous and invalid-JWT `/agentos/config` requests returned 401. Bootstrap secret
+version 1 is disabled, and the local bootstrap private signing key was removed.
+
+In the Agno Live browser console, **Samurai GCP** displayed **Active**. The Samurai agent
+answered a one-sentence chat request in about two seconds without invoking workflows or
+creating artifacts. A full browser reload retained session
+`60b7222c-3af9-4834-b0e6-36cac09f4f6e`, proving the final connection's authenticated chat
+and session persistence. This browser check is separate from the earlier five-artifact
+business run and does not resolve its `needs_rework` outcome.
+
+The user-authorized Agno Live 30-day trial was activated. Its UI stated that no credit
+card was required and trial features would stop without payment details. No payment
+details were added.
+
+## Provisioning prerequisites
 
 Before creating a revision, create the `samurai` Artifact Registry repository in `asia-south1`, a
 Cloud SQL for PostgreSQL database and application user, the runtime service account,
@@ -95,15 +118,11 @@ the query value as its Unix-socket `host`. The database password remains part of
 single `DATABASE_URL` Secret Manager value. Keep the Cloud SQL instance in `asia-south1`
 and do not add public authorized networks for this service path.
 
-## Initial private Cloud Run revision
+## Current Cloud Run configuration
 
-Start with private Cloud Run transport. This keeps the technical routes behind Cloud Run
-IAM while Agno sign-in, browser acceptance, and production-key rotation remain incomplete.
-The command below uses the deployed immutable image digest and does not make the service
-public.
-
-The following is the reviewed initial-revision template. Replace only the pinned secret
-versions before use:
+The following command records the final deployed configuration, including the Agno Live
+verification key at version 2. It is for an authorized redeployment of this service, not
+bootstrap setup. The original private phase and key rotation are recorded above.
 
 ```sh
 gcloud run deploy samurai-backend \
@@ -113,7 +132,7 @@ gcloud run deploy samurai-backend \
   --service-account=samurai-runtime@samurai-ai-company-2026.iam.gserviceaccount.com \
   --add-cloudsql-instances=samurai-ai-company-2026:asia-south1:samurai-postgres \
   --set-env-vars=SAMURAI_ENVIRONMENT=production,GEMINI_MODEL=gemini-3.5-flash-lite \
-  --set-secrets=DATABASE_URL=REPLACE_WITH_DATABASE_URL_SECRET:REPLACE_WITH_VERSION,OS_SECURITY_KEY=REPLACE_WITH_OS_SECURITY_KEY_SECRET:REPLACE_WITH_VERSION,GOOGLE_API_KEY=REPLACE_WITH_GOOGLE_API_KEY_SECRET:REPLACE_WITH_VERSION,JWT_VERIFICATION_KEY=REPLACE_WITH_JWT_PUBLIC_KEY_SECRET:REPLACE_WITH_VERSION \
+  --set-secrets=DATABASE_URL=samurai-database-url:1,OS_SECURITY_KEY=samurai-os-security-key:1,GOOGLE_API_KEY=samurai-google-api-key:1,JWT_VERIFICATION_KEY=samurai-jwt-verification-key:2 \
   --port=8080 \
   --cpu=1 \
   --memory=2Gi \
@@ -121,7 +140,7 @@ gcloud run deploy samurai-backend \
   --min-instances=0 \
   --concurrency=8 \
   --timeout=3600s \
-  --no-allow-unauthenticated
+  --allow-unauthenticated
 ```
 
 `max-instances=1` is an initial-pilot mitigation for the process-local cancellation registry,
@@ -137,15 +156,11 @@ while the instance continues processing, and a reconnect can land on another ins
 not add automatic client retries or claim recovery until work execution, cancellation, and
 idempotency are durable across instances.
 
-First sign in to Agno, register the Cloud Run connection, and obtain its final public
-verification key. Rotate the JWT configuration, then use an authorized IAM client against
-the private service to confirm a valid production JWT and rejection without one. Only then
-make a separate, controlled transition to `--allow-unauthenticated` for the existing AgentOS
-Live console and complete browser acceptance. The console has a Samurai RS256 JWT but no
-Google Cloud Run invoker identity. Public transport must not make the AgentOS application
-unauthenticated: protected routes must still reject requests without a valid production
-Samurai JWT. Repeat public health and unauthenticated-config checks during that transition.
-Do not use the temporary bootstrap application JWT as the production browser credential.
+Agno Live authenticates application requests with its Samurai RS256 JWT and does not
+supply a Google Cloud Run invoker identity. Public transport is therefore enabled, while
+protected application routes require a valid JWT. Keep the Agno-issued version 2 public
+key pinned; do not restore the retired bootstrap credential. Repeat public health,
+missing/invalid-JWT rejection, authenticated chat, and reload checks after future changes.
 
 `/agentos/health` is a liveness route only. It does not prove a Cloud SQL write, Gemini
 response, agent workflow, or durable recovery.
@@ -155,30 +170,23 @@ response, agent workflow, or durable recovery.
 The focused production-guard and Cloud SQL socket-parser checks, static checks, and final
 Linux/amd64 image build passed locally. An earlier equivalent image returned health 200 and
 unauthenticated configuration access returned 401. The final-source image did not accept a
-local ARM-emulated loopback probe before its temporary container was removed, so private
-Cloud Run validation is required before this image is exposed publicly. The full local suite
+local ARM-emulated loopback probe before its temporary container was removed, but subsequent native
+Cloud Run validation and the final public/browser checks above passed. The full local suite
 also has a cancellation timeout reproduced unchanged at base commit
 `14d47c2a70fd29999c0ca0ccacbd182e714dbc63`; do not represent that suite as green.
 
 ## Acceptance and recovery
 
-The private-revision observations include a controlled Gemini call and Cloud SQL-backed
-owner-scoped readback. Before public transport, record the configured service account,
-Cloud SQL attachment, pinned secret versions, and exact invocation identity, then complete
-the following pending checks:
-
-1. Sign in to Agno, register the Cloud Run connection, and obtain the final public
-   verification key.
-2. Rotate the temporary key and use IAM access against the private service to verify both
-   a valid production JWT and a no-JWT HTTP 401 response.
-3. After the controlled public transition, a public request to `/agentos/health` returns
-   success, `/agentos/config` without a Samurai JWT returns HTTP 401, and browser
-   acceptance completes through the AgentOS Live console.
-4. Resolve the workflow's `needs_rework` verification outcome and establish verified
-   business readiness without exposing keys, tokens, founder data, or database URLs.
+Deployment acceptance is complete: native startup, a controlled Gemini call, Cloud
+SQL-backed owner-scoped readback, Agno-key rotation, missing/retired/invalid-JWT rejection,
+public transport checks, and authenticated Agno Live chat with reload persistence were
+observed. The original business workflow still requires resolving `needs_rework` before
+claiming verified business readiness. These checks do not establish durable recovery of
+in-progress work or a passing full local cancellation suite.
 
 If a revision fails, direct traffic back to the known-good revision using its actual
-revision name, investigate the failed revision's logs and configuration, and retain the
+revision name and a currently trusted JWT key; do not restore disabled bootstrap
+version 1. Investigate the failed revision's logs and configuration, and retain the
 image digest and evidence. Do not retry a timed-out workflow as though it had not run.
 
 Teardown is a separate, destructive decision: first remove callers and route traffic away,
