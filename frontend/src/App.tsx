@@ -17,8 +17,8 @@ import {
 } from 'lucide-react';
 import { GenerativePanelBody } from './GenerativePanelBody';
 import { demoTransport, onboardingPreview } from './demo';
-import { presentMessages, createAgentosTransport, readAgentosRun, cancelAgentosRun, type AgentosRun } from './agentos';
-import { finishActivities, toggleSavedSelection, applyBackendEvent, recordBackendRun, initialCompanyPrompt, eventSchema, panelSchema, latestPanels, orderedPanels, movePanel, type Agent, type Message, type Panel, type Workspace, type Portfolio, type Transport, type WorkEvent }  from './model';
+import { presentMessages, createAgentosTransport, resumeAgentosRun, cancelAgentosRun, type AgentosApproval, type AgentosRun } from './agentos';
+import { beginBackendRun, finishActivities, hasActiveBackendRun, isCancellableBackendRun, nextJourneyApproval, toggleSavedSelection, applyBackendEvent, recordBackendRun, initialCompanyPrompt, eventSchema, panelSchema, latestPanels, orderedPanels, movePanel, type Agent, type Message, type Panel, type Workspace, type Portfolio, type Transport, type WorkEvent }  from './model';
 
 type WorkspaceContextValue = {
   workspace: Workspace;
@@ -96,9 +96,10 @@ function convertMessage(message: Message): ThreadMessageLike {
 type CompanyProps = {
   company: Portfolio['companies'][number]; workspace: Workspace;
   setWorkspace: (update: Workspace | ((current: Workspace) => Workspace)) => void;
+  persistWorkspace: (update: Workspace | ((current: Workspace) => Workspace)) => boolean;
   mode: 'light' | 'dark'; toggleMode: () => void; onOpen: (id: string | null) => void; storageError: boolean;
 };
-export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggleMode, onOpen, storageError }: CompanyProps) {
+export function CompanyWorkspace({ company, workspace, setWorkspace, persistWorkspace, mode, toggleMode, onOpen, storageError }: CompanyProps) {
   const live = workspace.executionMode === 'live';
   const recoveringRef = useRef(live && Boolean(workspace.backendRun));
   const [recovering, setRecovering] = useState(recoveringRef.current);
@@ -114,14 +115,29 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
   const backendRunRef = useRef(workspace.backendRun);
   const messagesRef = useRef(workspace.messages);
   messagesRef.current = workspace.messages;
-  const transportRef = useRef<Transport | null>(null);
-  const backendRunning = () => backendRunRef.current?.status === 'running';
+  const transportRef = useRef<ReturnType<typeof createAgentosTransport> | null>(null);
+  const approvalRef = useRef<AgentosApproval | undefined>(undefined);
+  const backendRunning = () => hasActiveBackendRun(backendRunRef.current);
   const completionRef = useRef<Promise<void> | null>(null);
-  const recordRun = (run: AgentosRun) => {
+  const recordRun = (run: AgentosRun): boolean => {
+    if (run.status === 'submitting') {
+      if (!run.submissionId) return false;
+      if (backendRunRef.current?.status === 'submitting' && backendRunRef.current.submissionId === run.submissionId) return true;
+      let saved: Workspace['backendRun'];
+      const persisted = persistWorkspace(current => {
+        const next = beginBackendRun(current, run.submissionId!);
+        saved = next.backendRun;
+        return { ...next, activityLog: [] };
+      });
+      if (!persisted || !saved) return false;
+      backendRunRef.current = saved;
+      return true;
+    }
     const checked = recordBackendRun({ ...workspace, backendRun: backendRunRef.current }, run);
     backendRunRef.current = checked.backendRun;
     setWorkspace(current => ({ ...recordBackendRun(current, run), activityLog: finishActivities(current.activityLog, run.status) }));
-    if (run.status !== 'running') setActivities(current => Object.fromEntries(finishActivities(Object.values(current).filter((activity): activity is Activity => Boolean(activity)), run.status).map(activity => [activity.agent, activity])));
+    if (!hasActiveBackendRun(run)) setActivities(current => Object.fromEntries(finishActivities(Object.values(current).filter((activity): activity is Activity => Boolean(activity)), run.status).map(activity => [activity.agent, activity])));
+    return true;
   };
   if (live && !transportRef.current) transportRef.current = createAgentosTransport(company.id, recordRun, () => messagesRef.current);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -142,6 +158,8 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
   const append = (message: Message) => setWorkspace(current => ({ ...current, messages: [...current.messages, message].slice(-200), pinned: message.panel ? current.pinned.map(panel => panel.id === message.panel!.id ? message.panel! : panel) : current.pinned }));
   const onNew = async (message: AppendMessage) => {
     const input = message.content.filter(part => part.type === 'text').map(part => part.text).join('\n').trim();
+    const approval = approvalRef.current;
+    approvalRef.current = undefined;
     if (!input || recoveringRef.current || controllerRef.current || completionRef.current || backendRunning()) return;
     const controller = new AbortController();
     controllerRef.current = controller;
@@ -160,7 +178,7 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
       if (live) {
         const transport = transportRef.current;
         if (!transport) throw new Error('The live backend transport is unavailable.');
-        events = transport(initial ? initialCompanyPrompt(initial) : input, controller.signal);
+        events = transport(initial ? initialCompanyPrompt(initial) : input, controller.signal, initial ? undefined : approval);
       } else events = initial ? onboardingPreview(initial, controller.signal) : demoTransport(input, controller.signal);
       for await (const raw of events) {
         if (controller.signal.aborted && !live) break;
@@ -183,15 +201,15 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
     } finally { controllerRef.current = null; if (live && backendRunRef.current) recordRun(backendRunRef.current); setRunning(live && backendRunning()); finish?.(); completionRef.current = null; }
   };
   const onCancel = async () => {
-    if (recoveringRef.current) return;
     if (controllerRef.current) { controllerRef.current.abort(); await completionRef.current; return; }
     if (completionRef.current) { await completionRef.current; return; }
     const saved = backendRunRef.current;
-    if (live && saved?.status === 'running') {
+    if (live && isCancellableBackendRun(saved)) {
+      const runId = saved.runId;
       setRunError('');
-      const stopping = cancelAgentosRun(company.id, saved.runId, messagesRef.current).then(recovered => {
+      const stopping = cancelAgentosRun(company.id, runId, messagesRef.current).then(recovered => {
         recordRun(recovered.run);
-        for (const event of recovered.events) if (event.type === 'message') setWorkspace(current => applyBackendEvent(current, saved.runId, event));
+        for (const event of recovered.events) if (event.type === 'message') setWorkspace(current => applyBackendEvent(current, runId, event));
         if (recovered.run.status === 'cancelled') append({ id: crypto.randomUUID(), role: 'assistant', text: 'The backend confirmed cancellation of the saved run.' });
         if (recovered.run.status === 'failed') setRunError('The saved backend run failed. You can send a new request.');
         setRunning(false);
@@ -208,22 +226,24 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
     const controller = new AbortController();
     const timer = setTimeout(() => {
       setRunning(true);
-      void readAgentosRun(company.id, saved.runId, controller.signal, messagesRef.current).then(recovered => {
-        if (controller.signal.aborted) return;
-        // Check authoritative company binding before applying any recovered artifact.
-        recordRun(recovered.run);
-        const history = recovered.events.filter((event): event is Activity => event.type === 'activity');
-        if (history.length) {
-          setActivities(Object.fromEntries(finishActivities(history, recovered.run.status).map(activity => [activity.agent, activity])));
-          setWorkspace(current => ({ ...current, activityLog: finishActivities(history, recovered.run.status) }));
+      void (async () => {
+        for await (const event of resumeAgentosRun(company.id, saved, controller.signal, recordRun, messagesRef.current)) {
+          if (controller.signal.aborted) return;
+          if (event.type === 'activity') {
+            setActivities(current => ({ ...current, [event.agent]: event }));
+            setWorkspace(current => ({ ...current, activityLog: [...current.activityLog, event].slice(-100) }));
+          } else {
+            const runId = backendRunRef.current?.runId;
+            if (!runId) throw new Error('The work receipt omitted the run identity.');
+            setWorkspace(current => applyBackendEvent(current, runId, event));
+          }
         }
-        for (const event of recovered.events) if (event.type === 'message') setWorkspace(current => applyBackendEvent(current, saved.runId, event));
-        setRunning(recovered.run.status === 'running');
-        if (recovered.run.status === 'running') setRunError('The saved backend run is still running. Stop it or reopen this company later to check its saved result.');
-        if (recovered.run.status === 'failed') setRunError('The saved backend run failed. You can send a new request.');
-      }).catch(error => {
+        const status = backendRunRef.current?.status;
+        setRunning(hasActiveBackendRun(backendRunRef.current));
+        if (status === 'failed') setRunError(backendRunRef.current?.failureReason || 'The saved backend run failed. You can send a new request.');
+      })().catch(error => {
         if (controller.signal.aborted) return;
-        setRunning(saved.status === 'running'); setRunError(error instanceof Error ? error.message : 'Saved results could not be recovered.');
+        setRunning(hasActiveBackendRun(backendRunRef.current)); setRunError(error instanceof Error ? error.message : 'Saved results could not be recovered.');
       }).finally(() => {
         if (controller.signal.aborted) return;
         recoveringRef.current = false; setRecovering(false);
@@ -237,8 +257,9 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
     const timer = setTimeout(() => { runtime.thread.composer.setText('Start my company'); runtime.thread.composer.send(); }, 0);
     return () => clearTimeout(timer);
   }, []);
-  const ask = (text: string) => {
+  const ask = (text: string, approval?: AgentosApproval) => {
     if (isRunning) return;
+    approvalRef.current = approval;
     setView('chat'); setDialog(null);
     runtime.thread.composer.setText(text); runtime.thread.composer.send();
   };
@@ -247,7 +268,12 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
   const approve = (id: string) => setWorkspace(current => ({ ...current, approvedOffers: toggleSavedSelection(current.approvedOffers, id, 20) }));
   const completeTask = (id: string) => setWorkspace(current => ({ ...current, completedTasks: current.completedTasks.includes(id) ? current.completedTasks.filter(item => item !== id) : [...current.completedTasks, id].slice(-400) }));
   const panels = latestPanels({ ...workspace, messages: chatMessages });
-  const nextStage = panels.some(panel => panel.provenance?.artifact_type === "product_plan") ? { label: "Review next steps", prompt: "Help me choose the next step from our existing plan." } : panels.some(panel => panel.provenance?.artifact_type === "strategy") ? { label: "Plan first version", prompt: 'Prepare the product and delivery plan.' } : panels.some(panel => panel.provenance?.artifact_type === "research") ? { label: "Shape offer", prompt: 'Shape our offer and positioning. Stop before creating the product plan.' } : { label: "Research market", prompt: 'Research our market. Stop before shaping the offer.' };
+  const journeyApproval = nextJourneyApproval(workspace);
+  const approveJourney = journeyApproval ? {
+    label: `Approve ${journeyApproval.stage}`,
+    prompt: journeyApproval.stage === 'research' ? 'Research our market and stop before strategy.' : journeyApproval.stage === 'strategy' ? 'Create our strategy and stop before product planning.' : 'Create our product and delivery plan and stop there.',
+    approval: { operation: 'journey', ...journeyApproval } satisfies AgentosApproval,
+  } : undefined;
   const currentPanel = (panel: Panel) => panels.find(item => item.id === panel.id) || panel;
   const dashboardPanels = orderedPanels([...panels, ...(expandedPanel && !panels.some(panel => panel.id === expandedPanel.id) ? [expandedPanel] : [])], workspace.panelOrder);
   const reorder = (id: string, target: string) => setWorkspace(current => ({ ...current, panelOrder: movePanel(orderedPanels(latestPanels({ ...current, messages: presentMessages(current.messages) }), current.panelOrder), id, target) }));
@@ -257,6 +283,11 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
     if (panel) requestAnimationFrame(() => document.getElementById(`home-panel-${panel.id}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
   };
   const workingAgent = Object.values(activities).find(activity => activity?.state === 'working');
+  const durableMessage = backendRunRef.current?.status === 'submitting' ? 'Saving the recovery receipt before submission…'
+    : backendRunRef.current?.status === 'queued' ? 'Queued for the backend…'
+      : backendRunRef.current?.status === 'recovering' ? 'Reconnecting to the saved backend run…'
+        : backendRunRef.current?.status === 'paused' ? 'The backend run is paused.'
+          : recovering ? 'Recovering the saved backend run…' : 'Waiting for the backend…';
   const [conversationAtBottom, setConversationAtBottom] = useState(true);
   const previousMessageCount = useRef(workspace.messages.length);
   useEffect(() => {
@@ -285,7 +316,7 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
         <div className="home-heading"><div className="home-selector-row"><h1 className={`company-name ${view === 'company' ? 'dashboard-title' : ''}`}>{company.name}</h1>{view === 'company' && <div className="panel-tools">{editingOrder && <button className="soft-button order-done" onClick={() => setEditingOrder(false)}><Check size={14} />Done</button>}<button className="icon-button" onClick={() => setDialog('panels')} aria-label="Add a business panel"><Plus size={17} /></button></div>}<button className="icon-button" onClick={() => setView(view === 'company' ? 'chat' : 'company')} aria-expanded={view === 'company'} aria-label={view === 'company' ? 'Collapse company dashboard' : 'Expand company dashboard'}>{view === 'company' ? <Minimize2 size={17} /> : <Maximize2 size={17} />}</button></div></div>
         {view === 'chat' && workspace.messages.length > 0 && <div className="action-stack">
           {panels.some(panel => panel.kind === 'offer') && <button className="action-card" onClick={() => openPanel(panels.find(panel => panel.kind === 'offer')!)}><Compass size={18} /><span>Review offer</span><ArrowRight size={16} className="action-arrow" /></button>}
-          <button className="action-card" onClick={() => ask(live ? 'Research our target customers and qualification criteria' : 'Show sample dental customer prospects')} disabled={isRunning}><Users size={18} /><span>{live ? 'Research customers' : 'Explore sample customers'}</span><ArrowRight size={16} className="action-arrow" /></button>
+          {(!live || approveJourney) && <button className="action-card" onClick={() => live && approveJourney ? ask(approveJourney.prompt, approveJourney.approval) : ask('Show sample dental customer prospects')} disabled={isRunning}><Users size={18} /><span>{live ? approveJourney?.label : 'Explore sample customers'}</span><ArrowRight size={16} className="action-arrow" /></button>}
         </div>}
         <TeamPanel activities={activities} history={workspace.activityLog} expanded={view === 'company'} executionMode={workspace.executionMode} />
         {view === 'chat' && <div className="pinned-label"><span>Pinned</span><button className="icon-button" onClick={() => setDialog('panels')} aria-label="Add a business panel"><Plus size={17} /></button></div>}
@@ -306,13 +337,13 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
           }}>
             <div className="conversation-content">{workspace.messages.length === 0 && <div className="conversation-intro empty-conversation"><span className="empty-company-name">{company.name}</span><h2>Start with<br />your idea.</h2><p>What do you want this company to do?</p></div>}
               <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage }} />
-              {isRunning && <div className="working-message" role="status"><LoaderCircle size={15} className="spin" />{workingAgent?.detail || (recovering ? 'Recovering the saved backend run…' : live ? 'Waiting for the backend…' : 'Preparing the preview…')}</div>}
+              {isRunning && <div className="working-message" role="status"><LoaderCircle size={15} className="spin" />{workingAgent?.detail || (live ? durableMessage : 'Preparing the preview…')}</div>}
               {runError && <div className="error-note" role="alert">{live ? 'Backend status: ' : 'Preview status: '}{runError}</div>}
-              {workspace.messages.length > 0 && <div className="suggestions"><button onClick={() => ask(live ? nextStage.prompt : 'Show sample dental customer prospects')} disabled={isRunning}>{live ? nextStage.label : 'Sample customers'} <ArrowRight size={13} /></button>{!live && <button onClick={() => ask('Is this pricing viable?')} disabled={isRunning}>Sample pricing <ArrowRight size={13} /></button>}</div>}
+              {workspace.messages.length > 0 && <div className="suggestions">{live && approveJourney ? <button onClick={() => ask(approveJourney.prompt, approveJourney.approval)} disabled={isRunning}>{approveJourney.label} <ArrowRight size={13} /></button> : !live ? <><button onClick={() => ask('Show sample dental customer prospects')} disabled={isRunning}>Sample customers <ArrowRight size={13} /></button><button onClick={() => ask('Is this pricing viable?')} disabled={isRunning}>Sample pricing <ArrowRight size={13} /></button></> : null}</div>}
             </div>
           </ThreadPrimitive.Viewport>
           <div className="composer-dock">{!conversationAtBottom && <button className="scroll-bottom" onClick={() => { setConversationAtBottom(true); viewportRef.current?.scrollTo({ top: viewportRef.current.scrollHeight, behavior: 'smooth' }); }} aria-label="Scroll to latest message"><ArrowDown size={16} /></button>}
-            <ComposerPrimitive.Root className="composer"><LiquidBackdrop /><button type="button" className="composer-plus icon-button" onClick={() => setDialog('panels')} aria-label="Explore business panels"><Plus size={20} /></button><ComposerPrimitive.Input className="composer-input" placeholder="What’s our next move?" aria-label="Message Samurai" maxLength={4000} />{!isRunning && <ComposerPrimitive.Send asChild><button className="send-button" aria-label="Send message"><ArrowUp size={19} /></button></ComposerPrimitive.Send>}{isRunning && <ComposerPrimitive.Cancel asChild><button className="send-button stop-button" disabled={recovering} aria-label={live ? 'Stop backend run' : 'Stop preview'}><Square size={14} fill="currentColor" /></button></ComposerPrimitive.Cancel>}</ComposerPrimitive.Root>
+            <ComposerPrimitive.Root className="composer"><LiquidBackdrop /><button type="button" className="composer-plus icon-button" onClick={() => setDialog('panels')} aria-label="Explore business panels"><Plus size={20} /></button><ComposerPrimitive.Input className="composer-input" placeholder="What’s our next move?" aria-label="Message Samurai" maxLength={4000} />{!isRunning && <ComposerPrimitive.Send asChild><button className="send-button" aria-label="Send message"><ArrowUp size={19} /></button></ComposerPrimitive.Send>}{isRunning && <ComposerPrimitive.Cancel asChild><button className="send-button stop-button" aria-label={live ? 'Stop backend run' : 'Stop preview'}><Square size={14} fill="currentColor" /></button></ComposerPrimitive.Cancel>}</ComposerPrimitive.Root>
             <div className="preview-caption">{live ? 'Live Samurai workflow · Generated artifacts need review' : 'Preview agents · Sample data · No external actions'}</div>
             {storageError && <p role="status" className="storage-warning">Browser storage is unavailable. This session won’t be saved.</p>}
           </div>

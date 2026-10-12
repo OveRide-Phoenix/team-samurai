@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { loadPortfolio, portfolioStorageKey, resolveBrowserScope } from './browserStorage';
+import { loadPortfolio, persistPortfolio, portfolioStorageKey, resolveBrowserScope } from './browserStorage';
 import { emptyWorkspace, portfolioKey, storageKey } from './model';
 
 it('does not request identity in development', async () => {
@@ -39,4 +39,12 @@ it('fetches identity without caching before returning the user scope', async () 
   const scope = await resolveBrowserScope(true, request);
   expect(scope.kind).toBe('user');
   expect(request).toHaveBeenCalledWith('/api/agentos/connection', expect.objectContaining({ cache: 'no-store', credentials: 'same-origin', redirect: 'error', headers: { 'X-Samurai-Client': '1' } }));
+});
+
+it('reports synchronous portfolio persistence failure before a caller can submit', () => {
+  const portfolio = { version: 2 as const, mode: 'light' as const, activeId: null, companies: [] };
+  const saved = new Map<string, string>();
+  expect(persistPortfolio({ setItem: (key, value) => { saved.set(key, value); } }, 'owner-key', portfolio)).toBe(true);
+  expect(JSON.parse(saved.get('owner-key') ?? '{}')).toEqual(portfolio);
+  expect(persistPortfolio({ setItem: () => { throw new DOMException('Quota exceeded', 'QuotaExceededError'); } }, 'owner-key', portfolio)).toBe(false);
 });

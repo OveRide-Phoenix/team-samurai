@@ -10,7 +10,10 @@ import { createIapVerifier, productionConfig, RequestError, signAgentosToken } f
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../dist/client');
 const safeId = /^[A-Za-z0-9_-]{1,200}$/;
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const runPath = '/api/agentos/agents/samurai/runs';
+const operations = new Set(['journey', 'launch_drafts', 'metrics_analysis']);
+const stages = new Set(['brief', 'research', 'strategy', 'plan']);
 const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.json': 'application/json' };
 const bodyLimit = 64 * 1024;
 function json(res, status, value) {
@@ -21,13 +24,25 @@ function route(url, method) {
   if (!url.search && method === 'GET' && url.pathname === '/api/agentos/connection') return { kind: 'connection' };
   if (!url.search && method === 'GET' && url.pathname === '/api/agentos/intake') return { kind: 'intake', path: '/api/company/intake' };
   if (method === 'POST' && url.pathname === runPath && !url.search) return { kind: 'run', path: '/agentos/agents/samurai/runs' };
+  const receipt = /^\/api\/agentos\/work-receipts\/([0-9a-f-]{36})$/.exec(url.pathname);
+  if (receipt) {
+    if (method !== 'GET' || !uuid.test(receipt[1])) throw new RequestError(404, 'Route not available.');
+    const ids = url.searchParams.getAll('session_id');
+    if ([...url.searchParams.keys()].some(key => key !== 'session_id') || ids.length !== 1 || !safeId.test(ids[0])) throw new RequestError(400, 'Query not allowed.');
+    return { kind: 'receipt', path: `/agentos/work-receipts/${receipt[1]}${url.search}` };
+  }
+  const resume = /^\/api\/agentos\/agents\/samurai\/runs\/([A-Za-z0-9_-]{1,200})\/resume$/.exec(url.pathname);
+  if (resume) {
+    if (method !== 'POST' || url.search) throw new RequestError(404, 'Route not available.');
+    return { kind: 'resume', path: `/agentos/agents/samurai/runs/${resume[1]}/resume` };
+  }
   const match = /^\/api\/agentos\/agents\/samurai\/runs\/([A-Za-z0-9_-]{1,200})(\/cancel)?$/.exec(url.pathname);
   if (!match || method !== (match[2] ? 'POST' : 'GET')) throw new RequestError(404, 'Route not available.');
   const ids = url.searchParams.getAll('session_id');
   if ([...url.searchParams.keys()].some(key => key !== 'session_id') || ids.length !== 1 || !safeId.test(ids[0])) throw new RequestError(400, 'Query not allowed.');
   return { kind: match[2] ? 'cancel' : 'read', path: `/agentos${url.pathname.slice('/api/agentos'.length)}${url.search}` };
 }
-async function runBody(req) {
+async function formBody(req) {
   const chunks = [];
   let length = 0;
   for await (const chunk of req.iterator({ destroyOnReturn: false })) {
@@ -40,8 +55,20 @@ async function runBody(req) {
   let form;
   try { form = await new Response(Buffer.concat(chunks), { headers: { 'content-type': type } }).formData(); }
   catch { throw new RequestError(400, 'Invalid form data.'); }
+  return form;
+}
+async function runBody(req) {
+  const form = await formBody(req);
   const allowed = ['message', 'session_id', 'stream', 'background'];
-  if ([...form.keys()].some(key => !allowed.includes(key)) || allowed.some(key => form.getAll(key).length !== 1) || typeof form.get('message') !== 'string' || !form.get('message').trim() || form.get('message').length > 20000 || !safeId.test(form.get('session_id')) || form.get('stream') !== 'true' || form.get('background') !== 'false') throw new RequestError(400, 'Invalid run fields.');
+  if ([...form.keys()].some(key => !allowed.includes(key)) || allowed.some(key => form.getAll(key).length !== 1) || typeof form.get('message') !== 'string' || !form.get('message').trim() || form.get('message').length > 20000 || !safeId.test(form.get('session_id')) || form.get('stream') !== 'true' || form.get('background') !== 'true') throw new RequestError(400, 'Invalid run fields.');
+  return form;
+}
+async function resumeBody(req) {
+  const form = await formBody(req);
+  const allowed = ['session_id', 'last_event_index'];
+  const sessionId = form.get('session_id');
+  const cursors = form.getAll('last_event_index');
+  if ([...form.keys()].some(key => !allowed.includes(key)) || form.getAll('session_id').length !== 1 || typeof sessionId !== 'string' || !safeId.test(sessionId) || cursors.length > 1 || (cursors.length === 1 && (typeof cursors[0] !== 'string' || !/^(0|[1-9][0-9]*)$/.test(cursors[0])))) throw new RequestError(400, 'Invalid resume fields.');
   return form;
 }
 async function staticFile(req, res, directory) {
@@ -78,9 +105,24 @@ export function createProductionServer(config, { verifyIdentity = createIapVerif
         const selected = route(url, req.method);
         if (selected.kind === 'connection') return json(res, 200, { backend: config.backend, configured: true, auth: 'jwt', storageNamespace: createHash('sha256').update(subject).digest('hex') });
         if (Number(req.headers['content-length'] ?? 0) > bodyLimit) throw new RequestError(413, 'Request too large.');
-        const body = selected.kind === 'run' ? await runBody(req) : undefined;
-        if (selected.kind !== 'run' && (req.headers['transfer-encoding'] || Number(req.headers['content-length'] ?? 0) > 0)) throw new RequestError(400, 'Body not allowed.');
-        const upstream = await fetchImpl(`${config.backend}${selected.path}`, { method: req.method, redirect: 'error', headers: { authorization: `Bearer ${signAgentosToken(subject, config.key)}`, 'x-samurai-client': '1' }, body, signal: AbortSignal.any([controller.signal, AbortSignal.timeout(3_600_000)]) });
+        const body = selected.kind === 'run' ? await runBody(req) : selected.kind === 'resume' ? await resumeBody(req) : undefined;
+        if (!['run', 'resume'].includes(selected.kind) && (req.headers['transfer-encoding'] || Number(req.headers['content-length'] ?? 0) > 0)) throw new RequestError(400, 'Body not allowed.');
+        const upstreamHeaders = { authorization: `Bearer ${signAgentosToken(subject, config.key)}`, 'x-samurai-client': '1' };
+        if (selected.kind === 'run') {
+          const submissionId = req.headers['x-samurai-submission-id'];
+          if (typeof submissionId !== 'string' || !uuid.test(submissionId)) throw new RequestError(400, 'Valid submission id required.');
+          upstreamHeaders['idempotency-key'] = submissionId;
+          const approval = [req.headers['x-samurai-operation'], req.headers['x-samurai-stage'], req.headers['x-samurai-expected-revision'], req.headers['x-samurai-company-id']];
+          if (approval.some(value => value !== undefined)) {
+            const [operation, stage, revision, companyId] = approval;
+            if (typeof operation !== 'string' || typeof stage !== 'string' || typeof revision !== 'string' || typeof companyId !== 'string' || !operations.has(operation) || !stages.has(stage) || !uuid.test(companyId) || !/^(0|[1-9][0-9]*)$/.test(revision) || (operation !== 'journey' && stage !== 'plan')) throw new RequestError(400, 'Invalid approval headers.');
+            upstreamHeaders['x-samurai-operation'] = operation;
+            upstreamHeaders['x-samurai-stage'] = stage;
+            upstreamHeaders['x-samurai-expected-revision'] = revision;
+            upstreamHeaders['x-samurai-company-id'] = companyId;
+          }
+        }
+        const upstream = await fetchImpl(`${config.backend}${selected.path}`, { method: req.method, redirect: 'error', headers: upstreamHeaders, body, signal: AbortSignal.any([controller.signal, AbortSignal.timeout(3_600_000)]) });
         if (!upstream.ok) {
           await upstream.body?.cancel();
           return json(res, upstream.status >= 500 ? 503 : upstream.status, { detail: upstream.status >= 500 ? 'Samurai AgentOS is unavailable.' : 'AgentOS request denied.' });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { finishActivities, toggleSavedSelection, applyBackendEvent, recordBackendRun, initialCompanyPrompt, companyBriefSchema, chooseWorkflow, orderedPanels, movePanel, latestPanels, emptyWorkspace, eventSchema, panelSchema, portfolioSchema, restorePortfolio, workspaceSchema } from './model';
+import { beginBackendRun, finishActivities, hasActiveBackendRun, isCancellableBackendRun, nextJourneyApproval, toggleSavedSelection, applyBackendEvent, recordBackendRun, initialCompanyPrompt, companyBriefSchema, chooseWorkflow, orderedPanels, movePanel, latestPanels, emptyWorkspace, eventSchema, panelSchema, portfolioSchema, restorePortfolio, workspaceSchema } from './model';
 import { onboardingPreview, demoTransport, initialWorkspace, offer, pricing, prospects, evidence, launchPlan } from './demo';
 
 describe('backend-facing UI contract', () => {
@@ -117,6 +117,30 @@ describe('company prerequisites', () => {
 
 
 describe('live workspace state', () => {
+  it('persists a logical submission before the backend assigns a run id', () => {
+    const submissionId = '00000000-0000-4000-8000-000000000099';
+    const pending = beginBackendRun(emptyWorkspace(), submissionId);
+    expect(pending.backendRun).toEqual({ submissionId, status: 'submitting' });
+    expect(workspaceSchema.parse(pending).backendRun).toEqual(pending.backendRun);
+    expect(hasActiveBackendRun(pending.backendRun)).toBe(true);
+
+    const accepted = recordBackendRun(pending, { submissionId, runId: 'run-1', status: 'queued' });
+    expect(accepted.backendRun).toEqual({ submissionId, runId: 'run-1', status: 'queued' });
+    expect(hasActiveBackendRun(accepted.backendRun)).toBe(true);
+    expect(hasActiveBackendRun({ ...accepted.backendRun, status: 'completed' })).toBe(false);
+  });
+  it('rejects a backend receipt for a different logical submission', () => {
+    const pending = beginBackendRun(emptyWorkspace(), '00000000-0000-4000-8000-000000000099');
+    expect(() => recordBackendRun(pending, {
+      submissionId: '00000000-0000-4000-8000-000000000098', runId: 'run-2', status: 'queued',
+    })).toThrow('another submission');
+  });
+
+  it('allows cancellation for every active durable state only after a run id exists', () => {
+    expect(isCancellableBackendRun({ submissionId: '00000000-0000-4000-8000-000000000099', status: 'submitting' })).toBe(false);
+    for (const status of ['queued', 'running', 'recovering', 'paused'] as const) expect(isCancellableBackendRun({ runId: 'run-1', status })).toBe(true);
+    for (const status of ['completed', 'cancelled', 'failed'] as const) expect(isCancellableBackendRun({ runId: 'run-1', status })).toBe(false);
+  });
   it('keeps old saved companies explicitly preview and retains live backend mapping', () => {
     const { executionMode: _, ...legacy } = initialWorkspace;
     expect(workspaceSchema.parse(legacy).executionMode).toBe('preview');
@@ -129,6 +153,7 @@ describe('live workspace state', () => {
   it('rejects foreign recovery binding before applying output and preserves known identity across new runs', () => {
     const companyId = '00000000-0000-4000-8000-000000000001';
     const state = recordBackendRun(emptyWorkspace(), { runId: 'r1', status: 'completed', companyId, revision: 1 });
+    expect(beginBackendRun(state, '00000000-0000-4000-8000-000000000099').backendRun).toEqual({ submissionId: '00000000-0000-4000-8000-000000000099', status: 'submitting', companyId, revision: 1 });
     const next = recordBackendRun(state, { runId: 'r2', status: 'running' });
     expect(next.backendRun).toEqual({ runId: 'r2', status: 'running', companyId, revision: 1 });
     expect(() => recordBackendRun(next, { runId: 'r2', status: 'completed', companyId: '00000000-0000-4000-8000-000000000009' })).toThrow('another company');
@@ -150,6 +175,17 @@ describe('live workspace state', () => {
     const prompt = initialCompanyPrompt({ idea: 'Cycle repair business', customer: 'Local cyclists', location: 'Pune', budget: '1000 INR', goal: 'First paid pilot' });
     const brief = JSON.parse(prompt.slice(prompt.indexOf('\n') + 1));
     expect(brief).toEqual({ idea: 'Cycle repair business', target_customer: 'Local cyclists', geography: 'Pune', budget: '1000 INR', goal: 'First paid pilot' });
+  });
+  it('offers only the next explicitly accepted journey stage at the current revision', () => {
+    const companyId = '00000000-0000-4000-8000-000000000001';
+    const panel = { ...evidence, provenance: { artifact_type: 'intake', acceptance_status: 'accepted', status: 'complete' } };
+    const intake = { ...emptyWorkspace(), backendRun: { runId: 'r1', status: 'completed' as const, companyId, revision: 3 }, messages: [{ id: 'm1', role: 'assistant' as const, text: '', panel }] };
+    expect(nextJourneyApproval(intake)).toEqual({ stage: 'research', expectedRevision: 3, companyId });
+    const research = { ...intake, messages: [{ ...intake.messages[0], panel: { ...panel, provenance: { artifact_type: 'research', acceptance_status: 'accepted', status: 'needs_rework' } } }] };
+    expect(nextJourneyApproval(research)).toEqual({ stage: 'research', expectedRevision: 3, companyId });
+    const completedResearch = { ...research, messages: [{ ...research.messages[0], panel: { ...panel, provenance: { artifact_type: 'research', acceptance_status: 'accepted', status: 'complete' } } }] };
+    expect(nextJourneyApproval(completedResearch)).toEqual({ stage: 'strategy', expectedRevision: 3, companyId });
+    expect(nextJourneyApproval({ ...intake, backendRun: { ...intake.backendRun, status: 'running' } })).toBeUndefined();
   });
 });
 

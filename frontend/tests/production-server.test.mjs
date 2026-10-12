@@ -89,7 +89,7 @@ for (const [name, path, options, status] of [
 
 function form(extra = {}) {
   const body = new FormData();
-  for (const [name, value] of Object.entries({ message: 'Build a company', session_id: 'session1', stream: 'true', background: 'false', ...extra })) body.set(name, value);
+  for (const [name, value] of Object.entries({ message: 'Build a company', session_id: 'session1', stream: 'true', background: 'true', ...extra })) body.set(name, value);
   return body;
 }
 for (const field of ['user_id', 'session_state', 'dependencies']) test(`rejects ${field} body override`, async t => {
@@ -109,15 +109,76 @@ test('streams SSE first event before upstream ends and aborts on disconnect', as
   const app = await fixture(t, async (_url, options) => {
     upstreamSignal = options.signal;
     assert.equal(options.body.get('message'), 'Build a company');
+    assert.equal(options.headers['idempotency-key'], '00000000-0000-4000-8000-000000000099');
     return new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode('data: first\n\n')); } }), { headers: { 'content-type': 'text/event-stream' } });
   });
-  const response = await app.request('/api/agentos/agents/samurai/runs', { method: 'POST', headers: { origin: 'https://samurai.example' }, body: form() });
+  const response = await app.request('/api/agentos/agents/samurai/runs', { method: 'POST', headers: { origin: 'https://samurai.example', 'x-samurai-submission-id': '00000000-0000-4000-8000-000000000099' }, body: form() });
   assert.equal(response.headers.get('x-accel-buffering'), 'no');
   const reader = response.body.getReader();
   assert.equal(new TextDecoder().decode((await reader.read()).value), 'data: first\n\n');
   const aborted = once(upstreamSignal, 'abort');
   await reader.cancel();
   await aborted;
+});
+
+test('forwards a complete validated founder approval with the current company binding', async t => {
+  const app = await fixture(t, async (_url, options) => {
+    assert.equal(options.headers['x-samurai-operation'], 'journey');
+    assert.equal(options.headers['x-samurai-stage'], 'research');
+    assert.equal(options.headers['x-samurai-expected-revision'], '3');
+    assert.equal(options.headers['x-samurai-company-id'], '00000000-0000-4000-8000-000000000001');
+    return new Response('data: done\n\n', { headers: { 'content-type': 'text/event-stream' } });
+  });
+  const response = await app.request('/api/agentos/agents/samurai/runs', { method: 'POST', headers: {
+    origin: 'https://samurai.example', 'x-samurai-submission-id': '00000000-0000-4000-8000-000000000099',
+    'x-samurai-operation': 'journey', 'x-samurai-stage': 'research', 'x-samurai-expected-revision': '3', 'x-samurai-company-id': '00000000-0000-4000-8000-000000000001',
+  }, body: form() });
+  assert.equal(response.status, 200);
+});
+
+for (const [name, approval] of [
+  ['partial', { 'x-samurai-operation': 'journey' }],
+  ['operation', { 'x-samurai-operation': 'unknown', 'x-samurai-stage': 'research', 'x-samurai-expected-revision': '3', 'x-samurai-company-id': '00000000-0000-4000-8000-000000000001' }],
+  ['revision', { 'x-samurai-operation': 'journey', 'x-samurai-stage': 'research', 'x-samurai-expected-revision': '03', 'x-samurai-company-id': '00000000-0000-4000-8000-000000000001' }],
+  ['company', { 'x-samurai-operation': 'journey', 'x-samurai-stage': 'research', 'x-samurai-expected-revision': '3', 'x-samurai-company-id': 'not-a-uuid' }],
+  ['non-plan launch', { 'x-samurai-operation': 'launch_drafts', 'x-samurai-stage': 'research', 'x-samurai-expected-revision': '3', 'x-samurai-company-id': '00000000-0000-4000-8000-000000000001' }],
+]) test(`rejects ${name} approval headers before upstream access`, async t => {
+  const app = await fixture(t, () => assert.fail('upstream reached'));
+  const response = await app.request('/api/agentos/agents/samurai/runs', { method: 'POST', headers: { origin: 'https://samurai.example', 'x-samurai-submission-id': '00000000-0000-4000-8000-000000000099', ...approval }, body: form() });
+  assert.equal(response.status, 400);
+});
+
+for (const submissionId of ['', 'not-a-uuid']) test('rejects a missing or invalid logical submission id before upstream access', async t => {
+  const app = await fixture(t, () => assert.fail('upstream reached'));
+  const headers = { origin: 'https://samurai.example', ...(submissionId ? { 'x-samurai-submission-id': submissionId } : {}) };
+  const response = await app.request('/api/agentos/agents/samurai/runs', { method: 'POST', headers, body: form() });
+  assert.equal(response.status, 400);
+});
+
+test('forwards only the owner-scoped work receipt lookup', async t => {
+  const calls = [];
+  const app = await fixture(t, async (url, options) => { calls.push([url, options.method]); return Response.json({ run_id: 'run1', session_id: 'session1', status: 'PENDING', attempt: 0, max_attempts: 2 }); });
+  const response = await app.request('/api/agentos/work-receipts/00000000-0000-4000-8000-000000000099?session_id=session1');
+  assert.equal(response.status, 200);
+  assert.deepEqual(calls, [['https://backend.example/agentos/work-receipts/00000000-0000-4000-8000-000000000099?session_id=session1', 'GET']]);
+  assert.equal((await app.request('/api/agentos/work-receipts/not-a-uuid?session_id=session1')).status, 404);
+});
+
+test('forwards native stream resume with only session and event cursor', async t => {
+  const calls = [];
+  const app = await fixture(t, async (url, options) => { calls.push([url, options.method, Object.fromEntries(options.body)]); return new Response('data: done\n\n', { headers: { 'content-type': 'text/event-stream' } }); });
+  const body = new FormData(); body.set('session_id', 'session1'); body.set('last_event_index', '4');
+  const response = await app.request('/api/agentos/agents/samurai/runs/run1/resume', { method: 'POST', headers: { origin: 'https://samurai.example' }, body });
+  assert.equal(response.status, 200);
+  assert.deepEqual(calls, [['https://backend.example/agentos/agents/samurai/runs/run1/resume', 'POST', { session_id: 'session1', last_event_index: '4' }]]);
+});
+
+for (const extra of [{ user_id: 'other' }, { last_event_index: '-1' }, { last_event_index: '01' }]) test('rejects unsafe native resume fields before upstream access', async t => {
+  const app = await fixture(t, () => assert.fail('upstream reached'));
+  const body = new FormData(); body.set('session_id', 'session1');
+  for (const [key, value] of Object.entries(extra)) body.set(key, value);
+  const response = await app.request('/api/agentos/agents/samurai/runs/run1/resume', { method: 'POST', headers: { origin: 'https://samurai.example' }, body });
+  assert.equal(response.status, 400);
 });
 
 test('forwards cancellation once with the scoped session', async t => {

@@ -1,12 +1,12 @@
 import { Onboarding } from './Onboarding';
 import { TransitionGrain } from './TransitionGrain';
 import { Atmosphere } from './Atmosphere';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MotionConfig } from 'motion/react';
 import { ArrowRight, ArrowUp, Building2 } from 'lucide-react';
 import { CompanyWorkspace } from './App';
 import { emptyWorkspace, restorePortfolio, type Portfolio, type Workspace } from './model';
-import { loadPortfolio, portfolioStorageKey, type BrowserScope } from './browserStorage';
+import { loadPortfolio, persistPortfolio, portfolioStorageKey, type BrowserScope } from './browserStorage';
 import { ModeToggle, SearchBar } from './ShellParts';
 
 export function App({ scope }: { readonly scope: BrowserScope }) {
@@ -15,6 +15,8 @@ export function App({ scope }: { readonly scope: BrowserScope }) {
     try { return loadPortfolio(localStorage, scope); }
     catch { return restorePortfolio(null, null); }
   });
+  const portfolioRef = useRef(portfolio);
+  portfolioRef.current = portfolio;
   const [name, setName] = useState('');
   const [onboarding, setOnboarding] = useState(false);
   const [storageError, setStorageError] = useState(false);
@@ -24,21 +26,33 @@ export function App({ scope }: { readonly scope: BrowserScope }) {
     try { localStorage.setItem(scopedStorageKey, JSON.stringify(portfolio)); setStorageError(false); }
     catch { setStorageError(true); }
   }, [portfolio, scopedStorageKey]);
-  const toggleMode = () => setPortfolio(current => ({ ...current, mode: current.mode === 'light' ? 'dark' : 'light' }));
-  const open = (activeId: string | null) => { setOnboarding(false); setPortfolio(current => ({ ...current, activeId })); };
+  const updatePortfolio = (update: (current: Portfolio) => Portfolio, persistNow = false): boolean => {
+    const next = update(portfolioRef.current);
+    if (persistNow) {
+      if (!persistPortfolio(localStorage, scopedStorageKey, next)) { setStorageError(true); return false; }
+      setStorageError(false);
+    }
+    portfolioRef.current = next;
+    setPortfolio(next);
+    return true;
+  };
+  const toggleMode = () => { updatePortfolio(current => ({ ...current, mode: current.mode === 'light' ? 'dark' : 'light' })); };
+  const open = (activeId: string | null) => { setOnboarding(false); updatePortfolio(current => ({ ...current, activeId })); };
   const create = (companyName: string, workspace = emptyWorkspace()) => {
     const id = crypto.randomUUID();
-    setPortfolio(current => ({ ...current, activeId: id, companies: [...current.companies, { id, name: companyName.trim(), workspace }] }));
+    updatePortfolio(current => ({ ...current, activeId: id, companies: [...current.companies, { id, name: companyName.trim(), workspace }] }));
     setName(''); setOnboarding(false);
   };
   const company = portfolio.companies.find(item => item.id === portfolio.activeId);
-  const setWorkspace = (update: Workspace | ((current: Workspace) => Workspace)) => {
-    if (!company) return;
-    setPortfolio(current => ({ ...current, companies: current.companies.map(item => item.id === company.id ? {
+  const updateWorkspace = (update: Workspace | ((current: Workspace) => Workspace), persistNow = false): boolean => {
+    if (!company) return false;
+    return updatePortfolio(current => ({ ...current, companies: current.companies.map(item => item.id === company.id ? {
       ...item, workspace: typeof update === 'function' ? update(item.workspace) : update,
-    } : item) }));
+    } : item) }), persistNow);
   };
-  return <MotionConfig reducedMotion="user">{company ? <CompanyWorkspace key={company.id} company={company} workspace={company.workspace} setWorkspace={setWorkspace} mode={portfolio.mode} toggleMode={toggleMode} onOpen={open} storageError={storageError} /> :
+  const setWorkspace = (update: Workspace | ((current: Workspace) => Workspace)) => { updateWorkspace(update); };
+  const persistWorkspace = (update: Workspace | ((current: Workspace) => Workspace)) => updateWorkspace(update, true);
+  return <MotionConfig reducedMotion="user">{company ? <CompanyWorkspace key={company.id} company={company} workspace={company.workspace} setWorkspace={setWorkspace} persistWorkspace={persistWorkspace} mode={portfolio.mode} toggleMode={toggleMode} onOpen={open} storageError={storageError} /> :
     <div className="workspace landing"><Atmosphere mode={portfolio.mode} /><div className="bottom-blur" aria-hidden="true" />
       <header className="topbar"><span className="wordmark">Samurai</span><div className="topbar-actions"><SearchBar placeholder="Search companies" items={portfolio.companies.map(item => ({ id: item.id, title: item.name }))} onSelect={open} /><ModeToggle mode={portfolio.mode} onToggle={toggleMode} /></div></header>
       <main key={onboarding ? 'intake' : 'home'} className="landing-content"><div className="landing-main">{onboarding ? <Onboarding name={name.trim()} onCancel={() => setOnboarding(false)} onComplete={brief => create(name, { ...emptyWorkspace(), brief, executionMode: 'live' })} /> : <><h1>An idea is<br />just the beginning.</h1><p className="landing-description">Build a company worth believing in.</p>

@@ -31,3 +31,8 @@ export function portfolioStorageKey(scope: BrowserScope): string {
 export function loadPortfolio(storage: Pick<Storage, 'getItem'>, scope: BrowserScope): Portfolio {
   return restorePortfolio(storage.getItem(portfolioStorageKey(scope)), scope.kind === 'development' ? storage.getItem(storageKey) : null);
 }
+
+export function persistPortfolio(storage: Pick<Storage, 'setItem'>, key: string, portfolio: Portfolio): boolean {
+  try { storage.setItem(key, JSON.stringify(portfolio)); return true; }
+  catch { return false; }
+}

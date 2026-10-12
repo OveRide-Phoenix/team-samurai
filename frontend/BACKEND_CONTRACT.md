@@ -10,7 +10,7 @@ The local founder UI adapts the installed Agno native SSE API using `src/agentos
 type Transport = (input: string, signal: AbortSignal) => AsyncIterable<WorkEvent>;
 ```
 
-The adapter consumes native AgentOS SSE and checks session/run/company scope before accepting results. Live cancellation posts to the scoped native cancel endpoint and waits for acknowledgement. A rejected cancellation retains the running identity so the founder can retry.
+The adapter consumes native AgentOS SSE and checks session/run/company scope before accepting results. Before a run POST, the browser synchronously saves a logical submission UUID in the owner-scoped portfolio. The production BFF validates that UUID and forwards it as the native `Idempotency-Key`. If storage fails, the POST is not sent. Live cancellation posts to the scoped native cancel endpoint and waits for acknowledgement. A rejected cancellation retains the running identity so the founder can retry.
 
 ## Activity event
 
@@ -53,9 +53,9 @@ Supported panel kinds are `offer`, `pricing`, `prospects`, `evidence`, and `laun
 
 ## State ownership and current limits
 
-- Chat, pins, shortlisted IDs, and reviewed drafts currently live in browser localStorage. They are UI preferences, not durable backend approvals, researched prospects, or sent outreach.
+- Chat, pins, shortlisted IDs, reviewed drafts, and the durable run receipt currently live in owner-scoped browser localStorage. They are UI preferences and a reconnect pointer, not durable backend approvals, researched prospects, or sent outreach.
 - Preview fixtures use a dental scenario. New companies submit their validated brief to the real backend.
-- Backend artifacts retain validated evidence, citations, assumptions and lineage. Token-by-token prose, server-confirmed approvals and connected measurements are not implemented.
+- Backend artifacts retain validated evidence, citations, assumptions and lineage. Explicit journey-stage approval is server-confirmed; token-by-token prose and connected measurements are not implemented.
 - The verifier in the demo validates structure only. Never interpret it as verification of market facts.
 - Provider credentials belong on the backend. The frontend must not contain a Gemini API key or Firebase Admin credential.
 
@@ -85,11 +85,17 @@ Backend CustomEvents serialize their payload as `content: {kind: "workflow_progr
 
 ## Native local wire
 
-`POST /api/agentos/agents/samurai/runs` sends multipart `message`, `session_id`, `stream=true`, `background=false`. The proxy forwards to `http://127.0.0.1:8000/agentos`, requires `X-Samurai-Client: 1`, and injects the server JWT. Read and cancel routes require the same session ID. Stored run/company bindings are checked on reload; completed results are read without rerunning. This is completed-run recovery, not a durable job queue.
+`POST /api/agentos/agents/samurai/runs` sends exactly multipart `message`, `session_id`, `stream=true`, `background=true` plus `X-Samurai-Submission-Id`. The production BFF accepts only a canonical UUID for that header, forwards it as `Idempotency-Key`, derives the owner from IAP and injects the short-lived server JWT. It never accepts a browser-supplied owner or user ID.
+
+Initial intake omits approval headers and is limited to journey `brief` at revision 0. After an accepted artifact and completed owner receipt are present, the UI offers one explicit next-stage approval. That submit includes all of `X-Samurai-Operation`, `X-Samurai-Stage`, `X-Samurai-Expected-Revision`, and `X-Samurai-Company-Id`. The BFF validates the operation/stage pair, canonical nonnegative revision, and company UUID before forwarding them. The backend then verifies the company against the JWT owner, parent session, and canonical revision before provider work. Missing, partial, forged, or stale approval binding fails closed; ordinary model text never creates a stage approval.
+
+The initial response remains native AgentOS SSE. The adapter saves the native `run_id` and zero-based `event_index` as events arrive. A stream disconnect resumes the same run with `POST /api/agentos/agents/samurai/runs/{run_id}/resume`, multipart `session_id` and optional `last_event_index`; replayed indices are ignored. If the initial response is lost before `RunStarted`, `GET /api/agentos/work-receipts/{submission_id}?session_id=...` recovers the owner-scoped run ID and queue state. Neither path replays the original run POST.
+
+Receipt states map visibly to queued, running, recovering, paused, completed, cancelled or failed. Reload uses the saved receipt/run/cursor and the native resume stream, then reconciles panels by stable artifact ID and revision. Read, receipt, resume and cancel routes remain session scoped. Missing or cross-owner receipts are 404 at the backend. Operator queue routes and Samurai `/continue` are not exposed by the BFF; paused work needs a separately approved recovery contract.
 
 The model is locked to `gemini-3.5-flash-lite`; configuration rejects other models. The original 2.5 Flash-Lite request returned 404 for this new account. On 12 October the user authorized 3.5 Flash-Lite; no automatic fallback or paid billing was enabled.
 
-The Vite proxy is development-only. The static Sites build does not contain this proxy; production needs an authenticated backend-for-frontend before live deployment.
+The Vite proxy is development-only. The static Sites build does not contain this proxy. Cloud Run serves the authenticated production BFF in `server/production.mjs` behind IAP.
 
 Google Search grounding is disabled in this free-tier 3.5 Flash-Lite runtime. Research without citations remains insufficient evidence; no paid search or billing was enabled.
 

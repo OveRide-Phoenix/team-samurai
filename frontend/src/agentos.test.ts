@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cancelAgentosRun, createAgentosTransport, readAgentosRun, presentMessages, type AgentosRun } from './agentos';
+import { cancelAgentosRun, createAgentosTransport, readAgentosRun, resumeAgentosRun, presentMessages, type AgentosRun } from './agentos';
 import type { Message, WorkEvent } from './model';
 
 const company = '00000000-0000-4000-8000-000000000001';
@@ -53,13 +53,120 @@ describe('AgentOS transport wire boundary', () => {
     expect(event.panel.claims.find(claim => claim.id === claimId)).toMatchObject({ id: claimId, status: 'needs-check', sources: [{ url: 'https://example.org/research', title: 'Independent reference' }] });
     expect(event.panel.claims.some(claim => claim.claim === 'Conflicting source')).toBe(true);
     expect(event.panel.provenance).toMatchObject({ status: 'needs_rework', sources: [{ source_id: sourceId, search_query: 'pricing', excerpt: 'A limited sample' }] });
-    expect(runs.at(-1)).toEqual({ runId: 'run-1', status: 'completed', companyId: company, revision: 1 });
+    expect(runs.at(-1)).toMatchObject({ runId: 'run-1', status: 'completed', companyId: company, revision: 1 });
     const options = fetcher.mock.calls[0]?.[1];
-    expect(options?.headers).toEqual({ 'X-Samurai-Client': '1' });
+    expect(options?.headers).toMatchObject({ 'X-Samurai-Client': '1', 'X-Samurai-Submission-Id': expect.any(String) });
     expect(options?.credentials).toBe('same-origin');
     expect(options?.body).toBeInstanceOf(FormData);
     if (!(options?.body instanceof FormData)) throw new Error('Expected form');
-    expect(Object.fromEntries(options.body)).toEqual({ message: 'Research an idea', session_id: 'session-1', stream: 'true', background: 'false' });
+    expect(Object.fromEntries(options.body)).toEqual({ message: 'Research an idea', session_id: 'session-1', stream: 'true', background: 'true' });
+  });
+
+  it('persists the logical submission before sending the only run POST', async () => {
+    const fetcher = serve(frame(wire('RunStarted')) + frame(wire('RunCompleted', { content: 'Done' })));
+    const runs: AgentosRun[] = [];
+    const transport = createAgentosTransport('session-1', run => {
+      runs.push(run);
+      return run.status !== 'submitting' || runs.length === 1;
+    }, () => [], () => '00000000-0000-4000-8000-000000000099');
+    await collect(transport('Build it', new AbortController().signal));
+    expect(runs[0]).toEqual({ submissionId: '00000000-0000-4000-8000-000000000099', status: 'submitting' });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls[0]?.[1]?.headers).toMatchObject({ 'X-Samurai-Submission-Id': '00000000-0000-4000-8000-000000000099' });
+  });
+
+  it('sends explicit founder approval only as validated stage headers', async () => {
+    const fetcher = serve(frame(wire('RunStarted')) + frame(wire('RunCompleted', { content: result })));
+    const transport = createAgentosTransport('session-1', () => true, () => [], () => '00000000-0000-4000-8000-000000000099');
+    await collect(transport('Research our market and stop before strategy.', new AbortController().signal, { operation: 'journey', stage: 'research', expectedRevision: 3, companyId: company }));
+    expect(fetcher.mock.calls[0]?.[1]?.headers).toMatchObject({
+      'X-Samurai-Submission-Id': '00000000-0000-4000-8000-000000000099',
+      'X-Samurai-Operation': 'journey',
+      'X-Samurai-Stage': 'research',
+      'X-Samurai-Expected-Revision': '3',
+      'X-Samurai-Company-Id': company,
+    });
+    expect(Object.fromEntries(fetcher.mock.calls[0]?.[1]?.body as FormData)).toEqual({ message: 'Research our market and stop before strategy.', session_id: 'session-1', stream: 'true', background: 'true' });
+  });
+
+  it('does not submit when the logical submission cannot be persisted', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetcher);
+    const transport = createAgentosTransport('session-1', () => false, () => [], () => '00000000-0000-4000-8000-000000000099');
+    await expect(collect(transport('Build it', new AbortController().signal))).rejects.toThrow('saved');
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('resumes the same durable run after an SSE disconnect without replaying the submit POST', async () => {
+    const calls: Array<[string, RequestInit | undefined]> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+      calls.push([url, options]);
+      if (calls.length === 1) return response(frame(wire('RunStarted', { event_index: 0 })) + frame(wire('CustomEvent', { event_index: 1, kind: 'workflow_progress', content: 'Research started' })));
+      return response(frame(wire('RunCompleted', { event_index: 2, content: result })));
+    }));
+    const events = await collect(createAgentosTransport('session-1', () => true, () => [], () => '00000000-0000-4000-8000-000000000099')('Research', new AbortController().signal));
+    expect(events).toHaveLength(2);
+    expect(calls.map(call => call[0])).toEqual([
+      '/api/agentos/agents/samurai/runs',
+      '/api/agentos/agents/samurai/runs/run-1/resume',
+    ]);
+    expect(calls.filter(call => call[0] === '/api/agentos/agents/samurai/runs')).toHaveLength(1);
+    const resumeBody = calls[1]?.[1]?.body;
+    expect(resumeBody).toBeInstanceOf(FormData);
+    if (!(resumeBody instanceof FormData)) throw new Error('Expected resume form');
+    expect(Object.fromEntries(resumeBody)).toEqual({ session_id: 'session-1', last_event_index: '1' });
+  });
+
+  it('uses the owner receipt when the initial stream is lost before RunStarted', async () => {
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      calls.push(url);
+      if (url.includes('/work-receipts/')) return Response.json({ run_id: 'run-1', session_id: 'session-1', status: 'PENDING', attempt: 0, max_attempts: 2, recovering: false, failure_reason: null, company_id: null, revision: null, updated_at: null });
+      if (url.endsWith('/resume')) return response(frame(wire('RunStarted', { event_index: 0 })) + frame(wire('RunCompleted', { event_index: 1, content: 'Recovered' })));
+      return response('');
+    }));
+    const output = await collect(createAgentosTransport('session-1', () => true, () => [], () => '00000000-0000-4000-8000-000000000099')('Build it', new AbortController().signal));
+    expect(output).toEqual([{ type: 'message', text: 'Recovered' }]);
+    expect(calls).toEqual([
+      '/api/agentos/agents/samurai/runs',
+      '/api/agentos/work-receipts/00000000-0000-4000-8000-000000000099?session_id=session-1',
+      '/api/agentos/agents/samurai/runs/run-1/resume',
+    ]);
+  });
+
+  it('reloads from the saved receipt and resumes without submitting again', async () => {
+    const calls: string[] = [];
+    const states: AgentosRun[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      calls.push(url);
+      if (url.includes('/work-receipts/')) return Response.json({ run_id: 'run-1', session_id: 'session-1', status: 'RUNNING', attempt: 0, max_attempts: 2, recovering: false, failure_reason: null, company_id: null, revision: null, updated_at: null });
+      return response(frame(wire('RunCompleted', { event_index: 5, content: 'Done after reload' })));
+    }));
+    const events = await collect(resumeAgentosRun('session-1', { submissionId: '00000000-0000-4000-8000-000000000099', status: 'submitting' }, new AbortController().signal, run => states.push(run)));
+    expect(events).toEqual([{ type: 'message', text: 'Done after reload' }]);
+    expect(states.at(-1)).toMatchObject({ submissionId: '00000000-0000-4000-8000-000000000099', runId: 'run-1', status: 'completed', attempt: 0, maxAttempts: 2, lastEventIndex: 5 });
+    expect(calls).toEqual([
+      '/api/agentos/work-receipts/00000000-0000-4000-8000-000000000099?session_id=session-1',
+      '/api/agentos/agents/samurai/runs/run-1/resume',
+    ]);
+    expect(calls).not.toContain('/api/agentos/agents/samurai/runs');
+  });
+
+  it('cancels once when abort precedes the receipt run id without replaying submit', async () => {
+    const abort = new AbortController();
+    const calls: Array<[string, string | undefined]> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+      calls.push([url, options?.method]);
+      if (url.includes('/work-receipts/')) return Response.json({ run_id: 'run-1', session_id: 'session-1', status: 'PENDING', attempt: 0, max_attempts: 2, recovering: false, failure_reason: null, company_id: null, revision: null, updated_at: null });
+      if (url.includes('/cancel?')) return Response.json({});
+      if (options?.method === 'GET') return Response.json({ run_id: 'run-1', session_id: 'session-1', agent_id: 'samurai', status: 'CANCELLED' });
+      return response('');
+    }));
+    const events = await collect(createAgentosTransport('session-1', run => { if (run.status === 'submitting') abort.abort(); return true; }, () => [], () => '00000000-0000-4000-8000-000000000099')('Build it', abort.signal));
+    expect(events).toEqual([]);
+    expect(calls.filter(([url]) => url === '/api/agentos/agents/samurai/runs')).toHaveLength(1);
+    expect(calls.filter(([url]) => url.includes('/cancel?session_id=session-1'))).toHaveLength(1);
+    expect(calls.some(([url]) => url.endsWith('/resume'))).toBe(false);
   });
 
   it('shows only real named progress and ordinary final text once', async () => {
@@ -134,7 +241,7 @@ describe('AgentOS transport wire boundary', () => {
     }));
     const statuses: AgentosRun[] = [];
     await expect(collect(createAgentosTransport('session-1', run => statuses.push(run))('Check market', abort.signal))).rejects.toThrow('403');
-    expect(statuses.at(-1)).toEqual({ runId: 'run-1', status: 'running' });
+    expect(statuses.at(-1)).toMatchObject({ runId: 'run-1', status: 'running' });
     vi.stubGlobal('fetch', vi.fn(async (_url: string, options?: RequestInit) => new Response(JSON.stringify(options?.method === 'GET' ? wire('RunCancelled', { status: 'CANCELLED' }) : {}))));
     await expect(cancelAgentosRun('session-1', 'run-1')).resolves.toMatchObject({ run: { runId: 'run-1', status: 'cancelled' }, events: [] });
   });
@@ -198,11 +305,12 @@ describe('AgentOS transport wire boundary', () => {
     expect(event.text).not.toContain('artifact_id');
   });
 
-  it('does not retry run creation on HTTP failure', async () => {
-    const fetcher = vi.fn(async () => new Response('{}', { status: 503 }));
+  it('does not replay run creation while checking a receipt after HTTP failure', async () => {
+    const fetcher = vi.fn(async (_url: string, _options?: RequestInit) => new Response('{}', { status: 503 }));
     vi.stubGlobal('fetch', fetcher);
     await expect(collect(createAgentosTransport('session-1')('Check market', new AbortController().signal))).rejects.toThrow('503');
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(1);
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes('/work-receipts/'))).toHaveLength(1);
   });
 
   it('recovers completed artifacts from a scoped saved run without starting another run', async () => {
@@ -310,16 +418,16 @@ it('keeps the offer concise while retaining all pricing options', () => {
 
 
 describe('authoritative cancellation confirmation', () => {
-  it('polls both pending and running states before confirming cancellation', async () => {
+  it('polls pending, running and paused states before confirming cancellation', async () => {
     let reads = 0;
     const fetcher = vi.fn(async (_url: string, options?: RequestInit) => {
       if (options?.method !== 'GET') return new Response('{}');
       reads += 1;
-      return new Response(JSON.stringify(wire('RunStarted', { status: reads === 1 ? 'PENDING' : reads === 2 ? 'RUNNING' : 'CANCELLED' })));
+      return new Response(JSON.stringify(wire('RunStarted', { status: reads === 1 ? 'PENDING' : reads === 2 ? 'RUNNING' : reads === 3 ? 'PAUSED' : 'CANCELLED' })));
     });
     vi.stubGlobal('fetch', fetcher);
     expect((await cancelAgentosRun('session-1', 'run-1')).run.status).toBe('cancelled');
-    expect(reads).toBe(3);
+    expect(reads).toBe(4);
     for (const [url, options] of fetcher.mock.calls) if (options?.method === 'GET') expect(url).toContain('/run-1?session_id=session-1');
   });
 
@@ -333,7 +441,7 @@ describe('authoritative cancellation confirmation', () => {
     }));
     const statuses: AgentosRun[] = [];
     const events = await collect(createAgentosTransport('session-1', run => statuses.push(run))('Research', abort.signal));
-    expect(statuses.at(-1)).toEqual({ runId: 'run-1', status: 'completed', companyId: company, revision: 1 });
+    expect(statuses.at(-1)).toMatchObject({ runId: 'run-1', status: 'completed', companyId: company, revision: 1 });
     expect(statuses.some(run => run.status === 'cancelled')).toBe(false);
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ type: 'message', panel: { id: `artifact-${artifactId}` } });
@@ -354,7 +462,7 @@ describe('authoritative cancellation confirmation', () => {
     }));
     const statuses: AgentosRun[] = [];
     await expect(collect(createAgentosTransport('session-1', run => statuses.push(run))('Research', abort.signal))).rejects.toThrow('503');
-    expect(statuses.at(-1)).toEqual({runId:'run-1', status:'running'});
+    expect(statuses.at(-1)).toMatchObject({runId:'run-1', status:'running'});
   });
 
   it('rejects confirmation from another session instead of unlocking the run', async () => {

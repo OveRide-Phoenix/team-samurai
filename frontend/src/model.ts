@@ -41,7 +41,12 @@ export const companyBriefSchema = z.object({
   founderSkills: z.string().trim().min(3).max(500).optional(),
 });
 export type CompanyBrief = z.infer<typeof companyBriefSchema>;
-export const backendRunSchema = z.object({ runId: z.string().min(1), status: z.enum(['running', 'completed', 'cancelled', 'failed']), companyId: z.string().uuid().optional(), revision: z.number().int().min(0).optional() });
+const backendRunStatusSchema = z.enum(['submitting', 'queued', 'running', 'recovering', 'paused', 'completed', 'cancelled', 'failed']);
+export const backendRunSchema = z.object({
+  submissionId: z.string().uuid().optional(), runId: z.string().min(1).optional(), status: backendRunStatusSchema,
+  companyId: z.string().uuid().optional(), revision: z.number().int().min(0).optional(), lastEventIndex: z.number().int().min(0).optional(),
+  attempt: z.number().int().min(0).optional(), maxAttempts: z.number().int().min(1).optional(), failureReason: z.string().min(1).max(2000).optional(),
+}).refine(run => Boolean(run.runId) || (['submitting', 'recovering'].includes(run.status) && Boolean(run.submissionId)), 'A backend run needs a run or submission ID');
 export type BackendRun = z.infer<typeof backendRunSchema>;
 export const workspaceSchema = z.object({
   executionMode: z.enum(['preview', 'live']).default('preview'), backendRun: backendRunSchema.optional(),
@@ -118,8 +123,39 @@ export function movePanel(panels: Panel[], id: string, target: string): string[]
 }
 
 export function recordBackendRun(workspace: Workspace, run: BackendRun): Workspace {
+  if (workspace.backendRun?.submissionId && run.submissionId && workspace.backendRun.submissionId !== run.submissionId) throw new Error('The backend result belongs to another submission.');
   if (workspace.backendRun?.companyId && run.companyId && workspace.backendRun.companyId !== run.companyId) throw new Error('The backend result belongs to another company.');
-  return { ...workspace, backendRun: { ...workspace.backendRun, ...run } };
+  return { ...workspace, backendRun: backendRunSchema.parse({ ...workspace.backendRun, ...run }) };
+}
+export function beginBackendRun(workspace: Workspace, submissionId: string): Workspace {
+  if (hasActiveBackendRun(workspace.backendRun)) throw new Error('A backend run is already active.');
+  return { ...workspace, backendRun: backendRunSchema.parse({
+    submissionId, status: 'submitting',
+    ...(workspace.backendRun?.companyId ? { companyId: workspace.backendRun.companyId } : {}),
+    ...(workspace.backendRun?.revision !== undefined ? { revision: workspace.backendRun.revision } : {}),
+  }) };
+}
+export function hasActiveBackendRun(run: BackendRun | undefined): boolean {
+  return run !== undefined && ['submitting', 'queued', 'running', 'recovering', 'paused'].includes(run.status);
+}
+export function isCancellableBackendRun(run: BackendRun | undefined): run is BackendRun & { runId: string } {
+  return Boolean(run?.runId) && hasActiveBackendRun(run);
+}
+export type JourneyApproval = { readonly stage: 'research' | 'strategy' | 'plan'; readonly expectedRevision: number; readonly companyId: string };
+export function nextJourneyApproval(workspace: Workspace): JourneyApproval | undefined {
+  const run = workspace.backendRun;
+  if (run?.status !== 'completed' || !run.companyId || run.revision === undefined) return undefined;
+  const artifacts = workspace.messages.flatMap(message => {
+    const value = message.panel?.provenance;
+    if (!value || value.acceptance_status !== 'accepted' || typeof value.artifact_type !== 'string' || typeof value.status !== 'string') return [];
+    return [{ artifactType: value.artifact_type, status: value.status }];
+  });
+  const accepted = (artifactType: string) => artifacts.filter(item => item.artifactType === artifactType);
+  if (accepted('product_plan').some(item => item.status === 'complete')) return undefined;
+  if (accepted('strategy').length) return { stage: accepted('strategy').some(item => item.status === 'complete') ? 'plan' : 'strategy', expectedRevision: run.revision, companyId: run.companyId };
+  if (accepted('research').length) return { stage: accepted('research').some(item => item.status === 'complete') ? 'strategy' : 'research', expectedRevision: run.revision, companyId: run.companyId };
+  if (accepted('intake').length) return { stage: 'research', expectedRevision: run.revision, companyId: run.companyId };
+  return undefined;
 }
 export function applyBackendEvent(workspace: Workspace, runId: string, event: Extract<WorkEvent, { type: 'message' }>): Workspace {
   if (workspace.messages.some(message => message.backendRunId === runId && message.text === event.text && JSON.stringify(message.panel) === JSON.stringify(event.panel))) return workspace;
@@ -135,7 +171,7 @@ export function toggleSavedSelection(ids: readonly string[], id: string, limit: 
 }
 
 export function finishActivities(history: Workspace['activityLog'], status: BackendRun['status']): Workspace['activityLog'] {
-  if (status === 'running') return history;
+  if (['submitting', 'queued', 'running', 'recovering', 'paused'].includes(status)) return history;
   const latest = Object.values(Object.fromEntries(history.map(activity => [activity.agent, activity])));
   const pending = latest.filter(activity => activity.state === 'working');
   const state = status === 'cancelled' || status === 'failed' ? 'stopped' : 'waiting';

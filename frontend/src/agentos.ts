@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { agents, panelSchema, type Message, type Panel, type Transport, type WorkEvent } from './model';
+import { agents, panelSchema, type BackendRun, type Message, type Panel, type WorkEvent } from './model';
 
 const base = '/api/agentos/agents/samurai/runs';
 const headers = { 'X-Samurai-Client': '1' } as const;
@@ -46,11 +46,17 @@ const summarySchema = z.strictObject({
 const companyResultSchema = z.union([resultSchema, summarySchema]);
 type WorkflowResult = z.infer<typeof companyResultSchema>;
 
-export type AgentosRun = { readonly runId: string; readonly status: 'running' | 'completed' | 'cancelled' | 'failed'; readonly companyId?: string; readonly revision?: number };
+export type AgentosRun = BackendRun;
+export type AgentosApproval = {
+  readonly operation: 'journey' | 'launch_drafts' | 'metrics_analysis';
+  readonly stage: 'brief' | 'research' | 'strategy' | 'plan';
+  readonly expectedRevision: number;
+  readonly companyId: string;
+};
 type AgentosRunResult = { readonly run: AgentosRun; readonly events: readonly WorkEvent[] };
 export class AgentosError extends Error {
   readonly name = 'AgentosError';
-  constructor(readonly code: 'http' | 'protocol' | 'scope' | 'stream' | 'cancel', message: string) { super(message); }
+  constructor(readonly code: 'http' | 'protocol' | 'scope' | 'stream' | 'cancel' | 'storage', message: string) { super(message); }
 }
 
 function json(value: string): unknown {
@@ -155,13 +161,13 @@ function resultEvents(result: WorkflowResult, seen: Set<string>): WorkEvent[] {
 }
 
 // Agno adds versioned metadata to envelopes; project only consumed fields, then validate strictly.
-const envelopeSchema = z.strictObject({ event: text, run_id: text, session_id: text, agent_id: z.literal('samurai'), content: z.unknown().optional(), tool: z.unknown().optional(), kind: z.string().optional() });
+const envelopeSchema = z.strictObject({ event: text, run_id: text, session_id: text, agent_id: z.literal('samurai'), event_index: z.number().int().min(0).optional(), content: z.unknown().optional(), tool: z.unknown().optional(), kind: z.string().optional() });
 const recordSchema = z.record(z.string(), z.unknown());
 const relevant = new Set(['RunStarted', 'ToolCallCompleted', 'CustomEvent', 'RunCompleted', 'RunCancelled', 'RunError']);
 function envelope(raw: string) {
   const value = recordSchema.parse(json(raw));
   if (typeof value.event !== 'string' || !relevant.has(value.event)) return undefined;
-  const parsed = envelopeSchema.safeParse({ event: value.event, run_id: value.run_id, session_id: value.session_id, agent_id: value.agent_id, content: value.content, tool: value.tool, kind: value.kind });
+  const parsed = envelopeSchema.safeParse({ event: value.event, run_id: value.run_id, session_id: value.session_id, agent_id: value.agent_id, event_index: value.event_index, content: value.content, tool: value.tool, kind: value.kind });
   if (!parsed.success) throw new AgentosError('protocol', 'AgentOS returned an invalid event envelope.');
   return parsed.data;
 }
@@ -202,9 +208,100 @@ async function* frames(body: ReadableStream<Uint8Array>): AsyncIterable<string> 
   } finally { await reader.cancel(); reader.releaseLock(); }
 }
 async function request(url: string, options: RequestInit): Promise<Response> {
-  const response = await fetch(url, { ...options, credentials: 'same-origin', headers });
+  const response = await fetch(url, { ...options, credentials: 'same-origin', headers: { ...headers, ...options.headers } });
   if (!response.ok) throw new AgentosError('http', `AgentOS request failed (${response.status}).`);
   return response;
+}
+
+const receiptSchema = z.strictObject({
+  run_id: text, session_id: text,
+  status: z.enum(['PENDING', 'RUNNING', 'PAUSED', 'COMPLETED', 'ERROR', 'CANCELLED']),
+  attempt: z.number().int().min(0), max_attempts: z.number().int().min(1), recovering: z.boolean(),
+  failure_reason: z.string().max(2000).nullable(), company_id: uuid.nullable(), revision: z.number().int().min(0).nullable(), updated_at: z.number().int().nullable(),
+});
+
+function receiptRun(submissionId: string, value: z.infer<typeof receiptSchema>): AgentosRun {
+  const status: AgentosRun['status'] = value.status === 'PENDING' ? (value.recovering ? 'recovering' : 'queued')
+    : value.status === 'RUNNING' ? 'running' : value.status === 'PAUSED' ? 'paused'
+      : value.status === 'COMPLETED' ? 'completed' : value.status === 'CANCELLED' ? 'cancelled' : 'failed';
+  return { submissionId, runId: value.run_id, status, attempt: value.attempt, maxAttempts: value.max_attempts, ...(value.failure_reason ? { failureReason: value.failure_reason } : {}), ...(value.company_id ? { companyId: value.company_id } : {}), ...(value.revision !== null ? { revision: value.revision } : {}) };
+}
+
+export async function readAgentosReceipt(sessionId: string, submissionId: string, signal?: AbortSignal): Promise<AgentosRun> {
+  text.parse(sessionId); uuid.parse(submissionId);
+  const response = await request(`/api/agentos/work-receipts/${encodeURIComponent(submissionId)}?session_id=${encodeURIComponent(sessionId)}`, { method: 'GET', signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000) });
+  const receipt = receiptSchema.parse(json(await response.text()));
+  if (receipt.session_id !== sessionId) throw new AgentosError('scope', 'AgentOS returned another session receipt.');
+  return receiptRun(submissionId, receipt);
+}
+
+function resumeRequest(sessionId: string, runId: string, lastEventIndex: number | undefined, signal: AbortSignal): Promise<Response> {
+  const form = new FormData();
+  form.set('session_id', sessionId);
+  if (lastEventIndex !== undefined) form.set('last_event_index', String(lastEventIndex));
+  return request(`${base}/${encodeURIComponent(runId)}/resume`, { method: 'POST', body: form, signal });
+}
+
+export async function* resumeAgentosRun(
+  sessionId: string,
+  saved: AgentosRun,
+  signal: AbortSignal,
+  onRun?: (run: AgentosRun) => unknown,
+  savedMessages: readonly Message[] = [],
+): AsyncGenerator<WorkEvent> {
+  text.parse(sessionId);
+  let run = saved;
+  if (!run.runId) {
+    if (!run.submissionId) throw new AgentosError('protocol', 'The saved run has no recovery identity.');
+    run = await readAgentosReceipt(sessionId, run.submissionId, signal);
+    onRun?.(run);
+  }
+  if (!run.runId) throw new AgentosError('protocol', 'The work receipt omitted the run identity.');
+  const runId = run.runId;
+  if (['completed', 'cancelled', 'failed'].includes(run.status)) {
+    const recovered = await readAgentosRun(sessionId, runId, signal, savedMessages);
+    onRun?.({ ...run, ...recovered.run, submissionId: run.submissionId });
+    for (const event of recovered.events) yield event;
+    return;
+  }
+  if (run.status === 'paused') throw new AgentosError('stream', 'This run is paused and needs an approved recovery action before it can continue.');
+  const seen = artifactKeys(savedMessages);
+  let companyId = run.companyId, revision = run.revision, lastEventIndex = run.lastEventIndex;
+  let response = await resumeRequest(sessionId, runId, lastEventIndex, signal);
+  while (true) {
+    if (!response.body || !response.headers.get('content-type')?.includes('text/event-stream')) throw new AgentosError('protocol', 'AgentOS did not return an event stream.');
+    const startingIndex = lastEventIndex;
+    for await (const raw of frames(response.body)) {
+      const event = envelope(raw);
+      if (!event) continue;
+      if (event.session_id !== sessionId || event.run_id !== runId) throw new AgentosError('scope', 'AgentOS returned an event for another session or run.');
+      if (event.event_index !== undefined) {
+        if (lastEventIndex !== undefined && event.event_index <= lastEventIndex) continue;
+        lastEventIndex = event.event_index;
+      }
+      if (event.event === 'CustomEvent' && (event.kind === 'workflow_progress' || event.kind === undefined)) {
+        const activity = progressEvent(event.content);
+        if (activity) yield activity;
+      }
+      if (event.event === 'ToolCallCompleted' || event.event === 'RunCompleted') {
+        const tool = event.tool === undefined ? undefined : recordSchema.parse(event.tool);
+        const result = workflow(event.event === 'ToolCallCompleted' ? tool?.result : event.content);
+        if (result) {
+          if (companyId && result.company_id && companyId !== result.company_id) throw new AgentosError('scope', 'AgentOS returned a result for another company.');
+          companyId = result.company_id ?? companyId; revision = result.revision;
+          for (const output of resultEvents(result, seen)) yield output;
+        } else if (event.event === 'RunCompleted' && typeof event.content === 'string' && event.content.trim()) yield { type: 'message', text: event.content };
+      }
+      const next: AgentosRun = { ...run, runId, status: event.event === 'RunCompleted' ? 'completed' : event.event === 'RunCancelled' ? 'cancelled' : event.event === 'RunError' ? 'failed' : 'running', ...(companyId ? { companyId } : {}), ...(revision !== undefined ? { revision } : {}), ...(lastEventIndex !== undefined ? { lastEventIndex } : {}) };
+      run = next; onRun?.(next);
+      if (event.event === 'RunError') throw new AgentosError('stream', 'Samurai could not complete this run.');
+      if (event.event === 'RunCompleted' || event.event === 'RunCancelled') return;
+    }
+    if (lastEventIndex === startingIndex) throw new AgentosError('stream', 'AgentOS disconnected without new recoverable events.');
+    run = { ...run, status: 'recovering', lastEventIndex };
+    onRun?.(run);
+    response = await resumeRequest(sessionId, runId, lastEventIndex, signal);
+  }
 }
 
 
@@ -218,7 +315,7 @@ export async function cancelAgentosRun(sessionId: string, runId: string, savedMe
     // Cancellation receipts acknowledge intent; only the scoped stored run establishes completion.
     while (!signal.aborted) {
       const recovered = await readAgentosRun(sessionId, runId, signal, savedMessages);
-      if (recovered.run.status !== 'running') return recovered;
+      if (!['queued', 'running', 'recovering', 'paused'].includes(recovered.run.status)) return recovered;
       await new Promise<void>(resolve => setTimeout(resolve, 500));
     }
   } catch (error) {
@@ -227,17 +324,28 @@ export async function cancelAgentosRun(sessionId: string, runId: string, savedMe
   throw new AgentosError('cancel', 'Stop has not been confirmed. This run may still be active; check again before starting another request.');
 }
 
-export function createAgentosTransport(sessionId: string, onRun?: (run: AgentosRun) => void, savedMessages: () => readonly Message[] = () => []): Transport {
+export function createAgentosTransport(
+  sessionId: string,
+  onRun?: (run: AgentosRun) => unknown,
+  savedMessages: () => readonly Message[] = () => [],
+  createSubmissionId: () => string = () => crypto.randomUUID(),
+): (input: string, signal: AbortSignal, approval?: AgentosApproval) => AsyncIterable<WorkEvent> {
   text.parse(sessionId);
   let companyId: string | undefined;
-  return async function* (input, signal) {
+  return async function* (input, signal, approval) {
     if (signal.aborted) throw new DOMException('Run was cancelled before starting.', 'AbortError');
+    const submissionId = uuid.parse(createSubmissionId());
+    if (onRun?.({ submissionId, status: 'submitting' }) === false) throw new AgentosError('storage', 'The run was not started because its recovery receipt could not be saved.');
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 600_000);
-    let runId: string | undefined, revision: number | undefined;
+    let runId: string | undefined, revision: number | undefined, lastEventIndex: number | undefined;
+    let status: AgentosRun['status'] = 'submitting';
     let terminal = false;
     let cancellation: Promise<AgentosRunResult> | undefined;
-    const notify = (status: AgentosRun['status']) => { if (runId) onRun?.({ runId, status, ...(companyId ? { companyId } : {}), ...(revision !== undefined ? { revision } : {}) }); };
+    const notify = (nextStatus: AgentosRun['status']) => {
+      status = nextStatus;
+      onRun?.({ submissionId, status, ...(runId ? { runId } : {}), ...(companyId ? { companyId } : {}), ...(revision !== undefined ? { revision } : {}), ...(lastEventIndex !== undefined ? { lastEventIndex } : {}) });
+    };
     const cancel = () => {
       if (!runId || terminal || cancellation) return;
       cancellation = cancelAgentosRun(sessionId, runId, savedMessages()).then(recovered => {
@@ -250,49 +358,96 @@ export function createAgentosTransport(sessionId: string, onRun?: (run: AgentosR
       void cancellation.catch(() => undefined);
     };
     signal.addEventListener('abort', cancel);
+    if (signal.aborted) cancel();
     const seen = artifactKeys(savedMessages());
     try {
       const form = new FormData();
-      form.set('message', text.parse(input)); form.set('session_id', sessionId); form.set('stream', 'true'); form.set('background', 'false');
-      const response = await request(base, { method: 'POST', body: form, signal: controller.signal });
-      if (!response.body || !response.headers.get('content-type')?.includes('text/event-stream')) throw new AgentosError('protocol', 'AgentOS did not return an event stream.');
-      stream: for await (const raw of frames(response.body)) {
-        const event = envelope(raw);
-        if (!event) continue;
-        if (event.session_id !== sessionId || (runId && event.run_id !== runId)) throw new AgentosError('scope', 'AgentOS returned an event for another session or run.');
+      form.set('message', text.parse(input)); form.set('session_id', sessionId); form.set('stream', 'true'); form.set('background', 'true');
+      let response: Response;
+      const runHeaders: Record<string, string> = { 'X-Samurai-Submission-Id': submissionId };
+      if (approval) {
+        if (!Number.isSafeInteger(approval.expectedRevision) || approval.expectedRevision < 0) throw new AgentosError('protocol', 'The approved revision is invalid.');
+        runHeaders['X-Samurai-Company-Id'] = uuid.parse(approval.companyId);
+        runHeaders['X-Samurai-Operation'] = approval.operation;
+        runHeaders['X-Samurai-Stage'] = approval.stage;
+        runHeaders['X-Samurai-Expected-Revision'] = String(approval.expectedRevision);
+      }
+      try { response = await request(base, { method: 'POST', body: form, signal: controller.signal, headers: runHeaders }); }
+      catch {
+        const receipt = await readAgentosReceipt(sessionId, submissionId, controller.signal);
+        runId = receipt.runId; companyId = receipt.companyId; revision = receipt.revision; status = receipt.status; onRun?.(receipt);
+        if (!runId) throw new AgentosError('protocol', 'The work receipt omitted the run identity.');
+        if (signal.aborted) {
+          cancel();
+          if (cancellation) for (const output of (await cancellation).events) yield output;
+          return;
+        }
+        if (['completed', 'cancelled', 'failed'].includes(receipt.status)) {
+          const recovered = await readAgentosRun(sessionId, runId, controller.signal, savedMessages());
+          terminal = true; notify(recovered.run.status);
+          for (const output of recovered.events) yield output;
+          return;
+        }
+        if (receipt.status === 'paused') throw new AgentosError('stream', 'This run is paused and needs an approved recovery action before it can continue.');
+        response = await resumeRequest(sessionId, runId, lastEventIndex, controller.signal);
+      }
+      stream: while (true) {
+        if (!response.body || !response.headers.get('content-type')?.includes('text/event-stream')) throw new AgentosError('protocol', 'AgentOS did not return an event stream.');
+        for await (const raw of frames(response.body)) {
+          const event = envelope(raw);
+          if (!event) continue;
+          if (event.session_id !== sessionId || (runId && event.run_id !== runId)) throw new AgentosError('scope', 'AgentOS returned an event for another session or run.');
+          if (!runId) {
+            if (event.event !== 'RunStarted') throw new AgentosError('protocol', 'AgentOS omitted RunStarted.');
+            runId = event.run_id; notify('running');
+          }
+          if (event.event_index !== undefined) {
+            if (lastEventIndex !== undefined && event.event_index <= lastEventIndex) continue;
+            lastEventIndex = event.event_index; notify(status);
+          }
+          if (signal.aborted) { cancel(); break stream; }
+          if (event.event === 'CustomEvent' && (event.kind === 'workflow_progress' || event.kind === undefined)) {
+            const activity = progressEvent(event.content);
+            if (activity) yield activity;
+          }
+          if (event.event === 'ToolCallCompleted' || event.event === 'RunCompleted') {
+            const tool = event.tool === undefined ? undefined : recordSchema.parse(event.tool);
+            const result = workflow(event.event === 'ToolCallCompleted' ? tool?.result : event.content);
+            if (result) {
+              if (companyId && result.company_id && companyId !== result.company_id) throw new AgentosError('scope', 'AgentOS returned a result for another company.');
+              companyId = result.company_id ?? companyId; revision = result.revision; notify(status);
+              for (const output of resultEvents(result, seen)) {
+                if (signal.aborted) { cancel(); break stream; }
+                yield output;
+              }
+            } else if (event.event === 'RunCompleted' && typeof event.content === 'string' && event.content.trim()) yield { type: 'message', text: event.content };
+          }
+          if (event.event === 'RunError') { terminal = true; notify('failed'); throw new AgentosError('stream', 'Samurai could not complete this run.'); }
+          if (event.event === 'RunCompleted' || event.event === 'RunCancelled') { terminal = true; notify(event.event === 'RunCancelled' ? 'cancelled' : 'completed'); return; }
+        }
         if (!runId) {
-          if (event.event !== 'RunStarted') throw new AgentosError('protocol', 'AgentOS omitted RunStarted.');
-          runId = event.run_id; notify('running');
-        }
-        if (signal.aborted) { cancel(); break stream; }
-        if (event.event === 'CustomEvent' && (event.kind === 'workflow_progress' || event.kind === undefined)) {
-          const activity = progressEvent(event.content);
-          if (activity) yield activity;
-        }
-        if (event.event === 'ToolCallCompleted' || event.event === 'RunCompleted') {
-          const tool = event.tool === undefined ? undefined : recordSchema.parse(event.tool);
-          const result = workflow(event.event === 'ToolCallCompleted' ? tool?.result : event.content);
-          if (result) {
-            if (companyId && result.company_id && companyId !== result.company_id) throw new AgentosError('scope', 'AgentOS returned a result for another company.');
-            companyId = result.company_id ?? companyId; revision = result.revision; notify('running');
-            for (const output of resultEvents(result, seen)) {
-              if (signal.aborted) { cancel(); break stream; }
-              yield output;
-            }
-          } else if (event.event === 'RunCompleted' && typeof event.content === 'string' && event.content.trim()) yield { type: 'message', text: event.content };
-        }
-        if (event.event === 'RunError') { terminal = true; throw new AgentosError('stream', 'Samurai could not complete this run.'); }
-        if (event.event === 'RunCompleted' || event.event === 'RunCancelled') { terminal = true; notify(event.event === 'RunCancelled' ? 'cancelled' : 'completed'); return; }
+          const receipt = await readAgentosReceipt(sessionId, submissionId, controller.signal);
+          runId = receipt.runId; companyId = receipt.companyId; revision = receipt.revision; status = receipt.status; onRun?.(receipt);
+          if (!runId) throw new AgentosError('protocol', 'The work receipt omitted the run identity.');
+          if (signal.aborted) { cancel(); break stream; }
+          if (['completed', 'cancelled', 'failed'].includes(receipt.status)) {
+            const recovered = await readAgentosRun(sessionId, runId, controller.signal, savedMessages());
+            terminal = true; notify(recovered.run.status);
+            for (const output of recovered.events) yield output;
+            return;
+          }
+          if (receipt.status === 'paused') throw new AgentosError('stream', 'This run is paused and needs an approved recovery action before it can continue.');
+        } else if (lastEventIndex === undefined) throw new AgentosError('stream', 'AgentOS disconnected before a recoverable event cursor was saved.');
+        notify('recovering');
+        response = await resumeRequest(sessionId, runId, lastEventIndex, controller.signal);
       }
       if (cancellation) { for (const output of (await cancellation).events) yield output; return; }
-      throw new AgentosError('stream', 'AgentOS stream ended before a terminal event.');
     } catch (error) {
       if (cancellation) { for (const output of (await cancellation).events) yield output; return; }
-      notify('failed');
+      if (!terminal) notify('recovering');
       throw error;
     } finally {
       signal.removeEventListener('abort', cancel); clearTimeout(timeout);
-      if (!terminal && runId && !cancellation) cancel();
       try { if (cancellation) await cancellation; } finally { controller.abort(); }
     }
   };
@@ -302,9 +457,9 @@ export async function readAgentosRun(sessionId: string, runId: string, signal?: 
   text.parse(sessionId); text.parse(runId);
   const response = await request(`${base}/${encodeURIComponent(runId)}?session_id=${encodeURIComponent(sessionId)}`, { method: 'GET', signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000) });
   const wire = recordSchema.parse(json(await response.text()));
-  const run = z.strictObject({ run_id: text, session_id: text, agent_id: z.literal('samurai'), status: z.enum(['RUNNING', 'PENDING', 'COMPLETED', 'CANCELLED', 'ERROR']), content: z.unknown().optional() }).parse({ run_id: wire.run_id, session_id: wire.session_id, agent_id: wire.agent_id, status: wire.status, content: wire.content });
+  const run = z.strictObject({ run_id: text, session_id: text, agent_id: z.literal('samurai'), status: z.enum(['RUNNING', 'PENDING', 'PAUSED', 'COMPLETED', 'CANCELLED', 'ERROR']), content: z.unknown().optional() }).parse({ run_id: wire.run_id, session_id: wire.session_id, agent_id: wire.agent_id, status: wire.status, content: wire.content });
   if (run.run_id !== runId || run.session_id !== sessionId) throw new AgentosError('scope', 'AgentOS returned another session or run.');
-  const status = run.status === 'COMPLETED' ? 'completed' : run.status === 'CANCELLED' ? 'cancelled' : run.status === 'ERROR' ? 'failed' : 'running';
+  const status = run.status === 'COMPLETED' ? 'completed' : run.status === 'CANCELLED' ? 'cancelled' : run.status === 'ERROR' ? 'failed' : run.status === 'PENDING' ? 'queued' : run.status === 'PAUSED' ? 'paused' : 'running';
   const result = status === 'completed' ? workflow(run.content) : undefined;
   return { run: { runId, status, ...(result ? { ...(result.company_id ? { companyId: result.company_id } : {}), revision: result.revision } : {}) }, events: [...recoveredActivities(wire.events, sessionId, runId), ...(result ? resultEvents(result, artifactKeys(savedMessages)) : status === 'completed' && typeof run.content === 'string' ? [{ type: 'message' as const, text: run.content }] : [])] };
 }
