@@ -1,5 +1,6 @@
+from datetime import UTC, datetime, tzinfo
 from functools import partial
-from typing import Literal
+from typing import Literal, override
 
 import anyio
 import pytest
@@ -32,10 +33,12 @@ def _brief() -> CompanyBrief:
 class _FakeAgent:
     output: RunOutput
     calls: int
+    inputs: list[str]
 
     def __init__(self, output: RunOutput) -> None:
         self.output = output
         self.calls = 0
+        self.inputs = []
 
     async def arun(
         self,
@@ -46,6 +49,7 @@ class _FakeAgent:
         assert CompanyBrief.model_validate_json(input[input.index("{") :]) == _brief()
         assert stream is False
         self.calls += 1
+        self.inputs.append(input)
         return self.output
 
 
@@ -93,6 +97,23 @@ def test_code_owns_research_artifact_discriminator() -> None:
 
     assert result.payload.artifact_type == "research"
     assert result.payload.summary == "Current clinic evidence."
+
+
+def test_research_request_uses_runtime_utc_date(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _FixedUtcDateTime(datetime):
+        @classmethod
+        @override
+        def now(cls, tz: tzinfo | None = None) -> datetime:
+            assert tz is UTC
+            return cls(2040, 2, 29, tzinfo=UTC)
+
+    monkeypatch.setattr("samurai.research.datetime", _FixedUtcDateTime)
+    agent = _agent(_output(None))
+
+    _ = anyio.run(run_research, agent, _brief())
+
+    assert "2040-02-29" in agent.inputs[0]
+    assert "2026-10-11" not in agent.inputs[0]
 
 
 def test_malformed_provider_content_fails_closed() -> None:

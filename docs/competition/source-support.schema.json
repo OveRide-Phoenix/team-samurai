@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "source-support.schema.json",
+  "title": "Competition source support assessment",
+  "type": "object",
+  "required": ["schema_version", "assessments"],
+  "properties": {
+    "schema_version": {"const": "1"},
+    "assessments": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[0-9a-f-]{36}/[0-9a-f-]{36}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "artifact_id",
+          "claim_id",
+          "claim",
+          "url",
+          "fetched_at",
+          "excerpt",
+          "verdict",
+          "rationale"
+        ],
+        "properties": {
+          "artifact_id": {"type": "string", "format": "uuid"},
+          "claim_id": {"type": "string", "format": "uuid"},
+          "claim": {"type": "string", "minLength": 1},
+          "url": {"type": "string", "format": "uri"},
+          "fetched_at": {"type": "string", "format": "date-time"},
+          "excerpt": {"type": "string", "minLength": 1},
+          "verdict": {"enum": ["supported", "unsupported", "conflicting"]},
+          "rationale": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

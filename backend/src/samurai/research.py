@@ -124,9 +124,10 @@ async def run_research(
     """Run one grounded researcher and retain bounded, schema-checked lineage."""
     if not 1 <= max_sources <= MAX_SOURCES:
         raise ResearchInputError(max_sources)
+    requested_at = datetime.now(UTC)
     request = (
         "Use Google Search for current public competitor and pricing evidence as of "
-        "2026-10-11, and cite each web source before answering.\n\n"
+        f"{requested_at.date().isoformat()}, and cite each web source before answering.\n\n"
     )
     output = await agent.arun(request + brief.model_dump_json(), stream=False)
     draft = (
@@ -145,7 +146,7 @@ async def run_research(
         grounding,
         _Retention(
             query=_search_query(citations, brief.idea),
-            retrieved_at=datetime.now(UTC),
+            retrieved_at=requested_at,
             max_sources=max_sources,
         ),
     )
