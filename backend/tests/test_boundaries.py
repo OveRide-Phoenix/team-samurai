@@ -25,6 +25,7 @@ from agno.db.sqlite import SqliteDb
 from agno.models.base import Model
 from agno.models.response import ModelResponse
 from agno.run import RunContext
+from agno.run.agent import RunOutput
 from agno.run.base import RunStatus
 from agno.run.cancel import aget_active_runs
 from agno.session.agent import AgentSession
@@ -100,6 +101,8 @@ class DeterministicTextModel(Model):
     @override
     async def ainvoke(self, messages: list[Message], **_kwargs: Never) -> ModelResponse:
         assert messages
+        if self.stream_delay:
+            await anyio.sleep(self.stream_delay)
         self.calls += 1
         if self.fail_with is not None:
             raise self.fail_with
@@ -128,8 +131,6 @@ class DeterministicTextModel(Model):
     async def ainvoke_stream(
         self, messages: list[Message], **kwargs: Never
     ) -> abc.AsyncIterator[ModelResponse]:
-        if self.stream_delay:
-            await anyio.sleep(self.stream_delay)
         yield await self.ainvoke(messages, **kwargs)
 
     @override
@@ -999,6 +1000,71 @@ def test_cancellation_settles_parent_and_child_then_allows_owner_continue(
     continued_payload = cast("dict[str, object]", continued.json())
     assert _json_content(continued_payload)["status"] == "not_started"
     assert "BINDING_MISMATCH" not in continued.text
+
+
+def test_cancel_before_child_start_is_idempotent_and_creates_no_artifact(tmp_path: Path) -> None:
+    private_key, public_key = _key_pair()
+    settings = Settings.model_validate({"jwt_verification_key": public_key})
+    db = SqliteDb(db_file=str(tmp_path / "cancel-before-start.db"))
+    headers = {"Authorization": f"Bearer {_token(private_key, 'cancel-before-start-user')}"}
+    with TestClient(
+        create_app(
+            db=db,
+            settings=settings,
+            parent_model_factory=lambda: DeterministicTextModel(
+                tool_name="run_company_journey",
+                tool_arguments=json.dumps(
+                    {
+                        "idea": "cancel before start",
+                        "target_customer": "",
+                        "geography": "",
+                        "budget": "",
+                        "founder_skills": "",
+                        "goal": "",
+                    }
+                ),
+                stream_delay=0.25,
+            ),
+        )
+    ) as client:
+        started = client.post(
+            "/agentos/agents/samurai/runs",
+            headers=headers,
+            data={
+                "message": "start",
+                "session_id": "cancel-before-start-session",
+                "stream": "false",
+                "background": "true",
+            },
+        )
+        assert started.status_code == 202
+        run_id = cast("dict[str, object]", started.json())["run_id"]
+        assert isinstance(run_id, str)
+        cancel_path = f"/agentos/agents/samurai/runs/{run_id}/cancel"
+        cancel_params = {"session_id": "cancel-before-start-session"}
+        first = client.post(cancel_path, params=cancel_params, headers=headers)
+        second = client.post(cancel_path, params=cancel_params, headers=headers)
+        assert first.status_code == second.status_code == 200
+        deadline = monotonic() + 5
+        while monotonic() < deadline:
+            persisted_run = db.get_run(run_id)
+            if isinstance(persisted_run, RunOutput) and (
+                persisted_run.status == RunStatus.cancelled.value
+            ):
+                break
+            _ = threading.Event().wait(0.01)
+
+    run = db.get_run(run_id)
+    assert isinstance(run, RunOutput)
+    assert run.status == RunStatus.cancelled.value
+    assert (
+        db.get_session(
+            child_session_id("cancel-before-start-user", "cancel-before-start-session"),
+            user_id="cancel-before-start-user",
+        )
+        is None
+    )
+    assert anyio.run(aget_active_runs) == {}
 
 
 def test_completed_session_restart_recall_uses_actual_process_restart(tmp_path: Path) -> None:
