@@ -197,7 +197,13 @@ async def run_launch_drafts(
     """Create and persist only typed draft artifacts from verified current inputs."""
     if request.action is not LaunchAction.DRAFT:
         raise ExternalActionRefusedError
-    state = load_company_state(request, run_context, created_at=created_at)
+    first_workflow = next(iter(workflows.values()))
+    state = load_company_state(
+        request,
+        run_context,
+        created_at=created_at,
+        db=first_workflow.db,
+    )
     strategy, product = _verified_inputs(state)
     artifacts: list[ArtifactEnvelope] = []
     for role in _requested_roles(request.kind):

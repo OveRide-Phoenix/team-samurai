@@ -219,6 +219,7 @@ async def run_analysis(
         workflow_input.request,
         run_context,
         created_at=workflow_input.checked_at,
+        db=workflow.db,
     )
     execution_input = _AnalysisExecutionInput(
         state=state,

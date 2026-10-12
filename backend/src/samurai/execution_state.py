@@ -9,22 +9,41 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum, unique
-from typing import TYPE_CHECKING, Final, Literal, override
+from typing import TYPE_CHECKING, Final, Literal, cast, override
 from uuid import UUID, uuid4
 
 from agno.db.postgres import PostgresDb
 from agno.run.concurrency import get_worker_ownership
 from agno.session import AgentSession, WorkflowSession
 from pydantic import BaseModel, Field, JsonValue, TypeAdapter
-from sqlalchemy import BigInteger, Column, Index, MetaData, String, Table, func, select, text
+from sqlalchemy import (
+    BigInteger,
+    Column,
+    Index,
+    MetaData,
+    String,
+    Table,
+    Uuid,
+    func,
+    literal,
+    select,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as SqlAlchemySession
 
+from samurai.company_store import CompanyStore
+from samurai.company_store_contracts import (
+    CompanyAcceptance,
+    CompanyStoreError,
+    CompanyStoreIssue,
+)
 from samurai.contracts import ArtifactType, CompanyState, Contract
 
 if TYPE_CHECKING:
     from agno.session import Session
+    from sqlalchemy.sql.elements import ColumnElement
 
 
 JSON_ADAPTER = TypeAdapter(JsonValue)
@@ -61,6 +80,8 @@ class WorkIntentInput(Contract):
     owner_id: str = Field(min_length=1)
     parent_session_id: str = Field(min_length=1)
     child_session_id: str = Field(min_length=1)
+    workspace_id: UUID | None = None
+    authorization_epoch: int | None = Field(default=None, ge=1)
     company_id: UUID | None = None
     operation: WorkOperation
     stage: ApprovedStage
@@ -135,6 +156,8 @@ class _IntentRow(BaseModel):
     owner_id: str
     parent_session_id: str
     child_session_id: str
+    workspace_id: UUID | None = None
+    authorization_epoch: int | None = None
     company_id: UUID | None = None
     operation: WorkOperation
     stage: ApprovedStage
@@ -149,6 +172,14 @@ class _IntentRow(BaseModel):
 
 class _ChildSessionRow(BaseModel):
     session_data: dict[str, JsonValue] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _CompanyAcceptanceRequest:
+    state: CompanyState
+    token: AcceptanceToken
+    intent: _IntentRow
+    expected_revision: int
 
 
 class _WorkReceiptRow(BaseModel):
@@ -173,6 +204,7 @@ class WorkIntentIssue(StrEnum):
     MISSING_INTENT = "accepted native job has no work intent"
     STALE_WORKER = "worker no longer owns this job attempt"
     CANCELLED = "cancelled or terminal work cannot accept company state"
+    AUTHORIZATION_CHANGED = "workspace authorization changed before acceptance"
     SESSION_MISSING = "canonical child session is missing"
     STALE_REVISION = "canonical company revision changed before acceptance"
 
@@ -250,6 +282,8 @@ class SamuraiPostgresDb(PostgresDb):
             Column("parent_session_id", String, nullable=False),
             Column("owner_id", String, nullable=False),
             Column("child_session_id", String, nullable=False),
+            Column("workspace_id", Uuid(), nullable=True),
+            Column("authorization_epoch", BigInteger, nullable=True),
             Column("company_id", String, nullable=True),
             Column("operation", String, nullable=False),
             Column("stage", String, nullable=False),
@@ -272,6 +306,17 @@ class SamuraiPostgresDb(PostgresDb):
             unique=True,
             postgresql_where=text("state = 'active'"),
         )
+        _ = Index(
+            "uq_samurai_active_company_work_v2",
+            func.coalesce(
+                table.c.company_id,
+                cast("ColumnElement[str]", table.c.owner_id)
+                + literal(":")
+                + cast("ColumnElement[str]", table.c.parent_session_id),
+            ),
+            unique=True,
+            postgresql_where=text("state = 'active'"),
+        )
         if create:
             metadata.create_all(self.db_engine, tables=[table], checkfirst=True)
         return table
@@ -280,7 +325,22 @@ class SamuraiPostgresDb(PostgresDb):
         """Provision additive intent storage beside Agno's native tables."""
         self.ensure_jobs_table()
         _ = self._get_table(table_type="sessions", create_table_if_not_found=True)
-        _ = self._work_intent_table(create=True)
+        table = self._work_intent_table(create=True)
+        with self.db_engine.begin() as connection:
+            _ = connection.execute(
+                text(
+                    f"""ALTER TABLE "{self.db_schema}".{self.work_intent_table_name}
+                    ADD COLUMN IF NOT EXISTS workspace_id uuid"""
+                )
+            )
+            _ = connection.execute(
+                text(
+                    f"""ALTER TABLE "{self.db_schema}".{self.work_intent_table_name}
+                    ADD COLUMN IF NOT EXISTS authorization_epoch bigint"""
+                )
+            )
+        for index in table.indexes:
+            index.create(self.db_engine, checkfirst=True)
 
     @override
     def enqueue_job(self, job: object, max_depth: int = 0) -> dict[str, object]:
@@ -363,6 +423,10 @@ class SamuraiPostgresDb(PostgresDb):
                         parent_session_id=intent.parent_session_id,
                         owner_id=intent.owner_id,
                         child_session_id=intent.child_session_id,
+                        workspace_id=(
+                            str(intent.workspace_id) if intent.workspace_id is not None else None
+                        ),
+                        authorization_epoch=intent.authorization_epoch,
                         company_id=(
                             str(intent.company_id) if intent.company_id is not None else None
                         ),
@@ -535,6 +599,8 @@ class SamuraiPostgresDb(PostgresDb):
                 owner_id=intent_row.owner_id,
                 parent_session_id=intent_row.parent_session_id,
                 child_session_id=intent_row.child_session_id,
+                workspace_id=intent_row.workspace_id,
+                authorization_epoch=intent_row.authorization_epoch,
                 company_id=intent_row.company_id,
                 operation=intent_row.operation,
                 stage=intent_row.stage,
@@ -597,6 +663,76 @@ class SamuraiPostgresDb(PostgresDb):
             raise WorkIntentError(WorkIntentIssue.CANCELLED)
         if job.locked_by != worker_id or job.attempt != attempt:
             raise WorkIntentError(WorkIntentIssue.STALE_WORKER)
+
+    @staticmethod
+    def _accept_legacy_company(
+        session: SqlAlchemySession,
+        sessions: Table,
+        request: _CompanyAcceptanceRequest,
+        session_data: dict[str, JsonValue],
+        current_payload: JsonValue | None,
+    ) -> CompanyState:
+        revision_path = (
+            "CAST(session_data #>> '{session_state,company,current_revision}' AS BIGINT)"
+        )
+        revision_guard = (
+            text("session_data #> '{session_state,company}' IS NULL")
+            if request.expected_revision == 0 and current_payload is None
+            else text(revision_path + " = :expected_revision")
+        )
+        session_state = JSON_OBJECT_ADAPTER.validate_python(session_data.get("session_state") or {})
+        session_state["company"] = JSON_ADAPTER.validate_python(
+            request.state.model_dump(mode="json")
+        )
+        session_data["session_state"] = session_state
+        updated_id = session.execute(
+            sessions.update()
+            .where(sessions.c.session_id == request.token.child_session_id, revision_guard)
+            .values(session_data=session_data, updated_at=int(time.time()))
+            .returning(sessions.c.session_id),
+            {"expected_revision": request.expected_revision},
+        ).scalar_one_or_none()
+        if updated_id is None:
+            raise WorkIntentError(WorkIntentIssue.STALE_REVISION)
+        return request.state
+
+    def _accept_shared_company(
+        self,
+        session: SqlAlchemySession,
+        sessions: Table,
+        request: _CompanyAcceptanceRequest,
+    ) -> CompanyState:
+        intent = request.intent
+        token = request.token
+        if (
+            intent.workspace_id is None
+            or intent.authorization_epoch is None
+            or intent.company_id is None
+        ):
+            raise WorkIntentError(WorkIntentIssue.MISSING_INTENT)
+        try:
+            return CompanyStore(self.db_engine, schema=self.db_schema).accept_in_transaction(
+                session,
+                sessions,
+                CompanyAcceptance(
+                    state=request.state,
+                    workspace_id=intent.workspace_id,
+                    actor_id=token.owner_id,
+                    parent_session_id=token.parent_session_id,
+                    child_session_id=token.child_session_id,
+                    authorization_epoch=intent.authorization_epoch,
+                    expected_revision=request.expected_revision,
+                ),
+            )
+        except CompanyStoreError as error:
+            if error.issue is CompanyStoreIssue.STALE_REVISION:
+                raise WorkIntentError(WorkIntentIssue.STALE_REVISION) from error
+            if error.issue in {
+                CompanyStoreIssue.PERMISSION_DENIED,
+                CompanyStoreIssue.STALE_AUTHORIZATION,
+            }:
+                raise WorkIntentError(WorkIntentIssue.AUTHORIZATION_CHANGED) from error
+            raise WorkIntentError(WorkIntentIssue.SESSION_MISSING) from error
 
     def accept_company_state(self, state: CompanyState, token: AcceptanceToken) -> CompanyState:
         """Atomically accept canonical child state for the current job attempt."""
@@ -667,28 +803,37 @@ class SamuraiPostgresDb(PostgresDb):
             )
             current_payload = session_state.get("company")
             if intent_row.state == "accepted":
+                if intent_row.workspace_id is not None:
+                    access = CompanyStore(
+                        self.db_engine,
+                        schema=self.db_schema,
+                    ).read_for_child(token.owner_id, token.child_session_id)
+                    if access is None:
+                        raise WorkIntentError(WorkIntentIssue.AUTHORIZATION_CHANGED)
+                    return access.state
                 return CompanyState.model_validate(current_payload)
             expected = intent_row.accepted_revision
             expected = intent_row.expected_revision if expected is None else expected
-            revision_path = (
-                "CAST(session_data #>> '{session_state,company,current_revision}' AS BIGINT)"
+            acceptance = _CompanyAcceptanceRequest(
+                state=state,
+                token=token,
+                intent=intent_row,
+                expected_revision=expected,
             )
-            revision_guard = (
-                text("session_data #> '{session_state,company}' IS NULL")
-                if expected == 0 and current_payload is None
-                else text(revision_path + " = :expected_revision")
-            )
-            session_state["company"] = JSON_ADAPTER.validate_python(state.model_dump(mode="json"))
-            session_data["session_state"] = session_state
-            updated_id = session.execute(
-                sessions.update()
-                .where(sessions.c.session_id == token.child_session_id, revision_guard)
-                .values(session_data=session_data, updated_at=int(time.time()))
-                .returning(sessions.c.session_id),
-                {"expected_revision": expected},
-            ).scalar_one_or_none()
-            if updated_id is None:
-                raise WorkIntentError(WorkIntentIssue.STALE_REVISION)
+            if intent_row.workspace_id is None:
+                state = self._accept_legacy_company(
+                    session,
+                    sessions,
+                    acceptance,
+                    session_data,
+                    current_payload,
+                )
+            else:
+                state = self._accept_shared_company(
+                    session,
+                    sessions,
+                    acceptance,
+                )
             accepted_ids = [
                 str(artifact.artifact_id)
                 for artifact in state.artifacts
@@ -1060,7 +1205,27 @@ class SamuraiPostgresDb(PostgresDb):
             incoming = JSON_OBJECT_ADAPTER.validate_python(
                 copy.deepcopy(session.session_data or {})
             )
-            if isinstance(session, WorkflowSession) and existing:
+            canonical = (
+                CompanyStore(self.db_engine, schema=self.db_schema).read_for_child(
+                    session.user_id,
+                    session.session_id,
+                )
+                if (
+                    isinstance(session, WorkflowSession)
+                    and session.user_id
+                    and self.table_exists("samurai_company_actor_bindings")
+                )
+                else None
+            )
+            if isinstance(session, WorkflowSession) and canonical is not None:
+                incoming_state = JSON_OBJECT_ADAPTER.validate_python(
+                    incoming.get("session_state") or {}
+                )
+                incoming_state["company"] = JSON_ADAPTER.validate_python(
+                    canonical.state.model_dump(mode="json")
+                )
+                incoming["session_state"] = incoming_state
+            elif isinstance(session, WorkflowSession) and existing:
                 existing_data = JSON_OBJECT_ADAPTER.validate_python(existing)
                 existing_state = JSON_OBJECT_ADAPTER.validate_python(
                     existing_data.get("session_state") or {}

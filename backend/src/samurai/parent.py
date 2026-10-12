@@ -49,6 +49,7 @@ from samurai.analysis_workflow import (
     create_analysis_workflow,
     run_analysis,
 )
+from samurai.company_store import CompanyStore
 from samurai.company_workflow import (
     WORKFLOW_ID,
     CompanyJourneyRequest,
@@ -634,18 +635,33 @@ def _trusted_identity(run_context: RunContext) -> tuple[str, str, str]:
 
 def _child_state(db: BaseDb, run_context: RunContext) -> tuple[str, CompanyState | None]:
     user_id, parent_session_id, child_id = _trusted_identity(run_context)
+    canonical_enabled = False
+    if isinstance(db, SamuraiPostgresDb) and db.table_exists(
+        "samurai_company_actor_bindings"
+    ):
+        canonical_enabled = True
+        access = CompanyStore(db.db_engine, schema=db.db_schema).read_for_actor(
+            user_id,
+            parent_session_id,
+        )
+        if access is not None:
+            child_id = access.child_session_id
+            state = access.state
+        else:
+            state = None
+    else:
+        state = None
     session = db.get_session(
         child_id,
         session_type=SessionType.WORKFLOW,
         user_id=user_id,
     )
-    state: CompanyState | None = None
     if session is not None:
         if not isinstance(session, WorkflowSession) or session.user_id != user_id:
             raise ParentContextError(ParentContextIssue.OWNER_MISMATCH)
         session_data = _ChildSessionData.model_validate(session.session_data)
         company = session_data.session_state.company
-        if company is not None:
+        if company is not None and state is None and not canonical_enabled:
             state = company
             if state.context.authenticated_session_id != parent_session_id:
                 raise ParentContextError(ParentContextIssue.COMPANY_MISMATCH)

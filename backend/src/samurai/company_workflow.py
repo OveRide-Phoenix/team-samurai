@@ -332,7 +332,12 @@ class _Journey:
         context = _context(run_context)
         request = _request(step_input)
         try:
-            state = load_company_state(request, context, created_at=datetime.now(UTC))
+            state = load_company_state(
+                request,
+                context,
+                created_at=datetime.now(UTC),
+                db=self.db,
+            )
         except (
             CompanyMismatchError,
             SessionMismatchError,
