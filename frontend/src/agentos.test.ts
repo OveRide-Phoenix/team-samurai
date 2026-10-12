@@ -152,6 +152,27 @@ describe('AgentOS transport wire boundary', () => {
     expect(calls).not.toContain('/api/agentos/agents/samurai/runs');
   });
 
+  it.each([
+    ['CANCELLED', 'cancelled'],
+    ['ERROR', 'failed'],
+  ] as const)('reconciles a saved running run with a terminal %s receipt without replaying submit or resume', async (receiptStatus, expectedStatus) => {
+    const calls: Array<[string, string | undefined]> = [];
+    const states: AgentosRun[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+      calls.push([url, options?.method]);
+      if (url.includes('/work-receipts/')) return Response.json({ run_id: 'run-1', session_id: 'session-1', status: receiptStatus, attempt: receiptStatus === 'ERROR' ? 2 : 1, max_attempts: 2, recovering: false, failure_reason: receiptStatus === 'ERROR' ? 'work stopped after the allowed attempts' : 'work was cancelled', company_id: null, revision: null, updated_at: 1 });
+      return Response.json({ run_id: 'run-1', session_id: 'session-1', agent_id: 'samurai', status: receiptStatus });
+    }));
+    const events = await collect(resumeAgentosRun('session-1', { submissionId: '00000000-0000-4000-8000-000000000099', runId: 'run-1', status: 'running' }, new AbortController().signal, run => states.push(run)));
+    expect(events).toEqual([]);
+    expect(states.at(-1)).toMatchObject({ submissionId: '00000000-0000-4000-8000-000000000099', runId: 'run-1', status: expectedStatus, attempt: receiptStatus === 'ERROR' ? 2 : 1, maxAttempts: 2 });
+    expect(calls).toEqual([
+      ['/api/agentos/work-receipts/00000000-0000-4000-8000-000000000099?session_id=session-1', 'GET'],
+      ['/api/agentos/agents/samurai/runs/run-1?session_id=session-1', 'GET'],
+    ]);
+    expect(calls.some(([url]) => url === '/api/agentos/agents/samurai/runs' || url.endsWith('/resume'))).toBe(false);
+  });
+
   it('cancels once when abort precedes the receipt run id without replaying submit', async () => {
     const abort = new AbortController();
     const calls: Array<[string, string | undefined]> = [];

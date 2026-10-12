@@ -251,10 +251,13 @@ export async function* resumeAgentosRun(
 ): AsyncGenerator<WorkEvent> {
   text.parse(sessionId);
   let run = saved;
-  if (!run.runId) {
-    if (!run.submissionId) throw new AgentosError('protocol', 'The saved run has no recovery identity.');
-    run = await readAgentosReceipt(sessionId, run.submissionId, signal);
+  if (run.submissionId) {
+    const receipt = await readAgentosReceipt(sessionId, run.submissionId, signal);
+    if (run.runId && receipt.runId && run.runId !== receipt.runId) throw new AgentosError('scope', 'The work receipt belongs to another run.');
+    run = { ...run, ...receipt, submissionId: run.submissionId };
     onRun?.(run);
+  } else if (!run.runId) {
+    throw new AgentosError('protocol', 'The saved run has no recovery identity.');
   }
   if (!run.runId) throw new AgentosError('protocol', 'The work receipt omitted the run identity.');
   const runId = run.runId;
