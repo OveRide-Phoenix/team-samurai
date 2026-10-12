@@ -5,6 +5,7 @@ import jwt
 import pytest
 from agno.db.sqlite import SqliteDb
 from agno.run.agent import RunOutput
+from agno.run.cancel import cleanup_run
 from agno.session.agent import AgentSession
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -155,26 +156,29 @@ def test_both_signers_preserve_owner_isolation_and_minimal_scopes(
         )
         for subject in ("iap:owner", "iap:other")
     }
-    # When authenticated users request the same run with the minimal frontend scopes.
-    with TestClient(create_app(db=db, settings=settings)) as client:
-        owner = {"Authorization": f"Bearer {tokens['iap:owner']}"}
-        other = {"Authorization": f"Bearer {tokens['iap:other']}"}
-        path = "/agentos/agents/samurai/runs/owner-run"
-        params = {"session_id": "owner-session"}
-        read = client.get(path, params=params, headers=owner)
-        other_read = client.get(path, params=params, headers=other)
-        other_cancel = client.post(f"{path}/cancel", params=params, headers=other)
-        cancel = client.post(f"{path}/cancel", params=params, headers=owner)
-        admin = client.get("/agentos/config", headers=owner)
-        # Missing message reaches route validation, proving run scope authorization.
-        run = client.post("/agentos/agents/samurai/runs", headers=owner)
-    # Then both signers have the same scoped access without gaining admin or other owners.
-    assert read.status_code == 200
-    assert "owner-only content" in read.text
-    assert other_read.status_code == other_cancel.status_code == 404
-    assert cancel.status_code == 200
-    assert admin.status_code == 403
-    assert run.status_code == 422
+    try:
+        # When authenticated users request the same run with the minimal frontend scopes.
+        with TestClient(create_app(db=db, settings=settings)) as client:
+            owner = {"Authorization": f"Bearer {tokens['iap:owner']}"}
+            other = {"Authorization": f"Bearer {tokens['iap:other']}"}
+            path = "/agentos/agents/samurai/runs/owner-run"
+            params = {"session_id": "owner-session"}
+            read = client.get(path, params=params, headers=owner)
+            other_read = client.get(path, params=params, headers=other)
+            other_cancel = client.post(f"{path}/cancel", params=params, headers=other)
+            cancel = client.post(f"{path}/cancel", params=params, headers=owner)
+            admin = client.get("/agentos/config", headers=owner)
+            # Missing message reaches route validation, proving run scope authorization.
+            run = client.post("/agentos/agents/samurai/runs", headers=owner)
+        # Then both signers have the same scoped access without gaining admin or other owners.
+        assert read.status_code == 200
+        assert "owner-only content" in read.text
+        assert other_read.status_code == other_cancel.status_code == 404
+        assert cancel.status_code == 200
+        assert admin.status_code == 403
+        assert run.status_code == 422
+    finally:
+        cleanup_run("owner-run")
 
 
 @pytest.mark.parametrize("invalid_kind", ["expired", "untrusted"])
