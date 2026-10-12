@@ -10,6 +10,10 @@ Product direction, UI principles, and competition requirements are documented in
 
 The repository has the React/Vite founder UI in [frontend/](frontend/), local PostgreSQL in Podman, environment templates, and locked dependencies. The UI has onboarding, chat, generative panels, and a company dashboard. New companies connect to local AgentOS through the authenticated Vite proxy; existing and demo companies retain labelled Preview mode. Production frontend uses a Node server behind team-only Google IAP; Google sign-in, live brief creation and reload are verified. See [deployment and CI/CD](docs/gcp-deployment.md). When a Gemini model is configured, the current parent-agent source registers one ordinary AgentOS agent, **Samurai**, as the conversational entry point. It has four bounded tools: run or continue the company journey, create launch drafts, analyze provenance-labelled metrics, and read current company state. The nine specialist roles remain internal workflow executors.
 
+## Current readiness status
+
+The [architecture](docs/architecture.md) separates verified local foundation and recovery slices from durable queue/reconnect work that is still pending acceptance. The [deployment guide](docs/gcp-deployment.md) records historical cloud/IAP acceptance by exact revision; current local changes are not deployed by that record. The live second-account browser exercise was user-skipped, and the competition's portal-only team, deadline, and form details remain unverified.
+
 The source defines the core journey as intake → brief check → grounded research → evidence check → strategy → product plan → verification. It retains typed, revisioned artifacts with founder statements, assumptions, source references, claims, and verification findings. Builder, Marketer, and Sales produce reviewable drafts only; Analyst requires eligible metrics and labels founder-supplied metrics as conditional. No current tool can publish, send, spend, contact prospects, run ads, or deploy.
 
 Intake, Strategist, Product Manager, and Verifier preload the validated local skill text and expose no runtime function tools. Researcher has native Gemini Search only. Builder, Marketer, Sales, and Analyst use only local read-only skill functions; the parent exposes only bounded local skill inspection alongside its four business tools. Child workflows have a seven-model-timeout deadline (420 seconds with the default 60-second timeout), cancellation drains child runs, model requests are capped at the configured tool-call budget plus one, and child failures become sanitized typed errors.
@@ -129,7 +133,7 @@ A Hark Pro-inspired conversational workspace with an atmospheric background, fro
 - React 19.2.0, Vite 6.4.2, TypeScript 7.0.2, Tailwind CSS 4.3.3, assistant-ui, and Radix for the existing founder UI.
 - PostgreSQL locally in Podman, with Cloud SQL as the production target.
 - Cloud Run for application hosting and Cloud Storage for generated artifacts.
-- Gemini for reasoning and native Google Search grounding on Researcher; the model is locked to `gemini-3.5-flash-lite`. Account access and free-tier quota must be checked separately; do not commit `.env`.
+- Gemini for reasoning and native Google Search grounding on Researcher; the model is locked to `gemini-3.5-flash-lite`. Provider access, quota, and measured cost still require separate verification; do not commit `.env`.
 - Team-only Google IAP identity is bridged server-side to per-user AgentOS JWTs; backend owner isolation remains the authorization boundary.
 
 Framework versions were resolved on 11 October 2026. Check the manifests and lockfiles for exact versions. The backend and Cloud SQL have recorded deployment acceptance; frontend IAP sign-in and brief execution are verified; automatic/manual deployment acceptance is recorded separately; see AGENTS.md for the agent responsibilities, verification requirements, and submission checklist.

@@ -14,7 +14,7 @@ The owner's Agno proposal selects a workflow-first implementation of AI Idea →
 | Records | PostgreSQL locally through Podman; Cloud SQL in production | Parent/child AgentOS session model and revisioned `CompanyState` passed local persistence, recall, reload, and cancellation checks. Root Taskfile commands manage only the local Samurai PostgreSQL service; Cloud SQL-backed readback and Agno Live reload were verified in the recorded backend deployment |
 | Artifacts | Cloud Storage with metadata/revision references in PostgreSQL | Planned |
 | Hosting | Cloud Run for the Python backend and Node frontend serving Vite assets | Backend/frontend deployed; automatic and manual main rollouts verified |
-| Identity | JWT authentication plus company-scoped backend authorization | RS256 JWT/scope enforcement and owner isolation implemented; Agno Live key retained, additive frontend public key supports verified IAP subjects; live two-account acceptance pending |
+| Identity | JWT authentication plus company-scoped backend authorization | RS256 JWT/scope enforcement and owner isolation implemented; Agno Live key retained, additive frontend public key supports verified IAP subjects; the user skipped the live two-account browser exercise |
 
 Agno agents are reasoning roles, not independent services. Samurai is the one founder-facing ordinary Agent; Intake, Researcher, Strategist, Product Manager, Builder, Marketer, Sales, Analyst, and Verifier are internal roles. Explicit workflows own their order and validation. Deterministic code owns identity/session bindings, revision checks, artifact acceptance, limits, calculations, and execution controls. Preserve the root README's product story and architecture map.
 
@@ -48,7 +48,7 @@ The first launch kit contains landing-page copy, outreach drafts, ad concepts, a
 
 ## Execution and evidence requirements
 
-Persistent AgentOS sessions are not, by themselves, proof that a job resumes after a process restart. The current parent-agent source has no durable queue and makes no resumable in-progress-work claim. Before promising durable background execution, select the supported Agno durable queue/store, validate compatibility with the locked release, and test restart recovery and side-effect idempotency. Do not add Celery or a second queue without a demonstrated need.
+Persistent AgentOS sessions are not, by themselves, proof that a job resumes after a process restart. The last accepted runtime baseline has no durable queue and makes no resumable in-progress-work claim. Active queue, reconnect, and recovery integration changes are not acceptance evidence; before promising durable background execution, validate the supported Agno durable queue/store, restart recovery, and side-effect idempotency. Do not add Celery or a second queue without a demonstrated need.
 
 Financial projections and market estimates must remain labeled assumptions or estimates. Search grounding cannot prove willingness to pay. External actions need explicit approval of the concrete action, and the backend must enforce it.
 

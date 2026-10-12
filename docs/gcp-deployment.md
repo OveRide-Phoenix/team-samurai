@@ -2,6 +2,8 @@
 
 This guide records the accepted Gemini-backed AgentOS backend and the team-only frontend deployment path. The backend uses public transport with JWT-protected application routes. Frontend Google sign-in and bounded live execution are accepted; CI/CD evidence and remaining coverage limits are recorded below. Local Podman data is not migrated and in-progress work is not durable.
 
+This is historical cloud acceptance by exact revision, not deployment evidence for the current local checkout. The completed compatible image/traffic rollback is distinct from additive schema recovery and interrupted-work recovery; those later runtime claims require their own acceptance evidence.
+
 ## Target and prerequisites
 
 Use the confirmed project and region:
@@ -231,7 +233,7 @@ gcloud run services update-traffic samurai-backend \
   --to-revisions=PREVIOUS_BACKEND_REVISION=100
 ```
 
-Rollback frontend before removing backend trust it requires. The original `00002` backend revision lacks frontend JWT trust; restoring it can keep Agno Live working while breaking the IAP frontend. Keep a known-good additive-trust revision once accepted. If secret/configuration changes are involved, check the selected revision's pinned versions and access before restoring traffic. After traffic rollback the latest-ready revision may differ from the serving revision; the routine script intentionally refuses that state. Reconcile by deploying the known-good image with the intended current configuration and verify it before the next automatic rollout. Never retry an interrupted business run without checking its persisted status.
+Rollback frontend before removing backend trust it requires. The original `00002` backend revision lacks frontend JWT trust; restoring it can keep Agno Live working while breaking the IAP frontend. Keep a known-good additive-trust revision once accepted. If secret/configuration changes are involved, check the selected revision's pinned versions and access before restoring traffic. After traffic rollback the latest-ready revision may differ from the serving revision; the routine script intentionally refuses that state. Reconcile by deploying the known-good image with the intended current configuration and verify it before the next automatic rollout. Never retry an interrupted business run without checking its persisted status. The prior tested rollback moved frontend `00005-g7c` to `00004-xb4` and backend `00007-6wc` to `00006-vw7`, then restored each latest revision; it proves compatible traffic rollback only, not additive schema rollback or queued-work recovery.
 
 ## Frontend and CI acceptance record
 
@@ -253,12 +255,12 @@ Integrated [GitHub checks](https://github.com/OveRide-Phoenix/team-samurai/actio
 - [x] Frontend IAP, startup probe, pinned secrets, scoped runtime identity and approved-account sign-in.
 - [x] Live brief creation and browser reload, with research deliberately paused.
 - [x] Automated owner-isolation and missing/forged/expired/wrong-audience assertion rejection tests.
-- [ ] A second approved Google account has not been supplied; two-account live acceptance is unverified. Browser namespaces do not prevent manual access to localStorage in a shared browser profile.
+- [ ] The user explicitly skipped the second approved Google-account exercise; two-account live acceptance remains unverified. Browser namespaces do not prevent manual access to localStorage in a shared browser profile.
 - [x] Existing Agno Live regression after additive JWT trust: Active connection, one-second response without tools, and saved session retained after reload.
 - [x] [Automatic main deployment](https://github.com/OveRide-Phoenix/team-samurai/actions/runs/38268159430) passed for `3329614838888e074ec11705e3bbdecc72a29664`, including checks, keyless WIF authentication, both image updates, readiness, digest matching and anonymous protection. It produced backend `00004-lmt` and frontend `00002-mwn`.
 - [x] [Manual main deployment](https://github.com/OveRide-Phoenix/team-samurai/actions/runs/38268208131) passed for the same source commit, including fresh checks/builds, WIF, both rollouts and protection checks.
 
-Each subsequent main push, including documentation changes, triggers another checked rollout. Use its Actions summary for the current and previous revision/digest pair; the names above are acceptance snapshots, not a promise that those revisions remain latest. Live rejection of a second Google account, a real two-approved-account browser test, forced rollback, and long-running timeout recovery were not exercised. The live IAM allowlist was verified to contain only the approved team account. Missing/invalid identity and cross-owner read/cancel rejection have automated coverage. The temporary local private signer was removed after acceptance; its pinned Secret Manager version remains in use.
+Each subsequent main push, including documentation changes, triggers another checked rollout. Use its Actions summary for the current and previous revision/digest pair; the names above are acceptance snapshots, not a promise that those revisions remain latest. The user skipped the live rejection/second-account browser exercise; forced rollback and long-running timeout recovery were also not exercised. The live IAM allowlist was verified to contain only the approved team account. Missing/invalid identity and cross-owner read/cancel rejection have automated coverage. The temporary local private signer was removed after acceptance; its pinned Secret Manager version remains in use.
 
 
 ## References
