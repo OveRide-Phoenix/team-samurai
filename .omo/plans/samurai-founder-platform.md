@@ -177,7 +177,7 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
 
   Commit: NO | Message: `n/a` | Files: []
 
-- [ ] 2. Accept durable frontend/BFF behavior through the supplied target pair
+- [x] 2. Accept durable frontend/BFF behavior through the supplied target pair
 
   What to do: Verify readiness task 7 and the task 10 supplied-target journey through the actual local backend URL and production-compatible BFF URL, using deterministic provider-free model injection. Exercise submit, reconnect, reload, status, cancel, and accepted panel dedupe in a real browser. Bind evidence to both process SHAs.
   Must NOT do: Do not accept fixture-only child processes in place of the supplied target pair. Do not use a paid provider or a live second Google account.
