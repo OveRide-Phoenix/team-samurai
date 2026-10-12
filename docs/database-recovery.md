@@ -43,10 +43,12 @@ restore result.
 `cloud_mutation_attempted: false`, and `completion_proof: false`. It does not invoke `gcloud`
 or any provider API.
 
-The standalone local drill validates runner mechanics against a PostgreSQL 18 fixture. The
-final baseline/candidate schema compatibility matrix remains pending until task 4's additive
-queue/state schema is integrated. Do not describe the fixture drill as migration, Cloud SQL,
-PITR, or production recovery proof.
+The local baseline/candidate schema matrix is recorded in
+`.omo/evidence/readiness/task-8/migration-compatibility-matrix.md`. It proves c84 reads on the
+expanded schema, candidate reads of old/new sessions, transactional DDL rollback and retry,
+and restored binding recovery. The separate Task 6 pending/running worker-restart row must pass
+before the full matrix is complete. Do not describe the local drills as Cloud SQL, PITR, or
+production recovery proof.
 
 After a drill, inventory the exact disposable container, volume, source database, target
 database, and bound port. Remove only the uniquely named `samurai-readiness-restore-*`
