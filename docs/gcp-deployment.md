@@ -1,6 +1,6 @@
 # Samurai deployment and CI/CD on Google Cloud
 
-This guide records the accepted Gemini-backed AgentOS backend and the team-only frontend deployment path. The backend uses public transport with JWT-protected application routes. Frontend IAP and CI/CD implementation are separate from live acceptance; their pending checks are recorded below. Local Podman data is not migrated and in-progress work is not durable.
+This guide records the accepted Gemini-backed AgentOS backend and the team-only frontend deployment path. The backend uses public transport with JWT-protected application routes. Frontend Google sign-in and bounded live execution are accepted; CI/CD evidence and remaining coverage limits are recorded below. Local Podman data is not migrated and in-progress work is not durable.
 
 ## Target and prerequisites
 
@@ -210,7 +210,7 @@ The initial authorized Google account is `teamsamurai.sksk@gmail.com`. Team memb
 
 The workflow calls [checks.yml](../.github/workflows/checks.yml) for the same commit: locked dependency installs, backend Ruff/format/basedpyright/pytest, frontend check/build/Sites/server tests, and deployment-script checks. It builds both Linux/amd64 images before cloud authentication, pushes commit-tagged images, resolves immutable digests, and invokes [deploy-cloud-run.sh](../scripts/deploy-cloud-run.sh).
 
-The Google OIDC federation provider is `projects/590733583260/locations/global/workloadIdentityPools/github/providers/github-main`. It accepts the immutable repository ID `1413923270`, owner ID `24836702`, main ref, and intended `deploy.yml` push/manual claims. It impersonates `samurai-deployer@samurai-ai-company-2026.iam.gserviceaccount.com`. No service-account JSON key is used. WIF and the deployer account have been bootstrapped; successful GitHub credential exchange and rollout remain acceptance checks.
+The Google OIDC federation provider is `projects/590733583260/locations/global/workloadIdentityPools/github/providers/github-main`. It accepts the immutable repository ID `1413923270`, owner ID `24836702`, main ref, and intended `deploy.yml` push/manual claims. It impersonates `samurai-deployer@samurai-ai-company-2026.iam.gserviceaccount.com`. No service-account JSON key is used. WIF and the deployer account are provisioned; the automatic main deployment successfully exchanged GitHub credentials and rolled out both services.
 
 Routine deployer permissions are Cloud Run Developer on the two existing services, Artifact Registry Writer on the `samurai` repository, and Service Account User on the two runtime accounts. The repository federation principal receives Workload Identity User on the deployer. Bootstrap IAM, secrets, IAP, runtime configuration and initial service creation are separate from the image-update workflow.
 
@@ -254,8 +254,11 @@ Integrated [GitHub checks](https://github.com/OveRide-Phoenix/team-samurai/actio
 - [x] Live brief creation and browser reload, with research deliberately paused.
 - [x] Automated owner-isolation and missing/forged/expired/wrong-audience assertion rejection tests.
 - [ ] A second approved Google account has not been supplied; two-account live acceptance is unverified. Browser namespaces do not prevent manual access to localStorage in a shared browser profile.
-- [ ] Existing Agno Live regression after additive JWT trust.
-- [ ] Main automatic and manual GitHub deployment acceptance; WIF is provisioned, but successful credential exchange and rollout must still be observed.
+- [x] Existing Agno Live regression after additive JWT trust: Active connection, one-second response without tools, and saved session retained after reload.
+- [x] [Automatic main deployment](https://github.com/OveRide-Phoenix/team-samurai/actions/runs/38268159430) passed for `3329614838888e074ec11705e3bbdecc72a29664`, including checks, keyless WIF authentication, both image updates, readiness, digest matching and anonymous protection. It produced backend `00004-lmt` and frontend `00002-mwn`.
+- [x] [Manual main deployment](https://github.com/OveRide-Phoenix/team-samurai/actions/runs/38268208131) passed for the same source commit, including fresh checks/builds, WIF, both rollouts and protection checks.
+
+Each subsequent main push, including documentation changes, triggers another checked rollout. Use its Actions summary for the current and previous revision/digest pair; the names above are acceptance snapshots, not a promise that those revisions remain latest. Live rejection of a second Google account, a real two-approved-account browser test, forced rollback, and long-running timeout recovery were not exercised. The live IAM allowlist was verified to contain only the approved team account. Missing/invalid identity and cross-owner read/cancel rejection have automated coverage. The temporary local private signer was removed after acceptance; its pinned Secret Manager version remains in use.
 
 
 ## References
