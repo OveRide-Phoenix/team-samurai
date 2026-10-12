@@ -228,7 +228,7 @@ class FounderPlatformMigrator:
                 AND current_revision = :revision AND legacy_owner_id = :owner_id
                 AND legacy_session_id = :child_session_id
                 AND legacy_parent_session_id = :parent_session_id
-                AND created_at = :created_at AND updated_at = :updated_at"""
+                AND created_at = :created_at"""
                 ),
                 parameters,
             ).scalar_one()
