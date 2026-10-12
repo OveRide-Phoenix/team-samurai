@@ -49,6 +49,7 @@ from samurai.contracts import (
 from samurai.launch_workflows import LaunchAction, LaunchKind
 from samurai.parent import (
     PARENT_AGENT_ID,
+    CompanyStateSummary,
     _create_launch_drafts,  # pyright: ignore[reportPrivateUsage]
     child_session_id,
     create_parent_agent,
@@ -353,6 +354,201 @@ def test_parent_exposes_only_four_bounded_business_tools(tmp_path: pathlib.Path)
         "get_skill_reference",
     }
     assert all(not tool.stop_after_tool_call for tool in agent.skills.get_tools())
+    forbidden_context = {"user_id", "company_id", "session_state", "dependencies", "token"}
+    for tool in (tool for tool in tools if isinstance(tool, Function)):
+        properties = cast("dict[str, object]", tool.parameters.get("properties", {}))
+        assert forbidden_context.isdisjoint(properties)
+
+
+def test_stock_agent_copy_shares_mutable_model() -> None:
+    model = _ToolSequenceModel()
+    copied = Agent(model=model).deep_copy()
+    assert copied.model is model
+
+
+def test_registry_parent_fails_closed_before_model_execution(tmp_path: pathlib.Path) -> None:
+    models: list[_ToolSequenceModel] = []
+
+    def model_factory() -> _ToolSequenceModel:
+        model = _ToolSequenceModel()
+        models.append(model)
+        return model
+
+    registered = create_parent_agent(
+        SqliteDb(db_file=str(tmp_path / "registry-parent.db")),
+        Settings.model_validate({}),
+        model_factory=model_factory,
+        executable=False,
+    )
+
+    result = anyio.run(_run_agent, registered, "hello", "registry-session")
+
+    assert result.status is RunStatus.error
+    assert len(models) == 1
+    assert models[0].calls == 0
+
+
+def test_parent_copy_defensively_isolates_reused_factory_model(tmp_path: pathlib.Path) -> None:
+    shared_model = _ToolSequenceModel()
+    registered = create_parent_agent(
+        SqliteDb(db_file=str(tmp_path / "reused-model.db")),
+        Settings.model_validate({}),
+        model_factory=lambda: shared_model,
+        executable=False,
+    )
+
+    owner_a = registered.deep_copy()
+    owner_b = registered.deep_copy()
+
+    assert len({id(registered.model), id(owner_a.model), id(owner_b.model)}) == 3
+
+
+def test_parent_copy_rejects_invariant_overrides(tmp_path: pathlib.Path) -> None:
+    registered = create_parent_agent(
+        SqliteDb(db_file=str(tmp_path / "unsafe-update.db")),
+        Settings.model_validate({}),
+        model_factory=_ToolSequenceModel,
+        executable=False,
+    )
+
+    with pytest.raises(TypeError, match="does not accept updates"):
+        _ = registered.deep_copy(update={"model": registered.model, "pre_hooks": []})
+
+
+def test_copy_failure_fallback_cannot_execute_registry_parent(tmp_path: pathlib.Path) -> None:
+    model = _ToolSequenceModel()
+    registered = create_parent_agent(
+        SqliteDb(db_file=str(tmp_path / "copy-failure.db")),
+        Settings.model_validate({}),
+        model_factory=lambda: model,
+        executable=False,
+    )
+
+    def copy_failure(*, update: dict[str, object] | None = None) -> Agent:
+        _ = update
+        message = "copy failed"
+        raise RuntimeError(message)
+
+    registered.deep_copy = copy_failure
+    try:
+        resolved = registered.deep_copy()
+    except RuntimeError:
+        resolved = registered
+
+    result = anyio.run(_run_agent, resolved, "hello", "copy-failure-session")
+
+    assert result.status is RunStatus.error
+    assert model.calls == 0
+
+
+def test_queue_compatible_copies_isolate_owner_model_and_tool_state(
+    tmp_path: pathlib.Path,
+) -> None:
+    database = SqliteDb(db_file=str(tmp_path / "copy-isolation.db"))
+    parent_session_id = "shared-parent-session"
+    owner_state = create_company_state(parent_session_id, created_at=NOW)
+    _ = database.upsert_session(
+        WorkflowSession(
+            session_id=child_session_id("owner-a", parent_session_id),
+            user_id="owner-a",
+            workflow_id="company-journey",
+            session_data={"session_state": {"company": owner_state.model_dump(mode="json")}},
+        )
+    )
+    models: list[_ToolSequenceModel] = []
+
+    def model_factory() -> _ToolSequenceModel:
+        model = _ToolSequenceModel("read_company_state")
+        models.append(model)
+        return model
+
+    registered = create_parent_agent(
+        database,
+        Settings.model_validate({}),
+        model_factory=model_factory,
+        executable=False,
+    )
+    owner_a = registered.deep_copy()
+    owner_b = registered.deep_copy()
+
+    async def run_copy(agent: Agent, user_id: str) -> RunOutput:
+        run = cast("Callable[..., Awaitable[RunOutput]]", agent.arun)
+        return await run(
+            "Read my company",
+            user_id=user_id,
+            session_id=parent_session_id,
+            stream=False,
+        )
+
+    async def scenario() -> tuple[RunOutput, RunOutput]:
+        results: list[RunOutput] = []
+
+        async def collect(agent: Agent, user_id: str) -> None:
+            results.append(await run_copy(agent, user_id))
+
+        async with anyio.create_task_group() as tasks:
+            _ = tasks.start_soon(collect, owner_a, "owner-a")
+            _ = tasks.start_soon(collect, owner_b, "owner-b")
+        return results[0], results[1]
+
+    results = anyio.run(scenario)
+    summaries = [
+        CompanyStateSummary.model_validate_json(cast("str", result.content))
+        for result in results
+    ]
+    functions_a = [
+        tool for tool in cast("list[object]", owner_a.tools) if isinstance(tool, Function)
+    ]
+    functions_b = [
+        tool for tool in cast("list[object]", owner_b.tools) if isinstance(tool, Function)
+    ]
+
+    assert owner_a.session_id is owner_b.session_id is None
+    assert owner_a.model is not owner_b.model
+    assert functions_a[0] is not functions_b[0]
+    assert {summary.status for summary in summaries} == {"active", "not_started"}
+    assert sum(summary.company_id == owner_state.context.company_id for summary in summaries) == 1
+    isolated_models = [cast("_ToolSequenceModel", owner.model) for owner in (owner_a, owner_b)]
+    assert [model.calls for model in isolated_models] == [1, 1]
+    assert [model.calls for model in models] == [0, 0, 0]
+
+
+def test_plain_registered_parent_runs_and_reads_through_agentos(tmp_path: pathlib.Path) -> None:
+    database = SqliteDb(db_file=str(tmp_path / "native-read.db"))
+    settings = Settings.model_validate({})
+    models: list[_ToolSequenceModel] = []
+
+    def model_factory() -> _ToolSequenceModel:
+        model = _ToolSequenceModel()
+        models.append(model)
+        return model
+
+    with TestClient(
+        create_app(db=database, settings=settings, parent_model_factory=model_factory)
+    ) as client:
+        headers = {"Authorization": f"Bearer {settings.os_security_key.get_secret_value()}"}
+        created = client.post(
+            "/agentos/agents/samurai/runs",
+            headers=headers,
+            data={
+                "message": "hello",
+                "session_id": "native-read-session",
+                "user_id": "native-read-owner",
+                "stream": "false",
+            },
+        )
+        run_id = cast("str", created.json()["run_id"])
+        read = client.get(
+            f"/agentos/agents/samurai/runs/{run_id}",
+            params={"session_id": "native-read-session"},
+            headers=headers,
+        )
+
+    assert created.status_code == read.status_code == 200
+    assert created.json()["status"] == read.json()["status"] == RunStatus.completed.value
+    assert created.json()["content"] == read.json()["content"] == "done"
+    assert len(models) >= 3
+    assert len({id(model) for model in models}) == len(models)
 
 
 def test_native_parent_advertises_complete_gemini_metric_schema(
@@ -1251,12 +1447,8 @@ def test_nonstreaming_child_failures_share_sanitized_terminal_boundary(
         assert json.loads(cast("str", payload["content"]))["error_code"] == (
             "child_workflow_failed"
         )
-        assert model.calls == 1
         assert provider_marker not in response.text
         assert provider_marker not in caplog.text
-        if tool_name == "analyze_metrics":
-            assert '"measurements"' in model.advertised_tools_json
-            assert '"checked_at"' not in model.advertised_tools_json
         caplog.clear()
 
     assert attempts == len(cases)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 from collections import abc  # noqa: TC003 - Agno resolves tool annotations at runtime.
 from contextlib import suppress
@@ -14,14 +15,13 @@ from inspect import isasyncgenfunction, iscoroutinefunction, isgeneratorfunction
 from pathlib import Path
 from time import time
 from types import MethodType
-from typing import TYPE_CHECKING, ClassVar, Final, TypedDict, cast, override
+from typing import TYPE_CHECKING, ClassVar, Final, TypedDict, cast, final, override
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 import anyio
 from agno.agent import Agent
-from agno.agent.factory import AgentFactory
 from agno.db.base import SessionType
-from agno.exceptions import OutputCheckError, StopAgentRun
+from agno.exceptions import InputCheckError, OutputCheckError, StopAgentRun
 from agno.models.base import Model
 from agno.run import RunContext
 from agno.run.agent import CustomEvent, RunOutput
@@ -76,13 +76,14 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 
     from agno.db.base import BaseDb
-    from agno.factory import RequestContext
     from agno.models.response import ModelResponse
     from agno.workflow.step import StepExecutor
 
 PARENT_AGENT_ID: Final = "samurai"
 PARENT_AGENT_NAME: Final = "Samurai"
 PARENT_DESCRIPTION: Final = "Build and improve one evidence-linked company with Samurai."
+REGISTRY_EXECUTION_ERROR: Final = "registered parent cannot execute"
+PARENT_COPY_UPDATE_ERROR: Final = "Samurai parent copy does not accept updates"
 TOOL_RESULT_MARKER: Final = "\nSAMURAI_WORKFLOW_RESULT="
 TOOL_ERROR_MARKER: Final = "SAMURAI_WORKFLOW_ERROR="
 CHILD_FAILURE_MESSAGE: Final = "child workflow failed"
@@ -213,6 +214,62 @@ class _ChildWorkflowError(RuntimeError):
 
 class _CoreWorkflowBoundaryError(TypeError):
     pass
+
+
+@final
+class SamuraiParentAgent(Agent):
+    """Parent agent that creates isolated copies for each run."""
+
+    def __init__(  # noqa: D107, PLR0913
+        self,
+        db: BaseDb,
+        settings: Settings,
+        model_factory: Callable[[], Model],
+        *,
+        model: Model,
+        tools: list[Function],
+        skills: Skills,
+        instructions: list[str],
+        executable: bool,
+    ) -> None:
+        self.samurai_db = db
+        self.samurai_settings = settings
+        self.samurai_model_factory = model_factory
+
+        def reject_registry_execution() -> None:
+            raise InputCheckError(REGISTRY_EXECUTION_ERROR)
+
+        super().__init__(  # pyright: ignore[reportUnknownMemberType]
+            id=PARENT_AGENT_ID,
+            name=PARENT_AGENT_NAME,
+            description=PARENT_DESCRIPTION,
+            db=db,
+            model=_sanitize_async_model_failures(
+                model,
+                max_calls=settings.agent_tool_call_limit + 1,
+            ),
+            tools=tools,
+            skills=skills,
+            instructions=instructions,
+            add_history_to_context=True,
+            num_history_runs=5,
+            tool_call_limit=settings.agent_tool_call_limit,
+            pre_hooks=[] if executable else [reject_registry_execution],
+            post_hooks=[_fail_closed_tool_errors],
+            store_events=True,
+            telemetry=False,
+        )
+
+    @override
+    def deep_copy(self, *, update: dict[str, object] | None = None) -> Agent:
+        if update:
+            raise TypeError(PARENT_COPY_UPDATE_ERROR)
+        return create_parent_agent(
+            self.samurai_db,
+            self.samurai_settings,
+            model=copy.deepcopy(self.samurai_model_factory()),
+            model_factory=self.samurai_model_factory,
+        )
 
 
 def _sanitize_async_model_failures(model: Model, *, max_calls: int | None = None) -> Model:
@@ -821,8 +878,22 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
     settings: Settings,
     *,
     model: Model | None = None,
-) -> Agent:
+    model_factory: Callable[[], Model] | None = None,
+    executable: bool = True,
+) -> SamuraiParentAgent:
     """Create a fresh ordinary Samurai Agent and its bounded native tools."""
+    if model_factory is None:
+        if model is None:
+            def build_model() -> Model:
+                return create_model(settings)
+        else:
+            model_template = copy.deepcopy(model)
+
+            def build_model() -> Model:
+                return copy.deepcopy(model_template)
+    else:
+        build_model = model_factory
+    active_model = model if model is not None else copy.deepcopy(build_model())
 
     async def run_company_journey(  # noqa: PLR0913, PLR0917
         run_context: RunContext,
@@ -1029,49 +1100,16 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
             LocalSkills(str(Path(__file__).parent / "skills" / "action-boundaries"), validate=True),
         ]
     )
-    return Agent(
-        id=PARENT_AGENT_ID,
-        name=PARENT_AGENT_NAME,
-        description=PARENT_DESCRIPTION,
-        db=db,
-        model=_sanitize_async_model_failures(
-            model or create_model(settings),
-            max_calls=settings.agent_tool_call_limit + 1,
-        ),
+    return SamuraiParentAgent(
+        db,
+        settings,
+        build_model,
+        model=active_model,
         tools=tools,
         skills=skills,
         instructions=[
             (Path(__file__).parent / "prompts" / "main.md").read_text(encoding="utf-8"),
             f"Capability catalogue: {capabilities}",
         ],
-        add_history_to_context=True,
-        num_history_runs=5,
-        tool_call_limit=settings.agent_tool_call_limit,
-        post_hooks=[_fail_closed_tool_errors],
-        store_events=True,
-        telemetry=False,
-    )
-
-
-def create_parent_factory(
-    db: BaseDb,
-    settings: Settings,
-    *,
-    model_factory: Callable[[], Model] | None = None,
-) -> AgentFactory:
-    """Create the native request-scoped Samurai Agent factory."""
-
-    def build_parent(_context: RequestContext) -> Agent:
-        return create_parent_agent(
-            db,
-            settings,
-            model=model_factory() if model_factory is not None else None,
-        )
-
-    return AgentFactory(
-        id=PARENT_AGENT_ID,
-        name=PARENT_AGENT_NAME,
-        description=PARENT_DESCRIPTION,
-        db=db,
-        factory=build_parent,
+        executable=executable,
     )

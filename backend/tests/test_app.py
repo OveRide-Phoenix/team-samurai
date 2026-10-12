@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from agno.db.postgres import PostgresDb
 from agno.db.sqlite import SqliteDb
 from agno.os.routers.agents.schema import AgentResponse
 from agno.os.schema import ConfigResponse
@@ -87,22 +86,25 @@ def test_config_exposes_only_samurai_parent(
         "Create reviewable Builder, Marketer, and Sales drafts from my verified plan.",
         "Analyze these provenance-labelled business metrics and recommend what to improve.",
     ]
-    assert detail.is_factory is True
+    assert detail.is_factory is False
     assert cors.headers["access-control-allow-origin"] == "https://os.agno.com"
 
 
-def test_parent_factory_creates_fresh_models(
+def test_registered_parent_copy_creates_fresh_models(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
 ) -> None:
-    # Given a model-enabled parent factory.
+    # Given a model-enabled registered parent.
     monkeypatch.setenv("GOOGLE_API_KEY", "not-a-real-key")
     settings = app.Settings.model_validate({})
-    db = PostgresDb(id="samurai", db_url=str(settings.database_url))
-    # When two independent parent requests are resolved.
-    first = create_parent_agent(db, settings)
-    second = create_parent_agent(db, settings)
-    # Then neither request can inherit mutable Gemini state from the other.
+    db = SqliteDb(db_file=str(tmp_path / "registered-parent.db"))
+    registered = create_parent_agent(db, settings, executable=False)
+    # When two independent parent requests copy the registered parent.
+    first = registered.deep_copy()
+    second = registered.deep_copy()
+    # Then neither request can inherit mutable model or tool state from the registry or each other.
     assert first.model is not second.model
+    assert first.model is not registered.model
 
 
 def test_agentos_mount_keeps_root_routes_separate(tmp_path: pathlib.Path) -> None:
