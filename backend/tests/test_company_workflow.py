@@ -135,7 +135,7 @@ def test_context_boundary_creates_and_saves_only_canonical_child_state() -> None
         run_context,
         created_at=datetime(2026, 10, 11, tzinfo=UTC),
     )
-    save_company_state(state, run_context)
+    _ = save_company_state(state, run_context)
 
     # Then canonical state belongs to the trusted parent binding without mutating it.
     assert state.context.authenticated_session_id == "parent-1"
@@ -155,7 +155,7 @@ def test_context_boundary_rejects_identity_session_company_and_revision_mismatch
         run_context,
         created_at=datetime(2026, 10, 11, tzinfo=UTC),
     )
-    save_company_state(state, run_context)
+    _ = save_company_state(state, run_context)
 
     # When any caller-controlled binding differs, then loading fails before model work.
     with pytest.raises(WorkflowContextError, match="trusted user does not match"):
@@ -192,7 +192,7 @@ def test_save_rejects_canonical_history_rewrite() -> None:
         run_context,
         created_at=datetime(2026, 10, 11, tzinfo=UTC),
     )
-    save_company_state(first, run_context)
+    _ = save_company_state(first, run_context)
     replacement = load_company_state(
         WorkflowRequest(company_id=None, expected_revision=0),
         _run_context(session_id="child-2"),
@@ -201,7 +201,7 @@ def test_save_rejects_canonical_history_rewrite() -> None:
 
     # When another company state targets the same child session, then save fails closed.
     with pytest.raises(WorkflowContextError, match="cannot rewrite canonical company history"):
-        save_company_state(replacement, run_context)
+        _ = save_company_state(replacement, run_context)
 
 
 @final
