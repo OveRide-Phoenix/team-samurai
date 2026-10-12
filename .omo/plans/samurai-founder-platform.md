@@ -360,7 +360,7 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
     Evidence: <attemptDir>/task-6-workspace-api-error.json
   ```
 
-  Commit: YES | Message: `feat(workspace): add shared membership and company directory` | Files: [backend/src/samurai/workspace_api.py, backend/src/samurai/app.py, backend/tests/test_workspace_api.py, frontend/src/model.ts, frontend/src/browserStorage.ts, frontend/src/browserStorage.test.ts, frontend/src/workspaces.ts, frontend/src/App.tsx, frontend/src/model.test.ts]
+  Commit: YES | Message: `feat(workspace): add shared membership and company directory` | Files: [backend/src/samurai/workspace_api.py, backend/src/samurai/app.py, backend/tests/test_workspace_api.py, frontend/src/model.ts, frontend/src/browserStorage.ts, frontend/src/browserStorage.test.ts, frontend/src/workspaces.ts, frontend/src/App.tsx, frontend/src/Portfolio.tsx, frontend/src/demo.ts, frontend/src/model.test.ts]
 
 - [ ] 7. Enforce workspace quotas at every reservation and durable admission
 
