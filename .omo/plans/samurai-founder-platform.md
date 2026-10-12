@@ -288,7 +288,7 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
 
   Commit: YES | Message: `feat(data): add workspace platform migration and legacy mirror` | Files: [backend/src/samurai/schema.py, backend/src/samurai/schema_contracts.py, backend/src/samurai/migrations/0001_founder_platform.sql, backend/scripts/migrate_founder_platform.py, backend/tests/test_founder_platform_migration.py, backend/tests/test_founder_platform_migration_cli.py, backend/tests/test_founder_platform_migration_atomic.py, backend/tests/fixtures/platform-evals/]
 
-- [ ] 5. Move canonical company state behind workspace membership and company-wide fencing
+- [x] 5. Move canonical company state behind workspace membership and company-wide fencing
 
   What to do: On `Kalyan/founder-platform-t05-company-state`, implement `CompanyStore` over the new rows. Add optional legacy-compatible `workspace_id` to `CompanyContext`; new companies require a server-reserved workspace/company row. Keep every native Agno run/session actor-scoped. Persist canonical state by `company_id`, lock the company row, recheck active membership/authorization epoch, expected revision, job attempt, and input fingerprint, then atomically accept one revision and mirror exact state to the legacy owner session. Change the active-work uniqueness fence from `(owner_id, company_id)` to `company_id` for existing companies while preserving `(owner_id,parent_session_id)` only for pre-reservation compatibility. Actor-specific parent bindings point to the same company.
   Must NOT do: Do not disable Agno `user_isolation`, share native sessions across users, trust workspace/member IDs from model/form content, create a second canonical store, or allow two members to accept the same next revision.
