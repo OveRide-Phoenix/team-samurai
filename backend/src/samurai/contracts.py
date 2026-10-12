@@ -62,7 +62,12 @@ class CompanyBrief(Contract):
     next_actions: list[str]
 
 
+def _exclude_none(value: object) -> bool:
+    return value is None
+
+
 class CompanyContext(Contract):
+    workspace_id: UUID | None = Field(default=None, exclude_if=_exclude_none)
     company_id: UUID
     authenticated_session_id: str = Field(min_length=1)
     created_at: AwareDatetime
@@ -425,8 +430,14 @@ class InvalidArtifactTransitionError(Exception):
         return self.reason
 
 
-def create_company_state(authenticated_session_id: str, *, created_at: datetime) -> CompanyState:
+def create_company_state(
+    authenticated_session_id: str,
+    *,
+    created_at: datetime,
+    workspace_id: UUID | None = None,
+) -> CompanyState:
     context = CompanyContext(
+        workspace_id=workspace_id,
         company_id=uuid4(),
         authenticated_session_id=authenticated_session_id,
         created_at=created_at,

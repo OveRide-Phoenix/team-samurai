@@ -24,6 +24,8 @@ from starlette.concurrency import run_in_threadpool
 from starlette.formparsers import MultiPartException
 from starlette.requests import Request
 
+from samurai.company_store import CompanyStore
+from samurai.company_store_contracts import WorkspaceRole
 from samurai.config import Settings, create_queue_config
 from samurai.contracts import CompanyState
 from samurai.execution_state import (
@@ -53,6 +55,8 @@ if TYPE_CHECKING:
     from agno.models.base import Model
     from starlette.datastructures import FormData
     from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+    from samurai.company_store_contracts import CompanyAccess
 RUN_PATH: Final = f"/agentos/agents/{PARENT_AGENT_ID}/runs"
 RUN_CONTINUE_PREFIX: Final = f"{RUN_PATH}/"
 RUN_CONTINUE_SUFFIX: Final = "/continue"
@@ -182,17 +186,26 @@ async def _queue_readiness_response(
 def _canonical_company(
     runtime_db: BaseDb | None,
     owner_id: str,
+    parent_session_id: str,
     child_id: str,
-) -> CompanyState | None:
+) -> tuple[CompanyState | None, CompanyAccess | None]:
     if runtime_db is None:
-        return None
+        return None, None
+    if isinstance(runtime_db, SamuraiPostgresDb) and runtime_db.table_exists(
+        "samurai_company_actor_bindings"
+    ):
+        access = CompanyStore(
+            runtime_db.db_engine,
+            schema=runtime_db.db_schema,
+        ).read_for_actor(owner_id, parent_session_id)
+        return (None, None) if access is None else (access.state, access)
     child = runtime_db.get_session(
         child_id,
         session_type=SessionType.WORKFLOW,
         user_id=owner_id,
     )
     if child is None:
-        return None
+        return None, None
     if not isinstance(child, WorkflowSession) or child.user_id != owner_id:
         raise PermissionError
     session_data = cast("dict[str, object]", child.session_data or {})
@@ -201,7 +214,7 @@ def _canonical_company(
         raise TypeError
     typed_session_state = cast("dict[str, object]", session_state)
     payload = typed_session_state.get("company")
-    return None if payload is None else CompanyState.model_validate(payload)
+    return (None if payload is None else CompanyState.model_validate(payload)), None
 
 
 def _work_approval(runtime_db: BaseDb | None, scope: Scope, form: FormData) -> WorkIntentInput:
@@ -217,13 +230,18 @@ def _work_approval(runtime_db: BaseDb | None, scope: Scope, form: FormData) -> W
     stage = ApprovedStage(headers.get(b"x-samurai-stage", b"brief").decode("ascii"))
     expected_revision = int(headers.get(b"x-samurai-expected-revision", b"0").decode("ascii"))
     child_id = child_session_id(cast("str", owner_id), cast("str", session_id))
-    company = _canonical_company(
+    company, access = _canonical_company(
         runtime_db,
         cast("str", owner_id),
+        cast("str", session_id),
         child_id,
     )
     company_header = headers.get(b"x-samurai-company-id")
     if company is None:
+        if isinstance(runtime_db, SamuraiPostgresDb) and runtime_db.table_exists(
+            "samurai_company_actor_bindings"
+        ):
+            raise PermissionError
         if (
             company_header is not None
             or expected_revision != 0
@@ -233,7 +251,14 @@ def _work_approval(runtime_db: BaseDb | None, scope: Scope, form: FormData) -> W
             raise ValueError
         company_id = None
     else:
-        if company.context.authenticated_session_id != session_id or company_header is None:
+        if access is not None and access.role not in {
+            WorkspaceRole.OWNER,
+            WorkspaceRole.EDITOR,
+        }:
+            raise PermissionError
+        if company_header is None or (
+            access is None and company.context.authenticated_session_id != session_id
+        ):
             raise PermissionError
         company_id = UUID(company_header.decode("ascii"))
         if (
@@ -251,6 +276,8 @@ def _work_approval(runtime_db: BaseDb | None, scope: Scope, form: FormData) -> W
         owner_id=cast("str", owner_id),
         parent_session_id=cast("str", session_id),
         child_session_id=child_id,
+        workspace_id=access.workspace_id if access is not None else None,
+        authorization_epoch=access.authorization_epoch if access is not None else None,
         company_id=company_id,
         operation=operation,
         stage=stage,

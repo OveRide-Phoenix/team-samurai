@@ -10,6 +10,7 @@ from agno.db.postgres import PostgresDb
 from pydantic import Field, ValidationError, model_validator
 from pydantic_core import PydanticCustomError
 
+from samurai.company_store import CompanyStore
 from samurai.contracts import (
     CompanyMismatchError,
     CompanyState,
@@ -85,16 +86,48 @@ def _trusted_context(run_context: RunContext) -> _TrustedWorkflowContext:
     return trusted
 
 
+def _stored_company(
+    store: CompanyStore | None,
+    trusted: _TrustedWorkflowContext,
+) -> CompanyState | None:
+    if store is None:
+        return None
+    access = store.read_for_actor(
+        trusted.trusted_user_id,
+        trusted.trusted_parent_session_id,
+    )
+    if access is None:
+        return None
+    if access.child_session_id != trusted.child_session_id:
+        raise WorkflowContextError(WorkflowContextIssue.CHILD_SESSION_MISMATCH)
+    return access.state
+
+
+def _company_store(db: object | None) -> CompanyStore | None:
+    if not isinstance(db, SamuraiPostgresDb) or not db.table_exists(
+        "samurai_company_actor_bindings"
+    ):
+        return None
+    return CompanyStore(db.db_engine, schema=db.db_schema)
+
+
 def load_company_state(
     request: WorkflowRequest,
     run_context: RunContext,
     *,
     created_at: datetime,
+    db: object | None = None,
 ) -> CompanyState:
     """Load one company after validating native workflow identity and session bindings."""
     trusted = _trusted_context(run_context)
     session_state = run_context.session_state
     payload = session_state.get("company") if session_state is not None else None
+    store = _company_store(db)
+    stored = _stored_company(store, trusted)
+    if stored is not None:
+        payload = stored.model_dump(mode="json")
+    elif store is not None:
+        raise WorkflowContextError(WorkflowContextIssue.MISSING_STATE)
     if payload is None:
         if request.company_id is not None:
             raise WorkflowContextError(WorkflowContextIssue.MISSING_STATE)
@@ -122,7 +155,23 @@ def save_company_state(
 ) -> CompanyState:
     """Save canonical state only after revalidating its trusted parent binding."""
     trusted = _trusted_context(run_context)
-    if state.context.authenticated_session_id != trusted.trusted_parent_session_id:
+    store = _company_store(db)
+    store_access = (
+        store.read_for_actor(
+            trusted.trusted_user_id,
+            trusted.trusted_parent_session_id,
+        )
+        if store is not None
+        else None
+    )
+    if store_access is not None and (
+        store_access.child_session_id != trusted.child_session_id
+        or store_access.state.context.company_id != state.context.company_id
+    ):
+        raise WorkflowContextError(WorkflowContextIssue.CHILD_SESSION_MISMATCH)
+    if store_access is None and (
+        state.context.authenticated_session_id != trusted.trusted_parent_session_id
+    ):
         raise SessionMismatchError(
             state.context.authenticated_session_id, trusted.trusted_parent_session_id
         )

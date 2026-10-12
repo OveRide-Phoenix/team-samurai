@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from functools import partial
-from typing import TYPE_CHECKING, cast, final
+from typing import TYPE_CHECKING, Literal, cast, final
 from unittest.mock import AsyncMock, patch
 from urllib.parse import urlencode
 from uuid import UUID, uuid4
@@ -19,11 +19,13 @@ from agno.run.concurrency import worker_managed_execution
 from agno.session.workflow import WorkflowSession
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from sqlalchemy import MetaData, Table
 
 from samurai.app import (
     _DurableRunBoundary,  # pyright: ignore[reportPrivateUsage]
     create_app,
 )
+from samurai.company_store_contracts import ActorBinding, CompanyReservation
 from samurai.config import Settings
 from samurai.contracts import CompanyState, create_company_state
 from samurai.execution_state import (
@@ -48,6 +50,10 @@ if TYPE_CHECKING:
     from agno.db.base import BaseDb
     from fastapi import FastAPI
     from starlette.types import Message, Receive, Scope, Send
+
+    from samurai.company_store import CompanyStore
+
+pytest_plugins = ("tests.company_store_support",)
 
 
 @final
@@ -182,6 +188,87 @@ def test_durable_boundary_accepts_explicit_advanced_operation_and_stage() -> Non
     assert approval.stage is ApprovedStage.PLAN
     assert approval.expected_revision == 0
     assert approval.company_id == state.context.company_id
+
+
+@pytest.mark.parametrize(
+    ("actor_id", "membership_state", "expected_status"),
+    [
+        ("owner", "active", 204),
+        ("editor", "active", 204),
+        ("viewer", "active", 401),
+        ("editor", "revoked", 401),
+    ],
+)
+def test_http_admission_uses_current_server_workspace_role(
+    company_store: tuple[CompanyStore, SamuraiPostgresDb, UUID],
+    actor_id: str,
+    membership_state: Literal["active", "revoked"],
+    expected_status: int,
+) -> None:
+    store, database, workspace_id = company_store
+    owner = store.reserve(
+        CompanyReservation(
+            workspace_id=workspace_id,
+            actor_id="owner",
+            parent_session_id="owner-parent",
+            child_session_id="owner-child",
+            created_at=datetime(2026, 10, 13, tzinfo=UTC),
+        )
+    )
+    access = (
+        owner
+        if actor_id == "owner"
+        else store.bind_actor(
+            ActorBinding(
+                company_id=owner.state.context.company_id,
+                actor_id=actor_id,
+                parent_session_id=f"{actor_id}-parent",
+                child_session_id=f"{actor_id}-child",
+            )
+        )
+    )
+    if membership_state == "revoked":
+        memberships = Table(
+            "samurai_workspace_memberships",
+            MetaData(schema=database.db_schema),
+            autoload_with=database.db_engine,
+        )
+        with database.db_engine.begin() as connection:
+            _ = connection.execute(
+                memberships.update()
+                .where(
+                    memberships.c.workspace_id == workspace_id,
+                    memberships.c.user_id == actor_id,
+                )
+                .values(active=False, authorization_epoch=2)
+            )
+
+    capture, sent = _run_boundary(
+        {
+            "message": "Continue the reserved company",
+            "session_id": access.parent_session_id,
+            "stream": "false",
+            "background": "true",
+        },
+        owner=actor_id,
+        approval_headers={
+            "x-samurai-operation": "journey",
+            "x-samurai-stage": "brief",
+            "x-samurai-expected-revision": "0",
+            "x-samurai-company-id": str(access.state.context.company_id),
+        },
+        db=database,
+    )
+
+    assert sent[0]["status"] == expected_status
+    assert capture.called is (expected_status == 204)
+    _jobs, job_count = database.list_jobs()
+    assert job_count == 0
+    if expected_status == 204:
+        metadata = cast("dict[str, object]", capture.state["metadata"])
+        approval = WorkIntentInput.model_validate(metadata[WORK_INTENT_METADATA_KEY])
+        assert approval.workspace_id == workspace_id
+        assert approval.authorization_epoch == 1
 
 
 @pytest.mark.parametrize(
