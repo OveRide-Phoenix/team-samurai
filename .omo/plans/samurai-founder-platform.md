@@ -214,7 +214,7 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
 
   Commit: NO | Message: `n/a` | Files: []
 
-- [ ] 3. Freeze the verified local base and branch ledger
+- [x] 3. Freeze the verified local base and branch ledger
 
   What to do: Verify readiness tasks 8–10 additive migration/restore, reproducible local setup, full `task check`, supplied-target result, and cleanup. Record one stable SHA and create only `Kalyan/founder-platform-integration`; all later task branches start from the current reviewed integration head and merge locally only after exact-commit review.
   Must NOT do: Do not require readiness tasks 11–15, paid acceptance, publication, IAM, or deployment. Do not push, prune, or discard any user/sibling branch, worktree, stash, or uncommitted evidence.
@@ -251,7 +251,7 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
 
   Commit: NO | Message: `n/a` | Files: []
 
-- [ ] 4. Add the founder-platform schema, legacy backfill, and compatibility mirror
+- [x] 4. Add the founder-platform schema, legacy backfill, and compatibility mirror
 
   What to do: On `Kalyan/founder-platform-t04-schema`, add one SQLAlchemy-based ordered migration mechanism and `0001_founder_platform` migration. Create workspace, membership, company, actor binding, quota, file, deletion receipt, knowledge chunk, learning, schedule/run, scenario/run, and migration receipt tables with foreign keys/checks/indexes. Dry-run inventories legacy Agno workflow sessions; apply creates one personal workspace/owner membership per owner and one company row per canonical company while preserving UUID, revision, artifact JSON, lineage hash, legacy owner/session pointers, and timestamps. Leave legacy session JSON intact and establish a transactionally updated compatibility mirror for old-reader rollback. Create provider-free deterministic eval fixtures with phase-specific cases added by later tasks.
   Must NOT do: Do not add Alembic, destructive down migrations, tenant/org tables, browser-local uploads, or rewrite legacy artifacts. Do not apply outside a disposable local database in this task.
@@ -286,7 +286,7 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
     Evidence: <attemptDir>/task-4-schema-error.json
   ```
 
-  Commit: YES | Message: `feat(data): add workspace platform migration and legacy mirror` | Files: [backend/src/samurai/schema.py, backend/src/samurai/migrations/0001_founder_platform.sql, backend/scripts/migrate_founder_platform.py, backend/tests/test_founder_platform_migration.py, backend/tests/fixtures/platform-evals/]
+  Commit: YES | Message: `feat(data): add workspace platform migration and legacy mirror` | Files: [backend/src/samurai/schema.py, backend/src/samurai/schema_contracts.py, backend/src/samurai/migrations/0001_founder_platform.sql, backend/scripts/migrate_founder_platform.py, backend/tests/test_founder_platform_migration.py, backend/tests/test_founder_platform_migration_cli.py, backend/tests/test_founder_platform_migration_atomic.py, backend/tests/fixtures/platform-evals/]
 
 - [ ] 5. Move canonical company state behind workspace membership and company-wide fencing
 
@@ -323,7 +323,7 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
     Evidence: <attemptDir>/task-5-company-state-error.json
   ```
 
-  Commit: YES | Message: `feat(state): fence shared company state by workspace membership` | Files: [backend/src/samurai/company_store.py, backend/src/samurai/contracts.py, backend/src/samurai/execution_state.py, backend/src/samurai/workflow_state.py, backend/src/samurai/parent.py, backend/tests/test_company_store.py, backend/tests/test_recovery_postgres.py, backend/tests/test_boundaries.py]
+  Commit: YES | Message: `feat(state): fence shared company state by workspace membership` | Files: [backend/src/samurai/company_store.py, backend/src/samurai/app.py, backend/src/samurai/company_workflow.py, backend/src/samurai/launch_workflows.py, backend/src/samurai/analysis_workflow.py, backend/src/samurai/contracts.py, backend/src/samurai/execution_state.py, backend/src/samurai/workflow_state.py, backend/src/samurai/parent.py, backend/tests/test_company_store.py, backend/tests/test_recovery_postgres.py, backend/tests/test_boundaries.py]
 
 - [ ] 6. Add workspace membership/company APIs and migrate the frontend company view
 
