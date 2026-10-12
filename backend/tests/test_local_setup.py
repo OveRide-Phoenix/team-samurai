@@ -56,7 +56,7 @@ def test_fresh_backend_environment_uses_shared_credentials_and_private_modes(
     backend.mkdir()
     database_line = "DATABASE_URL=postgresql+psycopg://samurai:REPLACE_ME@127.0.0.1:54329/samurai"
     _ = (backend / ".env.example").write_text(
-        f"OS_SECURITY_KEY=\n{database_line}\nGOOGLE_API_KEY=\n",
+        f"OS_SECURITY_KEY=\n{database_line}\nGOOGLE_API_KEY=\nQUEUE_ENABLED=false\nREDIS_URL=redis://127.0.0.1:16379/0\n",
         encoding="utf-8",
     )
 
@@ -72,6 +72,8 @@ def test_fresh_backend_environment_uses_shared_credentials_and_private_modes(
     assert password in backend_values["DATABASE_URL"]
     assert len(backend_values["OS_SECURITY_KEY"]) == 64
     assert backend_values["GOOGLE_API_KEY"] == ""
+    assert backend_values["QUEUE_ENABLED"] == "false"
+    assert backend_values["REDIS_URL"] == "redis://127.0.0.1:16379/0"
     assert stat.S_IMODE((tmp_path / ".env").stat().st_mode) == 0o600
     assert stat.S_IMODE((backend / ".env").stat().st_mode) == 0o600
 
@@ -100,6 +102,27 @@ def test_repeated_backend_setup_preserves_existing_files(tmp_path: Path) -> None
     assert (backend / ".env").read_bytes() == backend_before
     assert (tmp_path / ".env").stat().st_ino == root_inode
     assert (backend / ".env").stat().st_ino == backend_inode
+
+
+def test_fresh_backend_environment_uses_root_redis_port_override(tmp_path: Path) -> None:
+    redis_port = 16_480
+    _ = (tmp_path / ".env").write_text(
+        f"POSTGRES_PASSWORD=local-password\nREDIS_PORT={redis_port}\n",
+        encoding="utf-8",
+    )
+    _ = (tmp_path / ".env.example").write_text("POSTGRES_PASSWORD=\n", encoding="utf-8")
+    backend = tmp_path / "backend"
+    backend.mkdir()
+    _ = (backend / ".env.example").write_text(
+        f"OS_SECURITY_KEY=\nDATABASE_URL=postgresql+psycopg://samurai:REPLACE_ME@127.0.0.1:54329/samurai\nQUEUE_ENABLED=false\nREDIS_URL=redis://127.0.0.1:{redis_port}/0\n",
+        encoding="utf-8",
+    )
+
+    result = _run_setup("init-backend", str(tmp_path))
+
+    assert result.returncode == 0
+    assert result.stdout == "Existing .env preserved; created backend/.env.\n"
+    assert _values(backend / ".env")["REDIS_URL"] == f"redis://127.0.0.1:{redis_port}/0"
 
 
 def test_existing_special_character_password_is_url_encoded_without_interpolation(
@@ -186,6 +209,32 @@ def test_occupied_port_fails_with_named_diagnostic() -> None:
     assert result.stderr == f"backend port {port} is already in use\n"
 
 
+def test_validation_rejects_enabled_queue_without_redis_configuration(tmp_path: Path) -> None:
+    # Given a durable queue is explicitly enabled without its required coordinator URL.
+    _ = (tmp_path / ".env").write_text("POSTGRES_PASSWORD=local-password\n", encoding="utf-8")
+    backend = tmp_path / "backend"
+    backend.mkdir()
+    _ = (backend / ".env").write_text(
+        "\n".join(
+            (
+                "OS_SECURITY_KEY=" + "a" * 64,
+                "DATABASE_URL=postgresql+psycopg://samurai:local-password@127.0.0.1:54329/samurai",
+                "QUEUE_ENABLED=true",
+                "",
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    # When local setup validates the backend configuration.
+    result = _run_setup("validate", str(tmp_path))
+
+    # Then it fails closed before a nondurable process-local queue can start.
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert result.stderr == "backend/.env REDIS_URL is required when QUEUE_ENABLED=true\n"
+
+
 def test_taskfile_lists_local_workflow_without_destructive_database_commands() -> None:
     task_binary = shutil.which("task")
     assert task_binary is not None
@@ -212,6 +261,11 @@ def test_taskfile_lists_local_workflow_without_destructive_database_commands() -
         "frontend:dev",
         "frontend:setup",
         "health",
+        "redis:logs",
+        "redis:status",
+        "redis:stop",
+        "redis:up",
+        "recovery:check",
         "setup",
     }
     taskfile = TASKFILE.read_text(encoding="utf-8")

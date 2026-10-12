@@ -17,14 +17,14 @@ task backend:dev
 
 `task setup` installs locked backend dependencies, creates missing root `.env` and `backend/.env` files with owner-only permissions, and validates that they share the same database password. Existing files are preserved and secret values are never printed.
 
-`task backend:dev` checks that port 8000 is free, starts only the Samurai PostgreSQL service without recreating it, and runs Uvicorn in the foreground on `127.0.0.1:8000`. Stop the server with Ctrl-C. In another terminal:
+`task backend:dev` checks that port 8000 is free, starts only the Samurai PostgreSQL and Redis coordination services without recreating them, and runs Uvicorn in the foreground on `127.0.0.1:8000`. Redis binds only to `127.0.0.1:16379`; if another local process has that port, startup stops with a named error before it starts a Samurai Redis container. Stop the server with Ctrl-C. In another terminal:
 
 ```sh
 task health
 task db:status
 ```
 
-The verified local health path is `http://127.0.0.1:8000/agentos/health`. It proves the local database service and backend process are reachable without a Gemini call; it does not prove a provider response or a product workflow.
+The verified local health path is `http://127.0.0.1:8000/agentos/health`. It proves the local PostgreSQL and Redis services and backend process are reachable without a Gemini call; it does not prove a provider response or a product workflow.
 
 If settings do not match the private files you just validated, stale shell exports can override dotenv values. Unset the relevant inherited `POSTGRES_PASSWORD`, `DATABASE_URL`, authentication, or model variable in that terminal, then rerun the Task command. Do not print the environment while troubleshooting.
 
@@ -38,6 +38,50 @@ task db:stop
 ```
 
 These commands operate only on Samurai's PostgreSQL service. `db:up` waits for health and uses `--no-recreate`; repeating it keeps the existing container and volume. `db:stop` preserves data. Do not use `down -v` unless intentionally deleting Samurai's database, and do not use these commands for Reporting.
+
+## Redis coordination lifecycle
+
+```sh
+task redis:up
+task redis:status
+task redis:logs
+task redis:stop
+```
+
+These commands operate only on Samurai's Redis coordination service and its
+`redis-data` volume. They do not stop or recreate Reporting or other Podman
+services. The pinned image is the official Redis 8.8.0 Alpine multi-architecture
+digest through the public ECR Docker mirror. Redis is started for local health
+checks, but `QUEUE_ENABLED=false` remains the default.
+
+Setting `QUEUE_ENABLED=true` requires a nonblank `REDIS_URL`; local setup and
+runtime validation fail clearly when it is absent. They never replace that
+missing coordination with a process-local queue. The default local URL is
+`redis://127.0.0.1:16379/0` and should remain private to this checkout.
+
+To isolate Redis coordination for another Samurai checkout, add a free
+`REDIS_PORT` value to that checkout's ignored root `.env` before its first
+`task setup`. Compose binds that port and first-time setup writes the matching
+private `REDIS_URL` into its new `backend/.env`. Existing environment files are
+preserved; change their Redis URL deliberately rather than expecting setup to
+overwrite it. Set `SAMURAI_COMPOSE_PROJECT` to a unique value for that Redis
+Compose project. PostgreSQL remains on its documented `54329` host port and
+is not concurrently isolated by this Redis override.
+
+## Provider-free recovery checks
+
+GitHub Actions runs recovery tests against disposable PostgreSQL 18 and Redis
+services over service DNS, with no Gemini or other provider credentials. To run
+the same focused suite locally, point `SAMURAI_TEST_DATABASE_URL` at an isolated
+disposable PostgreSQL database and set `REDIS_URL` to Samurai's isolated Redis
+service, then run:
+
+```sh
+task recovery:check
+```
+
+Do not point this command at a shared, Reporting, or production database. It
+does not create, overwrite, or delete environment files or existing volumes.
 
 ## Frontend UI preview
 

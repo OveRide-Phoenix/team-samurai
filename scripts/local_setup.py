@@ -25,6 +25,9 @@ if TYPE_CHECKING:
 
 
 MIN_SERVICE_KEY_CHARS: Final = 32
+MIN_PORT: Final = 1
+MAX_PORT: Final = 65_535
+REDIS_LABEL: Final = "redis"
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +71,9 @@ SHORT_SERVICE_KEY: Final = SetupError(
     "backend/.env OS_SECURITY_KEY must contain at least 32 characters"
 )
 DATABASE_MISMATCH: Final = SetupError("root and backend database credentials do not match")
+QUEUE_REDIS_MISSING: Final = SetupError(
+    "backend/.env REDIS_URL is required when QUEUE_ENABLED=true"
+)
 USAGE_ERROR: Final = SetupError("usage: local_setup.py COMMAND ARGUMENTS")
 
 
@@ -103,6 +109,19 @@ def _database_password(database_url: str) -> str:
     return unquote(password)
 
 
+def _local_redis_url(root_values: dict[str, str]) -> str | None:
+    raw_port = root_values.get("REDIS_PORT")
+    if raw_port is None:
+        return None
+    try:
+        port = int(raw_port)
+    except ValueError as error:
+        raise _invalid_port_error(REDIS_LABEL) from error
+    if not MIN_PORT <= port <= MAX_PORT:
+        raise _invalid_port_error(REDIS_LABEL)
+    return f"redis://127.0.0.1:{port}/0"
+
+
 def _replace_assignment(template: str, key: str, value: str) -> str:
     prefix = f"{key}="
     lines = template.splitlines()
@@ -133,6 +152,9 @@ def _validate_backend(root: Path) -> None:
         raise SHORT_SERVICE_KEY
     if _database_password(database_url) != root_password:
         raise DATABASE_MISMATCH
+    queue_enabled = backend_values.get("QUEUE_ENABLED", "").strip().lower() == "true"
+    if queue_enabled and not backend_values.get("REDIS_URL", "").strip():
+        raise QUEUE_REDIS_MISSING
 
 
 def _init_backend(root: Path) -> None:
@@ -141,8 +163,10 @@ def _init_backend(root: Path) -> None:
     root_exists = root_path.exists()
     backend_exists = backend_path.exists()
     if root_exists:
-        root_password = _required(_environment(root_path), "POSTGRES_PASSWORD", ".env")
+        root_values = _environment(root_path)
+        root_password = _required(root_values, "POSTGRES_PASSWORD", ".env")
     elif backend_exists:
+        root_values = {}
         database_url = _required(
             _environment(backend_path),
             "DATABASE_URL",
@@ -150,6 +174,7 @@ def _init_backend(root: Path) -> None:
         )
         root_password = _database_password(database_url)
     else:
+        root_values = {}
         root_password = secrets.token_hex(24)
 
     root_template = (root / ".env.example").read_text(encoding="utf-8")
@@ -160,6 +185,9 @@ def _init_backend(root: Path) -> None:
         "DATABASE_URL",
         f"postgresql+psycopg://samurai:{quote(root_password, safe='')}@127.0.0.1:54329/samurai",
     )
+    redis_url = _local_redis_url(root_values)
+    if redis_url is not None:
+        backend_content = _replace_assignment(backend_content, "REDIS_URL", redis_url)
     root_created = _create_private(root_path, root_content)
     backend_created = _create_private(backend_path, backend_content)
     _validate_backend(root)

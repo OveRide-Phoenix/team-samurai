@@ -47,3 +47,40 @@ jobs:
       - run: npm run test:sites
       - run: npm run test:server
       - run: bash ../scripts/test-deploy-cloud-run.sh
+  recovery:
+    runs-on: ubuntu-latest
+    container: python:3.14.3-slim-bookworm
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      SAMURAI_TEST_DATABASE_URL: postgresql+psycopg://samurai:samurai-test@postgres:5432/samurai
+      REDIS_URL: redis://redis:6379/0
+    services:
+      postgres:
+        image: public.ecr.aws/docker/library/postgres:18
+        env:
+          POSTGRES_USER: samurai
+          POSTGRES_PASSWORD: samurai-test
+          POSTGRES_DB: samurai
+        options: >-
+          --health-cmd "pg_isready -U samurai -d samurai"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: public.ecr.aws/docker/library/redis@sha256:9d317178eceac8454a2284a9e6df2466b93c745529947f0cd42a0fa9609d7005
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.0"
+          python-version: "3.14"
+      - run: uv sync --locked
+      - run: uv run pytest tests/test_local_setup.py tests/test_recovery_postgres.py tests/test_queue_runtime.py tests/test_database_recovery.py

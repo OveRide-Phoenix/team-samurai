@@ -40,7 +40,9 @@ tasks:
     desc: Follow logs for only the Samurai PostgreSQL service
     deps: [_podman]
     cmds:
-      - podman logs --tail 100 --follow team-samurai_postgres_1
+      - |
+          project="${SAMURAI_COMPOSE_PROJECT:-team-samurai}"
+          podman logs --tail 100 --follow "${project}_postgres_1"
 
   db:stop:
     desc: Stop only the Samurai PostgreSQL service and preserve its data volume
@@ -49,12 +51,51 @@ tasks:
     cmds:
       - "{{.COMPOSE}} stop postgres"
 
+  redis:up:
+    desc: Start only the Samurai Redis coordination service and wait until it is healthy
+    dotenv: [.env]
+    deps: [_podman]
+    preconditions:
+      - sh: test -f .env
+        msg: Run task setup before starting Redis.
+      - sh: |
+          project="${SAMURAI_COMPOSE_PROJECT:-team-samurai}"
+          port="${REDIS_PORT:-16379}"
+          podman ps --filter "name=${project}_redis_1" --quiet | grep -q . || uv run --directory backend python ../scripts/local_setup.py check-port "$port" redis
+        msg: The configured Redis port is unavailable; stop the conflicting local service before starting Samurai Redis.
+    cmds:
+      - "{{.COMPOSE}} up -d --wait --no-recreate redis"
+
+  redis:status:
+    desc: Show the Samurai Redis coordination service status
+    dotenv: [.env]
+    deps: [_podman]
+    cmds:
+      - |
+          project="${SAMURAI_COMPOSE_PROJECT:-team-samurai}"
+          podman ps --filter "name=${project}_redis_1"
+
+  redis:logs:
+    desc: Follow logs for only the Samurai Redis coordination service
+    dotenv: [.env]
+    deps: [_podman]
+    cmds:
+      - "{{.COMPOSE}} logs --tail 100 --follow redis"
+
+  redis:stop:
+    desc: Stop only the Samurai Redis coordination service and preserve its data volume
+    dotenv: [.env]
+    deps: [_podman]
+    cmds:
+      - "{{.COMPOSE}} stop redis"
+
   backend:dev:
     desc: Start the Samurai backend in the foreground on port 8000
     cmds:
       - task: setup
       - uv run --directory backend python ../scripts/local_setup.py check-port 8000 backend
       - task: db:up
+      - task: redis:up
       - uv run --directory backend uvicorn samurai.app:create_app --factory --app-dir src --host 127.0.0.1 --port 8000
 
   frontend:setup:
@@ -83,14 +124,23 @@ tasks:
       - npm --prefix frontend run check
       - npm --prefix frontend run build
 
+  recovery:check:
+    desc: Run provider-free recovery tests against an explicitly supplied disposable PostgreSQL target
+    cmds:
+      - test -n "${SAMURAI_TEST_DATABASE_URL:-}" || { echo "Set SAMURAI_TEST_DATABASE_URL to an isolated disposable PostgreSQL database before running recovery checks." >&2; exit 2; }
+      - test -n "${REDIS_URL:-}" || { echo "Set REDIS_URL to the isolated Samurai Redis coordinator before running recovery checks." >&2; exit 2; }
+      - task: _podman
+      - uv run --directory backend pytest tests/test_recovery_postgres.py tests/test_queue_runtime.py tests/test_database_recovery.py
+
   health:
-    desc: Check the local PostgreSQL service and running backend without a model call
+    desc: Check the local PostgreSQL, Redis, and running backend without a model call
     dotenv: [.env]
     deps: [_podman]
     cmds:
       - "{{.COMPOSE}} exec -T postgres pg_isready -U samurai -d samurai"
+      - "{{.COMPOSE}} exec -T redis redis-cli ping | grep -qx PONG"
       - curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8000/agentos/health >/dev/null
-      - echo "Samurai PostgreSQL and backend health checks passed."
+      - echo "Samurai PostgreSQL, Redis, and backend health checks passed."
 
   _podman:
     internal: true
