@@ -43,7 +43,7 @@ class _FakeAgent:
         *,
         stream: Literal[False] = False,
     ) -> RunOutput:
-        assert CompanyBrief.model_validate_json(input[input.index("{"):]) == _brief()
+        assert CompanyBrief.model_validate_json(input[input.index("{") :]) == _brief()
         assert stream is False
         self.calls += 1
         return self.output
