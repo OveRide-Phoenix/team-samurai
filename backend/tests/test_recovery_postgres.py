@@ -77,16 +77,19 @@ def database(postgres_url: str) -> Iterator[SamuraiPostgresDb]:
     db.close()
 
 
-def _intent(
+def _intent(  # noqa: PLR0913
     *,
     stage: ApprovedStage = ApprovedStage.BRIEF,
     expected_revision: int = 0,
     company_id: UUID | None = None,
+    owner_id: str = "founder-1",
+    parent_session_id: str = "parent-session",
+    child_session_id: str = "child-session",
 ) -> WorkIntentInput:
     return WorkIntentInput(
-        owner_id="founder-1",
-        parent_session_id="parent-session",
-        child_session_id="child-session",
+        owner_id=owner_id,
+        parent_session_id=parent_session_id,
+        child_session_id=child_session_id,
         company_id=company_id,
         operation=WorkOperation.JOURNEY,
         stage=stage,
@@ -293,6 +296,82 @@ def test_acceptance_native_enqueue_atomically_admits_intent_and_job(
     assert result["accepted"] is True
     assert stored is not None
     assert WORK_INTENT_METADATA_KEY not in str(_StoredJob.model_validate(stored).payload)
+
+
+def test_work_receipt_is_scoped_to_owner_session_and_submission(
+    database: SamuraiPostgresDb,
+) -> None:
+    # Given a durable ticket keyed by the founder's persisted submission UUID.
+    intent = _intent()
+    submission_id = uuid4()
+    assert database.enqueue_job(
+        _job("run-receipt", intent, key=str(submission_id))
+    )["accepted"] is True
+
+    # When receipt lookup uses the authenticated owner, session, and submission UUID.
+    receipt = database.get_work_receipt(
+        intent.owner_id,
+        intent.parent_session_id,
+        submission_id,
+    )
+
+    # Then it exposes only sanitized lifecycle data and hides the ticket cross-owner/session.
+    assert receipt is not None
+    assert receipt.run_id == "run-receipt"
+    assert receipt.status == "PENDING"
+    assert receipt.attempt == 0
+    assert receipt.max_attempts == 2
+    assert receipt.failure_reason is None
+    assert database.get_work_receipt("other", intent.parent_session_id, submission_id) is None
+    assert database.get_work_receipt(intent.owner_id, "other", submission_id) is None
+
+
+def test_same_submission_uuid_is_independent_for_two_owners(
+    database: SamuraiPostgresDb,
+) -> None:
+    submission_id = uuid4()
+    first = _intent(
+        owner_id="founder-a",
+        parent_session_id="session-a",
+        child_session_id="child-a",
+    )
+    second = _intent(
+        owner_id="founder-b",
+        parent_session_id="session-b",
+        child_session_id="child-b",
+    )
+
+    assert database.enqueue_job(
+        _job("run-owner-a", first, key=str(submission_id))
+    )["accepted"] is True
+    assert database.enqueue_job(
+        _job("run-owner-b", second, key=str(submission_id))
+    )["accepted"] is True
+
+    first_receipt = database.get_work_receipt(
+        first.owner_id,
+        first.parent_session_id,
+        submission_id,
+    )
+    second_receipt = database.get_work_receipt(
+        second.owner_id,
+        second.parent_session_id,
+        submission_id,
+    )
+    assert first_receipt is not None
+    assert second_receipt is not None
+    assert first_receipt.run_id == "run-owner-a"
+    assert second_receipt.run_id == "run-owner-b"
+    assert database.get_work_receipt(
+        first.owner_id,
+        second.parent_session_id,
+        submission_id,
+    ) is None
+    assert database.get_work_receipt(
+        second.owner_id,
+        first.parent_session_id,
+        submission_id,
+    ) is None
 
 
 def test_acceptance_native_enqueue_rejects_missing_trusted_approval(

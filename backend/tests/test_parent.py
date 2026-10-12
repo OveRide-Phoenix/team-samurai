@@ -384,8 +384,7 @@ def test_registry_parent_fails_closed_before_model_execution(tmp_path: pathlib.P
     result = anyio.run(_run_agent, registered, "hello", "registry-session")
 
     assert result.status is RunStatus.error
-    assert len(models) == 1
-    assert models[0].calls == 0
+    assert models == []
 
 
 def test_parent_copy_defensively_isolates_reused_factory_model(tmp_path: pathlib.Path) -> None:
@@ -508,9 +507,8 @@ def test_queue_compatible_copies_isolate_owner_model_and_tool_state(
     assert functions_a[0] is not functions_b[0]
     assert {summary.status for summary in summaries} == {"active", "not_started"}
     assert sum(summary.company_id == owner_state.context.company_id for summary in summaries) == 1
-    isolated_models = [cast("_ToolSequenceModel", owner.model) for owner in (owner_a, owner_b)]
-    assert [model.calls for model in isolated_models] == [1, 1]
-    assert [model.calls for model in models] == [0, 0, 0]
+    assert len(models) == 2
+    assert [model.calls for model in models] == [0, 0]
 
 
 def test_plain_registered_parent_runs_and_reads_through_agentos(tmp_path: pathlib.Path) -> None:
@@ -547,7 +545,7 @@ def test_plain_registered_parent_runs_and_reads_through_agentos(tmp_path: pathli
     assert created.status_code == read.status_code == 200
     assert created.json()["status"] == read.json()["status"] == RunStatus.completed.value
     assert created.json()["content"] == read.json()["content"] == "done"
-    assert len(models) >= 3
+    assert len(models) == 1
     assert len({id(model) for model in models}) == len(models)
 
 

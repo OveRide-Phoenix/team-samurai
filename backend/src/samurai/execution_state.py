@@ -9,7 +9,7 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum, unique
-from typing import TYPE_CHECKING, Final, override
+from typing import TYPE_CHECKING, Final, Literal, override
 from uuid import UUID, uuid4
 
 from agno.db.postgres import PostgresDb
@@ -97,6 +97,26 @@ class BoundWorkIntent(Contract):
     token: AcceptanceToken
 
 
+type WorkReceiptStatus = Literal[
+    "PENDING", "RUNNING", "PAUSED", "COMPLETED", "ERROR", "CANCELLED"
+]
+
+
+class WorkReceipt(Contract):
+    """Owner-safe view of a native durable ticket and accepted company revision."""
+
+    run_id: str
+    session_id: str
+    status: WorkReceiptStatus
+    attempt: int = Field(ge=0)
+    max_attempts: int = Field(ge=1)
+    recovering: bool
+    failure_reason: str | None = None
+    company_id: UUID | None = None
+    revision: int | None = Field(default=None, ge=0)
+    updated_at: int | None = None
+
+
 class ParentBinding(Contract):
     """Recoverable parent pointer committed with canonical child state."""
 
@@ -131,6 +151,17 @@ class _IntentRow(BaseModel):
 
 class _ChildSessionRow(BaseModel):
     session_data: dict[str, JsonValue] | None = None
+
+
+class _WorkReceiptRow(BaseModel):
+    run_id: str
+    session_id: str
+    status: str
+    attempt: int
+    max_attempts: int
+    updated_at: int | None = None
+    company_id: UUID | None = None
+    accepted_revision: int | None = None
 
 
 @unique
@@ -363,6 +394,79 @@ class SamuraiPostgresDb(PostgresDb):
             raise WorkIntentError(WorkIntentIssue.ACTIVE_WORK) from error
         else:
             return {"accepted": True, "reason": None, "job": clean_job}
+
+    def get_work_receipt(
+        self,
+        owner_id: str,
+        parent_session_id: str,
+        submission_id: UUID,
+    ) -> WorkReceipt | None:
+        """Return one owner-scoped ticket without exposing its payload or raw error."""
+        jobs = self._get_table(table_type="jobs")
+        if jobs is None:
+            return None
+        intents = self._work_intent_table()
+        row = None
+        with SqlAlchemySession(self.db_engine) as session:
+            row = (
+                session.execute(
+                    select(
+                        jobs.c.id.label("run_id"),
+                        jobs.c.session_id,
+                        jobs.c.status,
+                        jobs.c.attempt,
+                        jobs.c.max_attempts,
+                        jobs.c.updated_at,
+                        intents.c.company_id,
+                        intents.c.accepted_revision,
+                    )
+                    .select_from(jobs.join(intents, intents.c.job_id == jobs.c.id))
+                    .where(
+                        jobs.c.idempotency_key == str(submission_id),
+                        jobs.c.user_id == owner_id,
+                        jobs.c.session_id == parent_session_id,
+                        intents.c.owner_id == owner_id,
+                        intents.c.parent_session_id == parent_session_id,
+                    )
+                )
+                .mappings()
+                .first()
+            )
+        if row is None:
+            return None
+        receipt_row = _WorkReceiptRow.model_validate(row)
+        queue_status = receipt_row.status
+        statuses: dict[str, WorkReceiptStatus] = {
+            "queued": "PENDING",
+            "running": "RUNNING",
+            "paused": "PAUSED",
+            "completed": "COMPLETED",
+            "failed": "ERROR",
+            "cancelled": "CANCELLED",
+        }
+        status = statuses.get(queue_status)
+        if status is None:
+            message = "native job has an unsupported status"
+            raise RuntimeError(message)
+        attempt = receipt_row.attempt
+        return WorkReceipt(
+            run_id=receipt_row.run_id,
+            session_id=receipt_row.session_id,
+            status=status,
+            attempt=attempt,
+            max_attempts=receipt_row.max_attempts,
+            recovering=queue_status == "queued" and attempt > 0,
+            failure_reason=(
+                "work stopped after the allowed attempts"
+                if queue_status == "failed"
+                else "work was cancelled"
+                if queue_status == "cancelled"
+                else None
+            ),
+            company_id=receipt_row.company_id,
+            revision=receipt_row.accepted_revision,
+            updated_at=receipt_row.updated_at,
+        )
 
     @staticmethod
     def _existing_job(
@@ -772,6 +876,95 @@ class SamuraiPostgresDb(PostgresDb):
                 jobs.update()
                 .where(jobs.c.id == job_id)
                 .values(status="cancelled", completed_at=now, updated_at=now)
+            )
+            self._release_terminal_intent(session, intents, job_id, "cancelled", now)
+        return True
+
+    def cancel_work_job(
+        self,
+        job_id: str,
+        owner_id: str,
+        parent_session_id: str,
+    ) -> bool:
+        """Atomically cancel an owner-scoped work ticket, run, and intent."""
+        jobs = self._get_table(table_type="jobs")
+        runs = self._get_table(table_type="runs")
+        intents = self._work_intent_table()
+        if jobs is None or runs is None:
+            return False
+        now = int(time.time())
+        with SqlAlchemySession(self.db_engine) as session, session.begin():
+            job = (
+                session.execute(
+                    select(jobs)
+                    .where(
+                        jobs.c.id == job_id,
+                        jobs.c.user_id == owner_id,
+                        jobs.c.session_id == parent_session_id,
+                    )
+                    .with_for_update()
+                )
+                .mappings()
+                .first()
+            )
+            intent = (
+                session.execute(
+                    select(intents)
+                    .where(
+                        intents.c.job_id == job_id,
+                        intents.c.owner_id == owner_id,
+                        intents.c.parent_session_id == parent_session_id,
+                    )
+                    .with_for_update()
+                )
+                .mappings()
+                .first()
+            )
+            if job is None or intent is None:
+                return False
+            status = _JobFenceRow.model_validate(job).status
+            if status in {"completed", "failed"}:
+                return False
+            if status == "cancelled":
+                return True
+            run = (
+                session.execute(
+                    select(runs)
+                    .where(
+                        runs.c.run_id == job_id,
+                        runs.c.user_id == owner_id,
+                        runs.c.session_id == parent_session_id,
+                    )
+                    .with_for_update()
+                )
+                .mappings()
+                .first()
+            )
+            if run is None:
+                return False
+            run_data = copy.deepcopy(OBJECT_DICT_ADAPTER.validate_python(run["run_data"] or {}))
+            run_data.update(
+                {
+                    "status": "CANCELLED",
+                    "content": run_data.get("content") or "work was cancelled",
+                    "cancellation_stage": "executing",
+                }
+            )
+            _ = session.execute(
+                runs.update()
+                .where(runs.c.run_id == job_id)
+                .values(status="CANCELLED", run_data=run_data, updated_at=now)
+            )
+            _ = session.execute(
+                jobs.update()
+                .where(jobs.c.id == job_id, jobs.c.status == status)
+                .values(
+                    status="cancelled",
+                    locked_by=None,
+                    locked_at=None,
+                    completed_at=now,
+                    updated_at=now,
+                )
             )
             self._release_terminal_intent(session, intents, job_id, "cancelled", now)
         return True

@@ -15,7 +15,7 @@ from inspect import isasyncgenfunction, iscoroutinefunction, isgeneratorfunction
 from pathlib import Path
 from time import time
 from types import MethodType
-from typing import TYPE_CHECKING, ClassVar, Final, TypedDict, cast, final, override
+from typing import TYPE_CHECKING, ClassVar, Final, Never, TypedDict, cast, final, override
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 import anyio
@@ -26,6 +26,7 @@ from agno.models.base import Model
 from agno.run import RunContext
 from agno.run.agent import CustomEvent, RunOutput
 from agno.run.cancel import acancel_run, acleanup_run, ais_cancelled
+from agno.run.concurrency import get_worker_ownership
 from agno.run.workflow import (
     StepCompletedEvent,
     StepProgressEvent,
@@ -48,7 +49,12 @@ from samurai.analysis_workflow import (
     create_analysis_workflow,
     run_analysis,
 )
-from samurai.company_workflow import CompanyJourneyRequest, JourneyStage, create_company_workflow
+from samurai.company_workflow import (
+    WORKFLOW_ID,
+    CompanyJourneyRequest,
+    JourneyStage,
+    create_company_workflow,
+)
 from samurai.config import Settings, create_model
 from samurai.contracts import (
     CompanyBrief,
@@ -62,6 +68,14 @@ from samurai.contracts import (
     VerificationFinding,
     WorkflowRequest,
     WorkflowResult,
+)
+from samurai.execution_state import (
+    ApprovedStage,
+    BoundWorkIntent,
+    NormalizedWorkInput,
+    SamuraiPostgresDb,
+    WorkIntentError,
+    WorkOperation,
 )
 from samurai.launch_workflows import (
     LaunchAction,
@@ -159,6 +173,27 @@ class _FounderMetricToolInput(TypedDict):
     collected_at: AwareDatetime
 
 
+class _JourneyWorkArguments(Contract):
+    idea: str
+    target_customer: str
+    geography: str
+    budget: str
+    founder_skills: str
+    goal: str
+    supplied_context: tuple[str, ...] = ()
+    assumptions: tuple[str, ...] = ()
+    stage: JourneyStage = "brief"
+
+
+class _LaunchWorkArguments(Contract):
+    kind: LaunchKind = LaunchKind.ALL
+    action: LaunchAction = LaunchAction.DRAFT
+
+
+class _MetricsWorkArguments(Contract):
+    measurements: tuple[FounderMetricInput, ...] = ()
+
+
 class _ChildWorkflowState(Contract):
     company: CompanyState | None = None
 
@@ -217,6 +252,119 @@ class _CoreWorkflowBoundaryError(TypeError):
 
 
 @final
+class _RegisteredParentModel(Model):
+    def __init__(self) -> None:
+        super().__init__(
+            id="samurai-registered-parent",
+            name="Samurai registered parent",
+            provider="samurai",
+        )
+        self.id: str = "samurai-registered-parent"
+
+    @staticmethod
+    def _reject() -> Never:
+        raise InputCheckError(REGISTRY_EXECUTION_ERROR)
+
+    @override
+    def invoke(self, *_args: object, **_kwargs: object) -> Never:
+        self._reject()
+
+    @override
+    async def ainvoke(self, *_args: object, **_kwargs: object) -> Never:
+        self._reject()
+
+    @override
+    def invoke_stream(self, *_args: object, **_kwargs: object) -> Never:
+        self._reject()
+
+    @override
+    async def ainvoke_stream(
+        self,
+        *_args: object,
+        **_kwargs: object,
+    ) -> abc.AsyncIterator[ModelResponse]:
+        if not self.id:
+            yield cast("ModelResponse", object())
+        self._reject()
+
+    @override
+    def _parse_provider_response(
+        self,
+        response: object,
+        **_kwargs: object,
+    ) -> Never:
+        _ = response
+        self._reject()
+
+    @override
+    def _parse_provider_response_delta(self, response: object) -> Never:
+        _ = response
+        self._reject()
+
+
+@final
+class _LazyParentModel(Model):
+    def __init__(self, factory: Callable[[], Model]) -> None:
+        super().__init__(
+            id="samurai-parent",
+            name="Samurai parent",
+            provider="samurai",
+        )
+        self.id: str = "samurai-parent"
+        self._factory = factory
+        self._resolved: Model | None = None
+
+    def _resolve(self) -> Model:
+        if self._resolved is None:
+            self._resolved = copy.deepcopy(self._factory())
+        return self._resolved
+
+    @override
+    def invoke(self, *args: object, **kwargs: object) -> ModelResponse:
+        invoke = cast("Callable[..., ModelResponse]", self._resolve().invoke)
+        return invoke(*args, **kwargs)
+
+    @override
+    async def ainvoke(self, *args: object, **kwargs: object) -> ModelResponse:
+        ainvoke = cast("Callable[..., Awaitable[ModelResponse]]", self._resolve().ainvoke)
+        return await ainvoke(*args, **kwargs)
+
+    @override
+    def invoke_stream(self, *args: object, **kwargs: object) -> abc.Iterator[ModelResponse]:
+        invoke_stream = cast(
+            "Callable[..., Iterator[ModelResponse]]",
+            self._resolve().invoke_stream,
+        )
+        return invoke_stream(*args, **kwargs)
+
+    @override
+    async def ainvoke_stream(
+        self,
+        *args: object,
+        **kwargs: object,
+    ) -> abc.AsyncIterator[ModelResponse]:
+        ainvoke_stream = cast(
+            "Callable[..., AsyncIterator[ModelResponse]]",
+            self._resolve().ainvoke_stream,
+        )
+        async for response in ainvoke_stream(*args, **kwargs):
+            yield response
+
+    @override
+    def _parse_provider_response(
+        self,
+        response: object,
+        **kwargs: object,
+    ) -> ModelResponse:
+        _ = kwargs
+        return cast("ModelResponse", response)
+
+    @override
+    def _parse_provider_response_delta(self, response: object) -> ModelResponse:
+        return cast("ModelResponse", response)
+
+
+@final
 class SamuraiParentAgent(Agent):
     """Parent agent that creates isolated copies for each run."""
 
@@ -267,7 +415,6 @@ class SamuraiParentAgent(Agent):
         return create_parent_agent(
             self.samurai_db,
             self.samurai_settings,
-            model=copy.deepcopy(self.samurai_model_factory()),
             model_factory=self.samurai_model_factory,
         )
 
@@ -528,12 +675,23 @@ def _child_state(db: BaseDb, run_context: RunContext) -> tuple[str, CompanyState
     return child_id, state
 
 
-def _dependencies(user_id: str, parent_session_id: str, child_id: str) -> dict[str, str]:
-    return {
+def _dependencies(
+    user_id: str,
+    parent_session_id: str,
+    child_id: str,
+    parent_context: RunContext | None = None,
+) -> dict[str, object]:
+    dependencies: dict[str, object] = {
         "trusted_parent_session_id": parent_session_id,
         "trusted_user_id": user_id,
         "child_session_id": child_id,
     }
+    if parent_context is not None:
+        source = parent_context.dependencies or {}
+        for key in ("parent_run_id", "worker_id", "attempt", "fingerprint"):
+            if key in source:
+                dependencies[key] = source[key]
+    return dependencies
 
 
 def _child_context(
@@ -549,7 +707,36 @@ def _child_context(
         session_id=child_id,
         user_id=user_id,
         session_state={} if state is None else {"company": state.model_dump(mode="json")},
-        dependencies=_dependencies(user_id, parent_session_id, child_id),
+        dependencies=_dependencies(user_id, parent_session_id, child_id, run_context),
+    )
+
+
+def _ensure_durable_child_session(
+    db: BaseDb,
+    owner_id: str,
+    child_id: str,
+    state: CompanyState | None,
+) -> None:
+    if not isinstance(db, SamuraiPostgresDb):
+        return
+    existing = db.get_session(
+        child_id,
+        session_type=SessionType.WORKFLOW,
+        user_id=owner_id,
+    )
+    if existing is not None:
+        return
+    _ = db.upsert_session(
+        WorkflowSession(
+            session_id=child_id,
+            user_id=owner_id,
+            workflow_id=WORKFLOW_ID,
+            session_data={
+                "session_state": {}
+                if state is None
+                else {"company": state.model_dump(mode="json")}
+            },
+        )
     )
 
 
@@ -873,6 +1060,56 @@ def _requires_metrics(
     )
 
 
+def _bind_normalized_work(
+    db: BaseDb,
+    run_context: RunContext,
+    proposed: NormalizedWorkInput,
+) -> NormalizedWorkInput:
+    ownership = get_worker_ownership(run_context.run_id)
+    if ownership is None:
+        return proposed
+    binder = getattr(db, "bind_work_intent", None)
+    if not callable(binder):
+        message = "durable work intent store is required"
+        raise InputCheckError(message)
+    try:
+        candidate = binder(run_context.run_id, proposed if ownership.attempt == 1 else None)
+    except WorkIntentError as error:
+        raise InputCheckError(str(error)) from None
+    if not isinstance(candidate, BoundWorkIntent):
+        message = "durable work intent store returned an invalid binding"
+        raise InputCheckError(message)
+    bound = candidate
+    user_id, parent_session_id, child_id = _trusted_identity(run_context)
+    if (
+        bound.approval.owner_id,
+        bound.approval.parent_session_id,
+        bound.approval.child_session_id,
+    ) != (user_id, parent_session_id, child_id):
+        message = "durable work intent identity does not match"
+        raise InputCheckError(message)
+    dependencies = run_context.dependencies or {}
+    dependencies.update(
+        {
+            "parent_run_id": bound.token.parent_run_id,
+            "worker_id": bound.token.worker_id,
+            "attempt": bound.token.attempt,
+            "fingerprint": bound.token.fingerprint,
+        }
+    )
+    run_context.dependencies = dependencies
+    return bound.normalized_input
+
+
+def _require_work_operation(
+    normalized: NormalizedWorkInput,
+    operation: WorkOperation,
+) -> None:
+    if normalized.operation is not operation:
+        message = "durable work operation does not match"
+        raise InputCheckError(message)
+
+
 def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded tool surface.
     db: BaseDb,
     settings: Settings,
@@ -893,7 +1130,13 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
                 return copy.deepcopy(model_template)
     else:
         build_model = model_factory
-    active_model = model if model is not None else copy.deepcopy(build_model())
+    active_model = (
+        _RegisteredParentModel()
+        if not executable
+        else model
+        if model is not None
+        else _LazyParentModel(build_model)
+    )
 
     async def run_company_journey(  # noqa: PLR0913, PLR0917
         run_context: RunContext,
@@ -923,22 +1166,46 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
 
         """
         child_id, state = _child_state(db, run_context)
+        requested = _JourneyWorkArguments(
+            idea=idea,
+            target_customer=target_customer,
+            geography=geography,
+            budget=budget,
+            founder_skills=founder_skills,
+            goal=goal,
+            supplied_context=supplied_context,
+            assumptions=assumptions,
+            stage=stage,
+        )
+        normalized = _bind_normalized_work(
+            db,
+            run_context,
+            NormalizedWorkInput(
+                operation=WorkOperation.JOURNEY,
+                stage=ApprovedStage(stage),
+                expected_revision=0 if state is None else state.current_revision,
+                arguments=requested.model_dump(mode="json"),
+            ),
+        )
+        _require_work_operation(normalized, WorkOperation.JOURNEY)
+        requested = _JourneyWorkArguments.model_validate(normalized.arguments)
         user_id, parent_session_id, _ = _trusted_identity(run_context)
+        _ensure_durable_child_session(db, user_id, child_id, state)
         child_run_id = _child_run_id(run_context, "journey")
         request = CompanyJourneyRequest(
             company_id=None if state is None else state.context.company_id,
             expected_revision=0 if state is None else state.current_revision,
-            idea=idea or None,
-            target_customer=target_customer or None,
-            geography=geography or None,
-            budget=budget or None,
-            founder_skills=founder_skills or None,
-            goal=goal or None,
-            supplied_context=supplied_context,
-            assumptions=assumptions,
+            idea=requested.idea or None,
+            target_customer=requested.target_customer or None,
+            geography=requested.geography or None,
+            budget=requested.budget or None,
+            founder_skills=requested.founder_skills or None,
+            goal=requested.goal or None,
+            supplied_context=requested.supplied_context,
+            assumptions=requested.assumptions,
         )
         workflow = _sanitize_workflow(
-            create_company_workflow(db, settings, stage=stage),
+            create_company_workflow(db, settings, stage=requested.stage),
             max_model_calls=settings.agent_tool_call_limit + 1,
         )
         cancelled = False
@@ -948,7 +1215,7 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
             run_id=child_run_id,
             session_id=child_id,
             session_state={} if state is None else {"company": state.model_dump(mode="json")},
-            dependencies=_dependencies(user_id, parent_session_id, child_id),
+            dependencies=_dependencies(user_id, parent_session_id, child_id, run_context),
             stream=True,
             stream_events=True,
         )
@@ -992,8 +1259,31 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
         action: LaunchAction = LaunchAction.DRAFT,
     ) -> WorkflowResult:
         """Create reviewable launch drafts without external action capability."""
+        requested = _LaunchWorkArguments(kind=kind, action=action)
+        if get_worker_ownership(run_context.run_id) is not None:
+            _, state = _child_state(db, run_context)
+            if state is None:
+                raise ParentContextError(ParentContextIssue.JOURNEY_REQUIRED_FOR_DRAFTS)
+            normalized = _bind_normalized_work(
+                db,
+                run_context,
+                NormalizedWorkInput(
+                    operation=WorkOperation.LAUNCH_DRAFTS,
+                    stage=ApprovedStage.PLAN,
+                    expected_revision=state.current_revision,
+                    arguments=requested.model_dump(mode="json"),
+                ),
+            )
+            _require_work_operation(normalized, WorkOperation.LAUNCH_DRAFTS)
+            requested = _LaunchWorkArguments.model_validate(normalized.arguments)
         try:
-            result = await _create_launch_drafts(db, settings, run_context, kind, action)
+            result = await _create_launch_drafts(
+                db,
+                settings,
+                run_context,
+                requested.kind,
+                requested.action,
+            )
         except ParentContextError, StopAgentRun:
             raise
         except Exception:  # noqa: BLE001 - child details must stop before Agno logs them.
@@ -1005,16 +1295,36 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
         measurements: tuple[_FounderMetricToolInput, ...] = (),
     ) -> WorkflowResult:
         """Analyze eligible founder metrics without changing their provenance."""
-        if not measurements:
-            result = _requires_metrics(db, run_context)
-            return _ParentWorkflowResult.model_validate(result.model_dump())
         try:
-            metrics = tuple(FounderMetricInput.model_validate(metric) for metric in measurements)
+            requested = _MetricsWorkArguments(
+                measurements=tuple(
+                    FounderMetricInput.model_validate(metric) for metric in measurements
+                )
+            )
         except ValidationError:
             result = _requires_metrics(db, run_context, ask_for_details=True)
             return _ParentWorkflowResult.model_validate(result.model_dump())
+        if get_worker_ownership(run_context.run_id) is not None:
+            _, state = _child_state(db, run_context)
+            if state is None:
+                raise ParentContextError(ParentContextIssue.JOURNEY_REQUIRED_FOR_ANALYSIS)
+            normalized = _bind_normalized_work(
+                db,
+                run_context,
+                NormalizedWorkInput(
+                    operation=WorkOperation.METRICS_ANALYSIS,
+                    stage=ApprovedStage.PLAN,
+                    expected_revision=state.current_revision,
+                    arguments=requested.model_dump(mode="json"),
+                ),
+            )
+            _require_work_operation(normalized, WorkOperation.METRICS_ANALYSIS)
+            requested = _MetricsWorkArguments.model_validate(normalized.arguments)
+        if not requested.measurements:
+            result = _requires_metrics(db, run_context)
+            return _ParentWorkflowResult.model_validate(result.model_dump())
         try:
-            result = await _analyze_metrics(db, settings, metrics, run_context)
+            result = await _analyze_metrics(db, settings, requested.measurements, run_context)
         except ParentContextError, StopAgentRun:
             raise
         except Exception:  # noqa: BLE001 - child details must stop before Agno logs them.

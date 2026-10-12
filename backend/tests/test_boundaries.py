@@ -12,7 +12,7 @@ import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from time import monotonic
-from typing import TYPE_CHECKING, Never, cast, final, override
+from typing import TYPE_CHECKING, Never, Self, cast, final, override
 from urllib import request
 from urllib.parse import urlencode
 from uuid import uuid4
@@ -75,6 +75,15 @@ if TYPE_CHECKING:
 
 
 @final
+class _ModelCallProbe:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def __deepcopy__(self, _memo: object) -> Self:
+        return self
+
+
+@final
 class DeterministicTextModel(Model):
     def __init__(
         self,
@@ -93,6 +102,7 @@ class DeterministicTextModel(Model):
         self.tool_name: str | None = tool_name
         self.tool_arguments: str = tool_arguments
         self.stream_delay = stream_delay
+        self.call_probe: _ModelCallProbe | None = None
 
     @override
     def invoke(self, *_args: Never, **_kwargs: Never) -> ModelResponse:
@@ -104,6 +114,8 @@ class DeterministicTextModel(Model):
         if self.stream_delay:
             await anyio.sleep(self.stream_delay)
         self.calls += 1
+        if self.call_probe is not None:
+            self.call_probe.calls += 1
         if self.fail_with is not None:
             raise self.fail_with
         if self.repeat_tool or (self.tool_name is not None and self.calls == 1):
@@ -451,7 +463,9 @@ def test_nonadmin_jwt_user_isolation_covers_run_lifecycle(tmp_path: Path) -> Non
     private_key, public_key = _key_pair()
     user_a = {"Authorization": f"Bearer {_token(private_key, 'user-a')}"}
     user_b = {"Authorization": f"Bearer {_token(private_key, 'user-b')}"}
+    call_probe = _ModelCallProbe()
     model = DeterministicTextModel()
+    model.call_probe = call_probe
     db = SqliteDb(db_file=str(tmp_path / "isolation.db"))
     with TestClient(_test_app(db, model, public_key)) as client:
         created = client.post(
@@ -518,7 +532,7 @@ def test_nonadmin_jwt_user_isolation_covers_run_lifecycle(tmp_path: Path) -> Non
             missing_session.status_code,
             wrong_agent.status_code,
         ] == [401, 404, 404, 404]
-        assert model.calls == 1
+        assert call_probe.calls == 1
         assert db.get_session("unknown-session", user_id="user-a") is None
 
 
@@ -657,9 +671,11 @@ def test_oversized_duplicate_continuation_field_fails_before_model(
     headers = {"Authorization": f"Bearer {_token(private_key, 'continue-user')}"}
     db = SqliteDb(db_file=str(tmp_path / f"continue-{field}.db"))
     models: list[DeterministicTextModel] = []
+    call_probe = _ModelCallProbe()
 
     def model_factory() -> DeterministicTextModel:
         model = DeterministicTextModel()
+        model.call_probe = call_probe
         models.append(model)
         return model
 
@@ -687,7 +703,7 @@ def test_oversized_duplicate_continuation_field_fails_before_model(
     assert response.status_code == 422
     assert response.json() == {"detail": "request contains forbidden or oversized context"}
     assert len(models) == 1
-    assert models[0].calls == 1
+    assert call_probe.calls == 1
 
 
 @pytest.mark.parametrize(
@@ -706,9 +722,11 @@ def test_invalid_or_excessive_continuation_body_fails_before_model(
     headers = {"Authorization": f"Bearer {_token(private_key, 'continue-body-user')}"}
     db = SqliteDb(db_file=str(tmp_path / f"continue-body-{len(payload)}.db"))
     models: list[DeterministicTextModel] = []
+    call_probe = _ModelCallProbe()
 
     def model_factory() -> DeterministicTextModel:
         model = DeterministicTextModel()
+        model.call_probe = call_probe
         models.append(model)
         return model
 
@@ -729,7 +747,7 @@ def test_invalid_or_excessive_continuation_body_fails_before_model(
     assert response.status_code == 422
     assert response.json() == {"detail": expected_detail}
     assert len(models) == 1
-    assert models[0].calls == 1
+    assert call_probe.calls == 1
 
 
 @pytest.mark.parametrize("forbidden_field", ["session_state", "dependencies"])
@@ -839,9 +857,11 @@ def test_timeout_is_terminal_and_sanitized(tmp_path: Path) -> None:
     private_key, public_key = _key_pair()
     settings = Settings.model_validate({"jwt_verification_key": public_key})
     db = SqliteDb(db_file=str(tmp_path / "timeout.db"))
+    call_probe = _ModelCallProbe()
     model = DeterministicTextModel(
-        fail_with=TimeoutError("provider timed out: secret-marker-should-not-leak")
+        fail_with=TimeoutError("provider timed out: secret-marker-should-not-leak"),
     )
+    model.call_probe = call_probe
     with TestClient(
         create_app(db=db, settings=settings, parent_model_factory=lambda: model)
     ) as client:
@@ -866,7 +886,7 @@ def test_timeout_is_terminal_and_sanitized(tmp_path: Path) -> None:
     assert persisted.json()["status"] == "ERROR"
     assert "secret-marker" not in response.text
     assert "secret-marker" not in persisted.text
-    assert model.calls == 1
+    assert call_probe.calls == 1
 
 
 def test_tool_budget_stops_repeated_tool_requests(tmp_path: Path) -> None:
@@ -876,7 +896,9 @@ def test_tool_budget_stops_repeated_tool_requests(tmp_path: Path) -> None:
         {"jwt_verification_key": public_key, "agent_tool_call_limit": 2}
     )
     db = SqliteDb(db_file=str(tmp_path / "tool-budget.db"))
+    call_probe = _ModelCallProbe()
     model = DeterministicTextModel(repeat_tool=True)
+    model.call_probe = call_probe
     with TestClient(
         create_app(db=db, settings=settings, parent_model_factory=lambda: model)
     ) as client:
@@ -892,7 +914,7 @@ def test_tool_budget_stops_repeated_tool_requests(tmp_path: Path) -> None:
     response_payload = cast("dict[str, object]", response.json())
     assert response_payload["status"] == "COMPLETED"
     assert _json_content(response_payload)["status"] == "not_started"
-    assert model.calls == 1
+    assert call_probe.calls == 1
     assert db.get_session(child_session_id("budget-user", "budget-session")) is None
 
 

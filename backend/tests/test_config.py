@@ -1,8 +1,14 @@
+from typing import TYPE_CHECKING, cast
+
 import pytest
+from agno.job_queue import RedisCoordination
 from pydantic import ValidationError
 from sqlalchemy import create_engine
 
-from samurai.config import Settings
+from samurai.config import Settings, create_queue_config
+
+if TYPE_CHECKING:
+    from agno.db.base import BaseDb
 
 
 def test_cloud_sql_socket_url_passes_host_to_psycopg() -> None:
@@ -46,3 +52,36 @@ def test_frontend_verification_key_loads_from_environment(monkeypatch: pytest.Mo
     # Then it is available separately from the existing Agno key.
     assert settings.frontend_jwt_verification_key == "frontend-public-key"
     assert settings.jwt_verification_key is None
+
+
+def test_queue_config_uses_the_bounded_native_contract() -> None:
+    settings = Settings.model_validate(
+        {
+            "queue_enabled": True,
+            "redis_url": "redis://127.0.0.1:6379/0",
+        }
+    )
+    store = cast("BaseDb", object())
+
+    queue = create_queue_config(settings, store)
+
+    assert queue is not None
+    assert queue.db is store
+    assert queue.durable is True
+    assert queue.max_concurrency == 2
+    assert queue.max_queue_depth == 10
+    assert queue.max_attempts == 2
+    assert queue.retry_delay_seconds == 30
+    assert queue.timeout_seconds == 480
+    assert queue.deployment_id == "samurai-development-v1"
+    assert queue.lock_grace_seconds == 60
+    assert queue.poll_interval == 1
+    assert queue.retention_seconds == 86_400
+    assert queue.stop_timeout_seconds == 5
+    assert isinstance(queue.redis, RedisCoordination)
+    assert queue.redis.key_prefix == "samurai:development:v1"
+
+
+def test_enabled_queue_requires_redis_coordination() -> None:
+    with pytest.raises(ValidationError, match="REDIS_URL is required"):
+        _ = Settings.model_validate({"queue_enabled": True})
