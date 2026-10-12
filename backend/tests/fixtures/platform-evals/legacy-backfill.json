@@ -1,0 +1,10 @@
+{
+  "fixture_kind": "local_synthetic_migration_eval",
+  "owners": 2,
+  "companies": 3,
+  "expected_personal_workspaces": 2,
+  "invalid_cases": [
+    "missing_owner",
+    "noncontiguous_artifact_history"
+  ]
+}
