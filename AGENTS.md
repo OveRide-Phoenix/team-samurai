@@ -142,7 +142,7 @@ The user specifically likes Hark's conversational interface, persistent left pan
 
 | Service | Intended responsibility |
 |---|---|
-| Cloud Run | Target for the AgentOS backend and server-capable Next.js deployment; deployment is not configured yet. |
+| Cloud Run | Private AgentOS backend revision is deployed on `Kalyan/gcp-deployment`; see [the deployment guide](docs/gcp-deployment.md) for verified private API, Gemini, and Cloud SQL evidence and pending browser, key-rotation, and public-transport checks. |
 | Cloud SQL for PostgreSQL | Persist AgentOS sessions and company records. Local development uses PostgreSQL in Podman. |
 | Cloud Storage | Store generated artifacts; integration is planned. |
 | Firebase Authentication | Candidate for founder identity; end-user/company authorization is not implemented by the local shared service key. |

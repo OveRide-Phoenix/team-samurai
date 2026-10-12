@@ -41,6 +41,24 @@ task backend:dev
 
 Set `GOOGLE_API_KEY` only when ready to call Gemini. The tracked default remains `gemini-3.8-flash`; a lower-cost local experiment may set `GEMINI_MODEL=gemini-3.5-flash-lite` in ignored `backend/.env`. Never commit that file. See [local development](../docs/local-development.md) for the full command reference and JWT test surface.
 
+## Cloud Run preparation
+
+The [GCP deployment guide](../docs/gcp-deployment.md) records the reviewed container,
+production JWT guard, Cloud SQL socket contract, and required Cloud Run inputs. The
+configuration, focused local tests, static checks, and final Linux/amd64 image build are
+verified. The equivalent initial image returned health 200 and rejected unauthenticated
+configuration access; the final-source image did not accept a local ARM-emulated loopback
+probe before cleanup. Private native Cloud Run revision `samurai-backend-00001-9mx` then
+proved IAM health access, IAM-only configuration rejection, and configuration access with
+the temporary bootstrap application JWT. An approved bounded `run_company_journey` parent
+run completed with `gemini-3.5-flash-lite`; an owner-scoped `COMPLETED` readback proved its
+Cloud SQL-backed record. That run does not prove expected business artifacts for the full
+workflow. Agno sign-in/connection registration, production-key rotation, and private JWT
+validation remain pending; public transport is disabled and browser acceptance follows its
+controlled transition.
+The full local suite also has a cancellation timeout reproduced unchanged at base commit
+`14d47c2a70fd29999c0ca0ccacbd182e714dbc63`; it is not treated as a deployment-change pass.
+
 The runtime disables automatic database provisioning on startup so liveness/configuration checks work without a database. AgentOS creates required tables on its normal database write paths. Starting the process alone does not prove persistence. Use Cloud SQL and controlled schema management for deployment; do not expose this shared-key bootstrap publicly.
 
 Use `task db:status`, `task db:logs`, and `task db:stop` from the root for Samurai-only database lifecycle actions. `db:stop` preserves the volume; do not use `down -v` unless deleting this project's local database is intended.
