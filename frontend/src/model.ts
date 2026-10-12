@@ -9,14 +9,14 @@ export const panelSchema = z.discriminatedUnion('kind', [
     price: z.string(), includes: z.array(z.string()).max(20) }),
   z.object({ ...basePanel, kind: z.literal('evidence'), claims: z.array(z.object({
     id: z.string(), claim: z.string(), status: z.enum(['hypothesis', 'needs-check', 'supported']),
-    detail: z.string(), sources: z.array(z.object({ title: z.string(), url: z.string().url().refine(url => /^https?:\/\//.test(url)) })).max(10),
-  }).refine(claim => claim.status !== 'supported' || claim.sources.length > 0, 'Supported claims need sources')).max(30) }),
+    detail: z.string(), sources: z.array(z.object({ title: z.string(), url: z.string().url().refine(url => /^https?:\/\//.test(url)) })).max(100),
+  }).refine(claim => claim.status !== 'supported' || claim.sources.length > 0, 'Supported claims need sources')).max(500) }),
   z.object({ ...basePanel, kind: z.literal('launch-plan'), tasks: z.array(z.object({
     id: z.string(), title: z.string(), owner: z.string(), timing: z.string(), detail: z.string(),
-  })).max(30).refine(tasks => new Set(tasks.map(task => task.id)).size === tasks.length, 'Task IDs must be unique') }),
+  })).max(400).refine(tasks => new Set(tasks.map(task => task.id)).size === tasks.length, 'Task IDs must be unique') }),
   z.object({ ...basePanel, kind: z.literal('pricing'), options: z.array(z.object({
     name: z.string(), price: z.string(), description: z.string(),
-  })).max(10) }),
+  })).max(100) }),
 ]);
 export type Panel = z.infer<typeof panelSchema>;
 export const messageSchema = z.object({
@@ -48,7 +48,7 @@ export const workspaceSchema = z.object({
   brief: companyBriefSchema.optional(),
   activityLog: z.array(activitySchema).max(100).default([]),
   version: z.literal(1), messages: z.array(messageSchema).max(200), pinned: z.array(panelSchema).max(12),
-  completedTasks: z.array(z.string()).max(300).default([]),
+  completedTasks: z.array(z.string()).max(400).default([]),
   panelOrder: z.array(z.string()).max(212).default([]),
   shortlist: z.array(z.string()).max(100), approvedOffers: z.array(z.string()).max(20), theme: z.enum(['sky', 'dusk']),
 });
@@ -127,7 +127,7 @@ export function applyBackendEvent(workspace: Workspace, runId: string, event: Ex
   return { ...workspace, messages: [...workspace.messages, message].slice(-200), pinned: event.panel ? workspace.pinned.map(panel => panel.id === event.panel?.id ? event.panel : panel) : workspace.pinned };
 }
 export function initialCompanyPrompt(brief: CompanyBrief): string {
-  return `Build my company from this founder-supplied brief. These are inputs and hypotheses, not verified facts. Preserve missing evidence and request clarification when needed.\n${JSON.stringify({ idea: brief.idea, target_customer: brief.customer, geography: brief.location, budget: brief.budget, founder_skills: brief.founderSkills, goal: brief.goal })}`;
+  return `Prepare only my company brief using stage="brief", then wait for my decision before research or planning. These are inputs and hypotheses, not verified facts. Preserve missing evidence and request clarification when needed.\n${JSON.stringify({ idea: brief.idea, target_customer: brief.customer, geography: brief.location, budget: brief.budget, founder_skills: brief.founderSkills, goal: brief.goal })}`;
 }
 
 export function toggleSavedSelection(ids: readonly string[], id: string, limit: number): string[] {

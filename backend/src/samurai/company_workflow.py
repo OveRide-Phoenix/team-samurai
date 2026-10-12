@@ -42,8 +42,11 @@ from samurai.workflow_state import WorkflowContextError, load_company_state, sav
 if TYPE_CHECKING:
     from agno.db.base import BaseDb
     from agno.run import RunContext
+    from agno.workflow.workflow import WorkflowStep
 
     from samurai.config import Settings
+
+JourneyStage = Literal["brief", "research", "strategy", "plan"]
 
 WORKFLOW_ID = "company-journey"
 REQUIRED_CONTEXT = ("target_customer", "geography", "budget", "founder_skills", "goal")
@@ -341,7 +344,12 @@ class _Journey:
             brief = _brief(request, existing)
         except JourneyInputError as error:
             return _step_output(_boundary_failure(error), stop=True)
-        if existing == brief and prior is not None:
+        if (
+            existing is not None
+            and prior is not None
+            and existing.model_dump(exclude={"open_questions", "next_actions"})
+            == brief.model_dump(exclude={"open_questions", "next_actions"})
+        ):
             return _step_output(prior)
         proposed = await _agent_payload(
             self.intake_agent,
@@ -664,7 +672,9 @@ class _Journey:
         return _step_output(_result(updated, outcome, questions=questions))
 
 
-def create_company_workflow(db: BaseDb, settings: Settings) -> Workflow:
+def create_company_workflow(
+    db: BaseDb, settings: Settings, *, stage: JourneyStage = "plan"
+) -> Workflow:
     """Create the ordered company journey without registering it in AgentOS."""
     catalog = create_role_catalog(settings)
     journey = _Journey(
@@ -674,20 +684,38 @@ def create_company_workflow(db: BaseDb, settings: Settings) -> Workflow:
         product_agent=catalog[Role.PRODUCT_MANAGER].agent,
         verifier_agent=catalog[Role.VERIFIER].agent,
     )
+    steps: list[WorkflowStep] = [
+        Step(name="Intake", executor=journey.intake, max_retries=0),
+        Step(name="Verify brief", executor=journey.brief_check, max_retries=0),
+        Step(name="Research", executor=journey.research, max_retries=0),
+        Step(name="Verify evidence", executor=journey.evidence_check, max_retries=0),
+        Step(name="Strategy", executor=journey.strategy, max_retries=0),
+        Step(name="Product plan", executor=journey.product, max_retries=0),
+        Step(name="Verify journey", executor=journey.verify, max_retries=0),
+    ]
+    if stage != "plan":
+        questions = {
+            "brief": "Ready to research your market?",
+            "research": "Ready to shape your offer?",
+            "strategy": "Ready to plan the first version?",
+        }
+
+        def pause(_step_input: StepInput, run_context: RunContext | None = None) -> StepOutput:
+            return _step_output(
+                _result(
+                    _state(_context(run_context)), "needs_input", questions=(questions[stage],)
+                ),
+                stop=True,
+            )
+
+        steps = steps[: {"brief": 2, "research": 4, "strategy": 5}[stage]]
+        steps.append(Step(name="Await founder decision", executor=pause, max_retries=0))
     return Workflow(
         id=WORKFLOW_ID,
         name="Samurai verified company journey",
         db=db,
         input_schema=CompanyJourneyRequest,
-        steps=[
-            Step(name="Intake", executor=journey.intake, max_retries=0),
-            Step(name="Verify brief", executor=journey.brief_check, max_retries=0),
-            Step(name="Research", executor=journey.research, max_retries=0),
-            Step(name="Verify evidence", executor=journey.evidence_check, max_retries=0),
-            Step(name="Strategy", executor=journey.strategy, max_retries=0),
-            Step(name="Product plan", executor=journey.product, max_retries=0),
-            Step(name="Verify journey", executor=journey.verify, max_retries=0),
-        ],
+        steps=steps,
         store_events=True,
         telemetry=False,
     )

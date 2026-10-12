@@ -33,4 +33,11 @@ Landing omits the team and dental-demo shortcut. Company-name intake is one floa
 Prerequisite pages come from the backend and cover every required founder context field. Team roles expand in place with native details/summary controls to show retained step events. Completed details remain visible. No invented percentage or simulated worker. Existing theme tokens and card geometry apply.
 
 ## Long artifact content
-Artifact lineage uses a wrapping preformatted details block with a 240px vertical cap and its own scroll for technical JSON. Message and panel content can shrink and wrap unbroken URLs/IDs within their existing width. Research blockers remain explicit in plain language; no source-free result is presented as validated.
+Artifact lineage is retained in validated state, outside founder-facing cards; present known responses through the panel catalog. Message and panel content can shrink and wrap unbroken URLs/IDs within their existing width. Research blockers remain explicit in plain language; no source-free result is presented as validated.
+
+## Clean founder output
+No raw artifact JSON, wire-status chat labels or repeated evidence badges in the founder flow. Company brief is one definition-list card containing idea, customer, market, budget, skills and milestone; extra context stays in Details. Evidence has one quiet aggregate review label, source links and expandable additional findings. Full validated provenance remains stored, not printed as JSON. Preserve draft/assumption distinctions at panel level.
+
+Collapsed Details retains all validated findings, source excerpts, conflicts and plan steps. Bounded native payloads may contain up to 500 draft/evidence entries, 400 plan steps and 100 sources per finding. Show only the first three findings/steps and two source links initially; keep overflow readable through Details. Mobile dashboard Team scrolls with cards so it cannot cover results.
+
+Mobile result disclosures retain native indicators and at least 44px tap height. Source-support excerpts identify their finding inside Details.

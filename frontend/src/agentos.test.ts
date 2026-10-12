@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cancelAgentosRun, createAgentosTransport, readAgentosRun, type AgentosRun } from './agentos';
-import type { WorkEvent } from './model';
+import { cancelAgentosRun, createAgentosTransport, readAgentosRun, presentMessages, type AgentosRun } from './agentos';
+import type { Message, WorkEvent } from './model';
 
 const company = '00000000-0000-4000-8000-000000000001';
 const artifactId = '00000000-0000-4000-8000-000000000002';
@@ -50,7 +50,8 @@ describe('AgentOS transport wire boundary', () => {
     expect(event?.type).toBe('message');
     if (event?.type !== 'message' || event.panel?.kind !== 'evidence') throw new Error('Expected evidence');
     expect(event.panel.id).toBe(`artifact-${artifactId}`);
-    expect(event.panel.claims[0]).toMatchObject({ id: claimId, status: 'needs-check', sources: [{ url: 'https://example.org/research', title: 'Independent reference' }] });
+    expect(event.panel.claims.find(claim => claim.id === claimId)).toMatchObject({ id: claimId, status: 'needs-check', sources: [{ url: 'https://example.org/research', title: 'Independent reference' }] });
+    expect(event.panel.claims.some(claim => claim.claim === 'Conflicting source')).toBe(true);
     expect(event.panel.provenance).toMatchObject({ status: 'needs_rework', sources: [{ source_id: sourceId, search_query: 'pricing', excerpt: 'A limited sample' }] });
     expect(runs.at(-1)).toEqual({ runId: 'run-1', status: 'completed', companyId: company, revision: 1 });
     const options = fetcher.mock.calls[0]?.[1];
@@ -244,4 +245,61 @@ it('shows evidence gates as waiting instead of inventing strategy completion', a
     { type: 'activity', agent: 'Verifier', state: 'waiting', detail: 'Evidence review blocked: source support is missing.' },
     { type: 'activity', agent: 'Strategist', state: 'waiting', detail: 'Waiting for source evidence before strategy can start.' },
   ]);
+});
+
+describe('founder-facing saved response presentation', () => {
+  it('hides status labels and maps saved wire JSON without changing the original', () => {
+    const saved: Message[] = [
+      { id: 'user', role: 'user', text: 'product plan: complete' },
+      { id: 'status', role: 'assistant', text: 'product plan: complete' },
+      { id: 'wire', role: 'assistant', text: JSON.stringify(result.artifacts[0]) },
+    ];
+    const before = JSON.stringify(saved);
+    const presented = presentMessages(saved);
+    expect(presented).toHaveLength(2);
+    expect(presented[0]?.text).toBe('product plan: complete');
+    expect(presented[1]?.text).toBe('');
+    expect(presented[1]?.panel?.provenance).toEqual(result.artifacts[0]);
+    expect(JSON.stringify(saved)).toBe(before);
+    expect(presentMessages([...saved, presented[1]!])).toHaveLength(2);
+  });
+
+  it('does not expose malformed or incomplete wire JSON', () => {
+    const saved: Message = { id: 'invalid', role: 'assistant', text: '{"artifact_type":"research"}' };
+    expect(presentMessages([saved])[0]?.text).toBe('This response could not be displayed. Its data is incomplete.');
+  });
+
+  it('keeps genuine questions and human explanations', () => {
+    const message: Message = { id: 'question', role: 'assistant', text: 'Ready to research your market?' };
+    expect(presentMessages([message])).toEqual([message]);
+  });
+
+  it('does not repeat unchanged artifacts on the next founder-approved stage', async () => {
+    serve(frame(wire('RunStarted')) + frame(wire('RunCompleted', { content: result })));
+    const saved = presentMessages([{ id: 'wire', role: 'assistant', text: JSON.stringify(result) }]);
+    expect(await collect(createAgentosTransport('session-1', undefined, () => saved)('Continue', new AbortController().signal))).toEqual([]);
+  });
+});
+
+
+it('retains later conflicts and review warnings when research has more than 30 findings', async () => {
+  const large = structuredClone(result);
+  large.artifacts[0]!.claims = Array.from({length: 31}, (_, index) => ({ ...result.artifacts[0]!.claims[0]!, claim_id: `00000000-0000-4000-8000-${String(index + 100).padStart(12, '0')}`, text: `Finding ${index + 1}` }));
+  serve(frame(wire('RunStarted')) + frame(wire('RunCompleted', {content: large})));
+  const events = await collect(createAgentosTransport('session-1')('Research', new AbortController().signal));
+  const event = events[0];
+  if (event?.type !== 'message' || event.panel?.kind !== 'evidence') throw new Error('Expected research');
+  expect(event.panel.claims).toHaveLength(34);
+  expect(event.panel.claims.some(claim => claim.claim === 'Conflicting source')).toBe(true);
+  expect(event.panel.claims.some(claim => claim.claim === 'Validate demand')).toBe(true);
+  expect(event.panel.claims.some(claim => claim.claim === 'Finding 31')).toBe(true);
+});
+
+
+it('keeps the offer concise while retaining all pricing options', () => {
+  const prices = Array.from({length: 13}, (_, index) => `Test price ${index + 1}`);
+  const saved: Message = { id: 'strategy', role: 'assistant', text: JSON.stringify({ ...result.artifacts[0], artifact_type: 'strategy', producer: 'strategist', payload: { artifact_type: 'strategy', ideal_customer_profile: 'Test customers', positioning: 'Simple positioning', offer: 'A focused pilot', pricing_assumptions: prices } }) };
+  const messages = presentMessages([saved]);
+  expect(messages.find(message => message.panel?.kind === 'offer')?.panel).toMatchObject({price: prices[0]});
+  expect(messages.find(message => message.panel?.kind === 'pricing')?.panel).toMatchObject({options: prices.map((price, index) => ({name: `Assumption ${index + 1}`, price, description: ''}))});
 });

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { agents, panelSchema, type Panel, type Transport, type WorkEvent } from './model';
+import { agents, panelSchema, type Message, type Panel, type Transport, type WorkEvent } from './model';
 
 const base = '/api/agentos/agents/samurai/runs';
 const headers = { 'X-Samurai-Client': '1' } as const;
@@ -78,24 +78,25 @@ function resultEvents(result: WorkflowResult, seen: Set<string>): WorkEvent[] {
     seen.add(key);
     const id = `artifact-${item.artifact_id}`;
     // Preserve the complete validated lineage even where the existing panel catalog has no dedicated field.
-    const note = `${item.status}; ${item.acceptance_status}; revision ${item.revision}. Generated artifact; review source support and assumptions.`;
+    const note = item.status === 'needs_rework' ? 'Some assumptions still need review.' : 'Draft — review before acting.';
     const data = item.payload;
     const panels: Panel[] = [];
     if (data.artifact_type === 'intake') {
       const brief = data.brief;
       const fields = [['Idea', brief.idea], ['First customers', brief.target_customer], ['Market', brief.geography], ['Budget', brief.budget], ['Founder skills', brief.founder_skills], ['First milestone', brief.goal], ['Supplied context', brief.supplied_context.join('; ')], ['Assumptions', brief.assumptions.join('; ')], ['Open questions', brief.open_questions.join('; ')], ['Proposed next actions', brief.next_actions.join('; ')]] as const;
-      panels.push({ id, kind: 'evidence', title: 'Company brief', note: `${item.status}; founder inputs retained for this company.`, claims: fields.flatMap(([label, value], index) => value ? [{ id: `${id}-brief-${index}`, claim: `${label}: ${value}`, status: 'needs-check' as const, detail: 'Founder supplied context, not market evidence', sources: [] }] : []) });
+      panels.push({ id, kind: 'evidence', title: 'Company brief', note: '', claims: fields.flatMap(([label, value], index) => value ? [{ id: `${id}-brief-${index}`, claim: `${label}: ${value}`, status: 'needs-check' as const, detail: 'Founder supplied context, not market evidence', sources: [] }] : []) });
     } else if (data.artifact_type === 'strategy') {
-      panels.push({ id, kind: 'offer', title: 'Business offer', note, customer: data.ideal_customer_profile, promise: data.offer, price: data.pricing_assumptions.join('\n') || 'No pricing assumption supplied', includes: [data.positioning] });
-      if (data.pricing_assumptions.length) panels.push({ id: `${id}-pricing`, kind: 'pricing', title: 'Pricing assumptions', note, options: data.pricing_assumptions.slice(0, 10).map((price, index) => ({ name: `Assumption ${index + 1}`, price, description: 'Founder review required' })) });
+      panels.push({ id, kind: 'offer', title: 'Business offer', note, customer: data.ideal_customer_profile, promise: data.offer, price: data.pricing_assumptions[0] || 'No pricing assumption supplied', includes: [data.positioning] });
+      if (data.pricing_assumptions.length) panels.push({ id: `${id}-pricing`, kind: 'pricing', title: 'Pricing assumptions', note, options: data.pricing_assumptions.map((price, index) => ({ name: `Assumption ${index + 1}`, price, description: '' })) });
     } else if (data.artifact_type === 'product_plan') {
-      panels.push({ id, kind: 'launch-plan', title: 'Minimum offering and delivery plan', note, tasks: [...data.minimum_viable_offering, ...data.delivery_requirements, ...data.user_stories, ...data.roadmap].slice(0, 30).map((title, index) => ({ id: `${id}-${index}`, title, owner: item.producer, timing: 'Not scheduled', detail: item.status })) });
+      panels.push({ id, kind: 'launch-plan', title: 'Minimum offering and delivery plan', note, tasks: [...data.minimum_viable_offering, ...data.delivery_requirements, ...data.user_stories, ...data.roadmap].map((title, index) => ({ id: `${id}-${index}`, title, owner: item.producer, timing: 'Not scheduled', detail: item.status })) });
     } else if (data.artifact_type === 'research' || data.artifact_type === 'verification') {
-      const claims: Extract<Panel, { kind: 'evidence' }>['claims'] = item.claims.map(claim => ({ id: claim.claim_id, claim: claim.text, status: claim.verification_status === 'supported' && claim.support_status === 'mapped' ? 'supported' : 'needs-check', detail: `${claim.verification_status}; ${claim.support_status}. ${claim.support_segments.join('\n')}`, sources: item.sources.filter(entry => claim.source_ids.includes(entry.source_id)).map(entry => ({ title: entry.title, url: entry.url })).slice(0, 10) }));
+      const claims: Extract<Panel, { kind: 'evidence' }>['claims'] = item.claims.map(claim => ({ id: claim.claim_id, claim: claim.text, status: claim.verification_status === 'supported' && claim.support_status === 'mapped' ? 'supported' : 'needs-check', detail: `${claim.verification_status}; ${claim.support_status}. ${claim.support_segments.join('\n')}`, sources: item.sources.filter(entry => claim.source_ids.includes(entry.source_id)).map(entry => ({ title: entry.title, url: entry.url })) }));
+      if (data.artifact_type === 'research' && data.summary && !claims.some(claim => claim.claim === data.summary)) claims.unshift({ id: `${id}-summary`, claim: data.summary, status: 'hypothesis', detail: 'Research summary; see individual source-backed findings', sources: [] });
+      if (data.artifact_type === 'research') claims.push(...data.conflicts.map((claim, index) => ({ id: `${id}-conflict-${index}`, claim, status: 'needs-check' as const, detail: 'warning: research_conflict', sources: [] })));
       claims.push(...item.assumptions.map(entry => ({ id: entry.assumption_id, claim: entry.text, status: 'hypothesis' as const, detail: 'Assumption, not sourced fact', sources: [] })));
       claims.push(...item.verification_findings.map((finding, index) => ({ id: `${id}-finding-${index}`, claim: finding.message, status: 'needs-check' as const, detail: `${finding.severity}: ${finding.code}`, sources: [] })));
-      const summary = data.artifact_type === 'research' ? [data.summary, ...data.conflicts].join('\n') : `${data.outcome}; checked artifacts: ${data.checked_artifact_ids.join(', ')}`;
-      panels.push({ id, kind: 'evidence', title: data.artifact_type === 'research' ? 'Research evidence' : 'Verification review', note: `${summary}\n${note}`, claims: claims.slice(0, 30) });
+        panels.push({ id, kind: 'evidence', title: data.artifact_type === 'research' ? 'Research evidence' : 'Verification review', note, claims });
     }
     if (!panels.length) {
       const entries: readonly [string, unknown][] = Object.entries(data);
@@ -103,9 +104,9 @@ function resultEvents(result: WorkflowResult, seen: Set<string>): WorkEvent[] {
         const values = typeof value === 'string' ? [value] : Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
         return values.map(value => `${field.replaceAll('_', ' ')}: ${value}`);
       });
-      panels.push({ id, kind: 'evidence', title: data.artifact_type.replaceAll('_', ' '), note, claims: drafts.slice(0, 10).map((claim, index) => ({ id: `${id}-draft-${index}`, claim: claim.length > 250 ? `${claim.slice(0, 247)}…` : claim, status: 'needs-check', detail: data.artifact_type === 'analysis' ? 'Based on founder supplied measurements; review before acting' : 'Generated draft; not sent, published or executed', sources: [] })) });
+      panels.push({ id, kind: 'evidence', title: data.artifact_type.replaceAll('_', ' '), note, claims: drafts.map((claim, index) => ({ id: `${id}-draft-${index}`, claim, status: 'needs-check', detail: data.artifact_type === 'analysis' ? 'Based on founder supplied measurements; review before acting' : 'Generated draft; not sent, published or executed', sources: [] })) });
     }
-    for (const panel of panels) events.push({ type: 'message', text: `${item.artifact_type.replaceAll('_', ' ')}: ${item.status}`, panel: panelSchema.parse({ ...panel, provenance: item }) });
+    for (const panel of panels) events.push({ type: 'message', text: '', panel: panelSchema.parse({ ...panel, provenance: item }) });
   }
   const outcomeKey = `outcome:${result.company_id}:${result.revision}:${result.outcome}`;
   if (result.outcome === 'insufficient_evidence' && !seen.has(outcomeKey)) {
@@ -185,7 +186,7 @@ export async function cancelAgentosRun(sessionId: string, runId: string): Promis
   if (receipt.trim()) z.strictObject({}).parse(json(receipt));
 }
 
-export function createAgentosTransport(sessionId: string, onRun?: (run: AgentosRun) => void): Transport {
+export function createAgentosTransport(sessionId: string, onRun?: (run: AgentosRun) => void, savedMessages: () => readonly Message[] = () => []): Transport {
   text.parse(sessionId);
   let companyId: string | undefined;
   return async function* (input, signal) {
@@ -203,7 +204,7 @@ export function createAgentosTransport(sessionId: string, onRun?: (run: AgentosR
       void cancellation.catch(() => undefined);
     };
     signal.addEventListener('abort', cancel);
-    const seen = new Set<string>();
+    const seen = artifactKeys(savedMessages());
     try {
       const form = new FormData();
       form.set('message', text.parse(input)); form.set('session_id', sessionId); form.set('stream', 'true'); form.set('background', 'false');
@@ -250,7 +251,7 @@ export function createAgentosTransport(sessionId: string, onRun?: (run: AgentosR
   };
 }
 
-export async function readAgentosRun(sessionId: string, runId: string, signal?: AbortSignal): Promise<{ readonly run: AgentosRun; readonly events: readonly WorkEvent[] }> {
+export async function readAgentosRun(sessionId: string, runId: string, signal?: AbortSignal, savedMessages: readonly Message[] = []): Promise<{ readonly run: AgentosRun; readonly events: readonly WorkEvent[] }> {
   text.parse(sessionId); text.parse(runId);
   const response = await request(`${base}/${encodeURIComponent(runId)}?session_id=${encodeURIComponent(sessionId)}`, { method: 'GET', signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000) });
   const wire = recordSchema.parse(json(await response.text()));
@@ -258,7 +259,7 @@ export async function readAgentosRun(sessionId: string, runId: string, signal?: 
   if (run.run_id !== runId || run.session_id !== sessionId) throw new AgentosError('scope', 'AgentOS returned another session or run.');
   const status = run.status === 'COMPLETED' ? 'completed' : run.status === 'CANCELLED' ? 'cancelled' : run.status === 'ERROR' ? 'failed' : 'running';
   const result = status === 'completed' ? workflow(run.content) : undefined;
-  return { run: { runId, status, ...(result ? { companyId: result.company_id, revision: result.revision } : {}) }, events: [...recoveredActivities(wire.events, sessionId, runId), ...(result ? resultEvents(result, new Set()) : status === 'completed' && typeof run.content === 'string' ? [{ type: 'message' as const, text: run.content }] : [])] };
+  return { run: { runId, status, ...(result ? { companyId: result.company_id, revision: result.revision } : {}) }, events: [...recoveredActivities(wire.events, sessionId, runId), ...(result ? resultEvents(result, artifactKeys(savedMessages)) : status === 'completed' && typeof run.content === 'string' ? [{ type: 'message' as const, text: run.content }] : [])] };
 }
 
 function recoveredActivities(value: unknown, sessionId: string, runId: string): WorkEvent[] {
@@ -270,4 +271,44 @@ function recoveredActivities(value: unknown, sessionId: string, runId: string): 
     const activity = progressEvent(event.content);
     return activity ? [activity] : [];
   }).slice(-100);
+}
+
+// Present historical wire responses through the same catalog without replaying work or changing saved data.
+export function presentMessages(messages: readonly Message[]): Message[] {
+  const panelIds = new Set(messages.flatMap(message => message.panel ? [message.panel.id] : []));
+  const output: Message[] = [];
+  for (const message of messages) {
+    if (message.role !== 'assistant') { output.push(message); continue; }
+    const statusOnly = /^[a-z_ ]+: (complete|needs_input|needs_rework|insufficient_evidence|draft_only|requires_metrics|based_on_founder_supplied_metrics)$/.test(message.text.trim());
+    if (message.panel) { output.push({ ...message, text: statusOnly ? '' : message.text }); continue; }
+    if (statusOnly) continue;
+    const candidate = message.text.trim();
+    if (candidate.startsWith('{') || candidate.includes('SAMURAI_WORKFLOW_RESULT=')) {
+      let value: unknown;
+      try { value = json(candidate.includes('SAMURAI_WORKFLOW_RESULT=') ? candidate.slice(candidate.lastIndexOf('SAMURAI_WORKFLOW_RESULT=') + 'SAMURAI_WORKFLOW_RESULT='.length) : candidate); }
+      catch (error) { if (error instanceof AgentosError) { output.push({ ...message, text: 'This response could not be displayed. Please try again.' }); continue; } throw error; }
+      const result = resultSchema.safeParse(value);
+      const envelope = artifact.safeParse(value);
+      const data = result.success ? result.data : envelope.success ? { company_id: envelope.data.company_id, revision: envelope.data.revision, outcome: 'needs_rework' as const, artifacts: [envelope.data], questions: [] } : undefined;
+      if (data) {
+        for (const [index, event] of resultEvents(data, new Set()).entries()) {
+          if (event.type !== 'message' || (event.panel && panelIds.has(event.panel.id))) continue;
+          if (event.panel) panelIds.add(event.panel.id);
+          output.push({ ...message, id: `${message.id}-view-${index}`, text: event.text, ...(event.panel ? { panel: event.panel } : {}) });
+        }
+        continue;
+      }
+      output.push({ ...message, text: "This response could not be displayed. Its data is incomplete." });
+      continue;
+    }
+    output.push(message);
+  }
+  return output;
+}
+
+function artifactKeys(messages: readonly Message[]): Set<string> {
+  return new Set(messages.flatMap(message => {
+    const item = message.panel?.provenance;
+    return item && typeof item.artifact_id === 'string' && typeof item.revision === 'number' ? [`${item.artifact_id}:${item.revision}`] : [];
+  }));
 }

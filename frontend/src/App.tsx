@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { GenerativePanelBody } from './GenerativePanelBody';
 import { demoTransport, onboardingPreview } from './demo';
-import { createAgentosTransport, readAgentosRun, cancelAgentosRun, type AgentosRun } from './agentos';
+import { presentMessages, createAgentosTransport, readAgentosRun, cancelAgentosRun, type AgentosRun } from './agentos';
 import { finishActivities, toggleSavedSelection, applyBackendEvent, recordBackendRun, initialCompanyPrompt, eventSchema, panelSchema, latestPanels, orderedPanels, movePanel, type Agent, type Message, type Panel, type Workspace, type Portfolio, type Transport, type WorkEvent }  from './model';
 
 type WorkspaceContextValue = {
@@ -60,9 +60,13 @@ function BusinessPanel({ panel, compact = false, expanded = false, expandable = 
         <div className="prospect-list">{panel.rows.filter(row => filter === 'All' || (filter === 'High fit' ? row.fit === 'High' : workspace.shortlist.includes(row.id))).map(row => <div className="prospect-row" key={row.id}><div><strong>{row.name}</strong><span>{row.area} · {row.fit} fit</span>{(!compact || expanded) && <p>{row.reason}</p>}</div><button className={`shortlist-button ${workspace.shortlist.includes(row.id) ? 'selected' : ''}`} onClick={() => shortlist(row.id)} aria-label={`${workspace.shortlist.includes(row.id) ? 'Remove' : 'Shortlist'} ${row.name}`} aria-pressed={workspace.shortlist.includes(row.id)}>{workspace.shortlist.includes(row.id) ? <Check size={16} /> : <Plus size={16} />}</button></div>)}</div>
         {filter === 'Shortlisted' && !panel.rows.some(row => workspace.shortlist.includes(row.id)) && <p className="empty-note">Choose a clinic with the + button to start your shortlist.</p>}
       </>}
-      {panel.kind === 'pricing' && <div className="pricing-options">{panel.options.map(option => <div key={option.name}><span>{option.name}</span><strong>{option.price}</strong>{(!compact || expanded) && <p>{option.description}</p>}</div>)}</div>}
+      {panel.kind === 'pricing' && <div className="pricing-options">{(() => {
+        const render = (option: typeof panel.options[number]) => <div key={option.name}><span>{option.name}</span><strong>{option.price}</strong>{(!compact || expanded) && option.description && <p>{option.description}</p>}</div>;
+        return <>{panel.options.slice(0, 3).map(render)}{panel.options.length > 3 && <details className="panel-details"><summary>More options ({panel.options.length - 3})</summary>{panel.options.slice(3).map(render)}</details>}</>;
+      })()}</div>}
       <GenerativePanelBody panel={panel} compact={compact && !expanded} completedTasks={workspace.completedTasks} onComplete={completeTask} />
-      <p className="panel-note"><CircleHelp size={12} />{panel.note}</p>{panel.provenance && <details className="artifact-lineage"><summary>Artifact lineage</summary><pre className="artifact-json">{JSON.stringify(panel.provenance, null, 2)}</pre></details>}
+      {!panel.provenance && panel.note && <p className="panel-note"><CircleHelp size={12} />{panel.note}</p>}
+      {panel.provenance && panel.kind !== 'evidence' && <p className="panel-note">Draft · Review before acting</p>}
     </section>
   );
 }
@@ -83,7 +87,7 @@ function convertMessage(message: Message): ThreadMessageLike {
   return {
     id: message.id, role: message.role,
     content: [
-      { type: 'text', text: message.role === 'assistant' && message.text === 'research: insufficient_evidence' ? 'Research is paused. Web search is not connected, so there are no sources to verify or use for strategy yet.' : message.text },
+      ...(message.text ? [{ type: 'text' as const, text: message.text }] : []),
       ...(message.panel ? [{ type: 'tool-call' as const, toolCallId: `${message.id}-panel`, toolName: 'business_panel', args: {}, argsText: '{}', result: message.panel }] : []),
     ],
   };
@@ -108,6 +112,8 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
   const [runError, setRunError] = useState('');
   const controllerRef = useRef<AbortController | null>(null);
   const backendRunRef = useRef(workspace.backendRun);
+  const messagesRef = useRef(workspace.messages);
+  messagesRef.current = workspace.messages;
   const transportRef = useRef<Transport | null>(null);
   const backendRunning = () => backendRunRef.current?.status === 'running';
   const completionRef = useRef<Promise<void> | null>(null);
@@ -117,7 +123,7 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
     setWorkspace(current => ({ ...recordBackendRun(current, run), activityLog: finishActivities(current.activityLog, run.status) }));
     if (run.status !== 'running') setActivities(current => Object.fromEntries(finishActivities(Object.values(current).filter((activity): activity is Activity => Boolean(activity)), run.status).map(activity => [activity.agent, activity])));
   };
-  if (live && !transportRef.current) transportRef.current = createAgentosTransport(company.id, recordRun);
+  if (live && !transportRef.current) transportRef.current = createAgentosTransport(company.id, recordRun, () => messagesRef.current);
   const viewportRef = useRef<HTMLDivElement>(null);
   const homeRef = useRef<HTMLElement>(null);
   const chatRef = useRef<HTMLElement>(null);
@@ -190,14 +196,15 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
       } catch (error) { setRunError(error instanceof Error ? error.message : 'Cancellation was not acknowledged.'); }
     }
   };
-  const runtime = useExternalStoreRuntime({ messages: workspace.messages, convertMessage, isRunning, onNew, onCancel });
+  const chatMessages = presentMessages(workspace.messages);
+  const runtime = useExternalStoreRuntime({ messages: chatMessages, convertMessage, isRunning, onNew, onCancel });
   useEffect(() => {
     const saved = backendRunRef.current;
     if (!live || !saved) return;
     const controller = new AbortController();
     const timer = setTimeout(() => {
       setRunning(true);
-      void readAgentosRun(company.id, saved.runId, controller.signal).then(recovered => {
+      void readAgentosRun(company.id, saved.runId, controller.signal, messagesRef.current).then(recovered => {
         if (controller.signal.aborted) return;
         // Check authoritative company binding before applying any recovered artifact.
         recordRun(recovered.run);
@@ -234,11 +241,12 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
   const pin = (panel: Panel) => setWorkspace(current => ({ ...current, pinned: current.pinned.some(item => item.id === panel.id) ? current.pinned.filter(item => item.id !== panel.id) : [...current.pinned, panel].slice(-12) }));
   const shortlist = (id: string) => setWorkspace(current => ({ ...current, shortlist: toggleSavedSelection(current.shortlist, id, 100) }));
   const approve = (id: string) => setWorkspace(current => ({ ...current, approvedOffers: toggleSavedSelection(current.approvedOffers, id, 20) }));
-  const completeTask = (id: string) => setWorkspace(current => ({ ...current, completedTasks: current.completedTasks.includes(id) ? current.completedTasks.filter(item => item !== id) : [...current.completedTasks, id].slice(-300) }));
-  const panels = latestPanels(workspace);
+  const completeTask = (id: string) => setWorkspace(current => ({ ...current, completedTasks: current.completedTasks.includes(id) ? current.completedTasks.filter(item => item !== id) : [...current.completedTasks, id].slice(-400) }));
+  const panels = latestPanels({ ...workspace, messages: chatMessages });
+  const nextStage = panels.some(panel => panel.provenance?.artifact_type === "product_plan") ? { label: "Review next steps", prompt: "Help me choose the next step from our existing plan." } : panels.some(panel => panel.provenance?.artifact_type === "strategy") ? { label: "Plan first version", prompt: 'Prepare the product and delivery plan.' } : panels.some(panel => panel.provenance?.artifact_type === "research") ? { label: "Shape offer", prompt: 'Shape our offer and positioning. Stop before creating the product plan.' } : { label: "Research market", prompt: 'Research our market. Stop before shaping the offer.' };
   const currentPanel = (panel: Panel) => panels.find(item => item.id === panel.id) || panel;
   const dashboardPanels = orderedPanels([...panels, ...(expandedPanel && !panels.some(panel => panel.id === expandedPanel.id) ? [expandedPanel] : [])], workspace.panelOrder);
-  const reorder = (id: string, target: string) => setWorkspace(current => ({ ...current, panelOrder: movePanel(orderedPanels(latestPanels(current), current.panelOrder), id, target) }));
+  const reorder = (id: string, target: string) => setWorkspace(current => ({ ...current, panelOrder: movePanel(orderedPanels(latestPanels({ ...current, messages: presentMessages(current.messages) }), current.panelOrder), id, target) }));
   const openPanel = (panel: Panel | null) => {
     setExpandedPanel(panel);
     if (panel && window.matchMedia('(max-width: 760px)').matches) setView('company');
@@ -259,8 +267,8 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
       <header className="topbar">
         <div className="topbar-brand"><button className="home-button" onClick={() => onOpen(null)} aria-label="All companies"><Home size={19} /></button><span className="wordmark">Samurai</span></div>
         <Tabs className="view-switch" value={view} onValueChange={value => setView(value as 'chat' | 'company')}><LiquidBackdrop /><TabsList aria-label="Workspace view"><TabsTrigger value="chat">Chat</TabsTrigger><TabsTrigger value="company">Company</TabsTrigger></TabsList></Tabs>
-        <div className="topbar-actions"><SearchBar items={workspace.messages.map(message => ({ id: message.id, title: message.panel?.title || message.text, detail: message.text }))} onSelect={id => {
-          const message = workspace.messages.find(item => item.id === id);
+        <div className="topbar-actions"><SearchBar items={chatMessages.map(message => ({ id: message.id, title: message.panel?.title || message.text, detail: message.text }))} onSelect={id => {
+          const message = chatMessages.find(item => item.id === id);
           if (message?.panel) openPanel(message.panel);
           else { setView('chat'); requestAnimationFrame(() => document.querySelector(`[data-message-id="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })); }
         }} /><ModeToggle mode={mode} onToggle={toggleMode} /><DropdownMenu.Root><DropdownMenu.Trigger asChild><button className="account-button" aria-label="Workspace settings"><SlidersHorizontal size={17} /></button></DropdownMenu.Trigger><DropdownMenu.Portal><DropdownMenu.Content className="workspace-menu" align="end" sideOffset={8} collisionPadding={14}>
@@ -296,7 +304,7 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
               <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage }} />
               {isRunning && <div className="working-message" role="status"><LoaderCircle size={15} className="spin" />{workingAgent?.detail || (recovering ? 'Recovering the saved backend run…' : live ? 'Waiting for the backend…' : 'Preparing the preview…')}</div>}
               {runError && <div className="error-note" role="alert">{live ? 'Backend status: ' : 'Preview status: '}{runError}</div>}
-              {workspace.messages.length > 0 && <div className="suggestions"><button onClick={() => ask(live ? 'Research our target customers and qualification criteria' : 'Show sample dental customer prospects')} disabled={isRunning}>{live ? 'Research customers' : 'Sample customers'} <ArrowRight size={13} /></button><button onClick={() => ask('Is this pricing viable?')} disabled={isRunning}>{live ? 'Review pricing' : 'Sample pricing'} <ArrowRight size={13} /></button></div>}
+              {workspace.messages.length > 0 && <div className="suggestions"><button onClick={() => ask(live ? nextStage.prompt : 'Show sample dental customer prospects')} disabled={isRunning}>{live ? nextStage.label : 'Sample customers'} <ArrowRight size={13} /></button>{!live && <button onClick={() => ask('Is this pricing viable?')} disabled={isRunning}>Sample pricing <ArrowRight size={13} /></button>}</div>}
             </div>
           </ThreadPrimitive.Viewport>
           <div className="composer-dock">{!conversationAtBottom && <button className="scroll-bottom" onClick={() => { setConversationAtBottom(true); viewportRef.current?.scrollTo({ top: viewportRef.current.scrollHeight, behavior: 'smooth' }); }} aria-label="Scroll to latest message"><ArrowDown size={16} /></button>}

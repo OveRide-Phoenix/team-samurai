@@ -48,7 +48,7 @@ from samurai.analysis_workflow import (
     create_analysis_workflow,
     run_analysis,
 )
-from samurai.company_workflow import CompanyJourneyRequest, create_company_workflow
+from samurai.company_workflow import CompanyJourneyRequest, JourneyStage, create_company_workflow
 from samurai.config import Settings, create_model
 from samurai.contracts import (
     CompanyBrief,
@@ -834,6 +834,7 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
         goal: str,
         supplied_context: tuple[str, ...] = (),
         assumptions: tuple[str, ...] = (),
+        stage: JourneyStage = "brief",
     ) -> abc.AsyncIterator[CustomEvent | str]:
         """Run or continue the verified company journey for this parent session.
 
@@ -847,6 +848,7 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
             goal: Exact founder-supplied outcome and timeframe; empty if not supplied.
             supplied_context: Other exact context explicitly supplied by the founder.
             assumptions: Founder-labelled hypotheses, never inferred facts.
+            stage: Founder-requested phase; new companies start with brief.
 
         """
         child_id, state = _child_state(db, run_context)
@@ -865,7 +867,7 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
             assumptions=assumptions,
         )
         workflow = _sanitize_workflow(
-            create_company_workflow(db, settings),
+            create_company_workflow(db, settings, stage=stage),
             max_model_calls=settings.agent_tool_call_limit + 1,
         )
         cancelled = False

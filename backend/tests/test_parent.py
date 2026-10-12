@@ -713,6 +713,7 @@ def test_native_http_parent_runs_real_company_workflow_to_five_artifacts(
             "budget": "INR 50000",
             "founder_skills": "Python and Next.js",
             "goal": "Validate demand in 30 days",
+            "stage": "plan",
         }
     )
     database = SqliteDb(db_file=str(tmp_path / "parent-real-core.db"))
@@ -824,6 +825,7 @@ def test_real_core_step_failure_is_fail_closed_before_state_mutation(
             "budget": "INR 50000",
             "founder_skills": "Python and Next.js",
             "goal": "Validate demand in 30 days",
+            "stage": "plan",
         }
     )
     database = SqliteDb(db_file=str(tmp_path / "parent-real-core-failure.db"))
@@ -1054,6 +1056,7 @@ def test_parent_tool_emits_progress_before_blocked_research_and_closes_cross_tas
             budget="INR 50000",
             founder_skills="Python and Next.js",
             goal="Validate demand in 30 days",
+            stage="plan",
         )
         first = await anext(stream)
         assert isinstance(first, CustomEvent)
@@ -1077,7 +1080,9 @@ def test_child_failure_is_sanitized_and_parent_is_terminal_error(
     provider_marker = "child-provider-secret-marker"
     attempts = 0
 
-    def failing_workflow(_db: SqliteDb, _settings: Settings) -> Workflow:
+    def failing_workflow(_db: SqliteDb, _settings: Settings, *, stage: str) -> Workflow:
+        assert stage == "brief"
+
         async def fail(_: StepInput) -> StepOutput:
             nonlocal attempts
             attempts += 1
@@ -1137,7 +1142,8 @@ def test_child_timeout_cancels_drains_and_returns_terminal_error(
         await anyio.sleep_forever()
         raise AssertionError
 
-    def hanging_workflow(_db: SqliteDb, _settings: Settings) -> Workflow:
+    def hanging_workflow(_db: SqliteDb, _settings: Settings, *, stage: str) -> Workflow:
+        assert stage == "brief"
         return Workflow(
             id="company-journey",
             name="Hanging child",
@@ -1292,6 +1298,7 @@ def test_parent_stream_reports_start_and_completion_for_real_workflow_steps(
                 budget="No budget",
                 founder_skills="Test delivery skills",
                 goal="Validate a test offer",
+                stage="plan",
             )
             if isinstance(event, CustomEvent)
         ]

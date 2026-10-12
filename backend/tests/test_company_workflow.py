@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Never, final, override
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import anyio
 import pytest
@@ -23,6 +23,7 @@ from samurai.agents import ROLE_CAPABILITIES, ConfiguredRole
 from samurai.company_workflow import (
     CompanyJourneyFailure,
     CompanyJourneyRequest,
+    JourneyStage,
     create_company_workflow,
 )
 from samurai.config import Settings
@@ -722,3 +723,63 @@ def test_stale_continuation_fails_before_another_model_call(
     assert failure.error_code == "invalid_revision"
     assert models[Role.INTAKE].calls == 1
     assert models[Role.RESEARCHER].calls == 0
+
+
+@pytest.mark.parametrize(
+    ("stage", "artifact_types"),
+    [
+        ("brief", ["intake"]),
+        ("research", ["intake", "research"]),
+        ("strategy", ["intake", "research", "strategy"]),
+    ],
+)
+def test_founder_stage_stops_before_downstream_work(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stage: JourneyStage, artifact_types: list[str]
+) -> None:
+    catalog, _ = _catalog()
+
+    def catalog_factory(_settings: Settings) -> Mapping[Role, ConfiguredRole]:
+        return catalog
+
+    monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
+    monkeypatch.setattr("samurai.company_workflow.run_research", _complete_research)
+    workflow = create_company_workflow(
+        SqliteDb(db_file=str(tmp_path / "staged.db")), _settings(), stage=stage
+    )
+    output = anyio.run(partial(_run_workflow, workflow, _complete_request(), {}))
+    result = WorkflowResult.model_validate(output.content)
+    assert result.outcome == "needs_input"
+    assert result.questions
+    assert [artifact.artifact_type for artifact in result.artifacts] == artifact_types
+    assert output.step_results
+    step = output.step_results[-1]
+    assert isinstance(step, StepOutput)
+    assert step.step_name == "Await founder decision"
+
+
+def test_approved_stages_resume_the_same_retained_company(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    catalog, _ = _catalog()
+
+    def catalog_factory(_settings: Settings) -> Mapping[Role, ConfiguredRole]:
+        return catalog
+
+    monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
+    monkeypatch.setattr("samurai.company_workflow.run_research", _complete_research)
+    database = SqliteDb(db_file=str(tmp_path / "resume-stages.db"))
+    request = _complete_request()
+    state: dict[str, JsonValue] = {}
+    previous_ids: set[UUID] = set()
+    for stage in ("brief", "research", "strategy", "plan"):
+        workflow = create_company_workflow(database, _settings(), stage=stage)
+        output = anyio.run(partial(_run_workflow, workflow, request, state))
+        result = WorkflowResult.model_validate(output.content)
+        ids = {artifact.artifact_id for artifact in result.artifacts}
+        assert previous_ids <= ids
+        previous_ids = ids
+        request = request.model_copy(
+            update={"company_id": result.company_id, "expected_revision": result.revision}
+        )
+    assert result.outcome == "verified"
+    assert result.revision == 5

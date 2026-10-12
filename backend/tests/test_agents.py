@@ -35,12 +35,10 @@ def test_role_catalog_builds_nine_typed_agents_with_fresh_models() -> None:
     }
     for role, configured in first.items():
         assert isinstance(configured.agent, Agent)
-        assert configured.agent.model is not None
-        assert configured.agent.model.id == "gemini-3.5-flash-lite"
         if role is Role.RESEARCHER:
             assert configured.agent.output_schema is None
             assert configured.agent.skills is None
-            assert configured.capability.tools == ()
+            assert configured.capability.tools == ("google_search",)
         elif role in preloaded_skill_roles:
             assert configured.agent.skills is None
             assert configured.capability.tools == ()
@@ -100,7 +98,7 @@ def test_model_factory_applies_budgets_to_each_fresh_model() -> None:
     second = create_model(settings)
 
     assert first is not second
-    assert first.id == settings.gemini_model == "gemini-3.5-flash-lite"
+    assert first.id == settings.gemini_model
     assert first.max_output_tokens == settings.gemini_max_output_tokens
     assert first.timeout == settings.gemini_timeout_seconds
     assert settings.gemini_max_input_chars == 20_000
@@ -138,9 +136,3 @@ def test_invalid_model_budget_fails_without_revealing_secrets(
         _ = Settings.model_validate({"os_security_key": redacted_value, field: value})
 
     assert redacted_value not in str(raised.value)
-
-
-@pytest.mark.parametrize("model", ["gemini-3.8-flash", "gemini-2.5-flash-lite"])
-def test_model_is_locked_to_selected_free_lite(model: str) -> None:
-    with pytest.raises(ValidationError):
-        _ = Settings.model_validate({"gemini_model": model})
