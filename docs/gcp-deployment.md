@@ -218,6 +218,27 @@ Routine deployer permissions are Cloud Run Developer on the two existing service
 
 Both services must exist before routine deployment. The script requires a single ready revision serving 100% for each service and records both previous revisions/digests in the Actions summary before updating either. It updates only the backend image, then only the frontend image, preserving runtime accounts, secrets, Cloud SQL, IAP and probes. It checks readiness, deployed digests and traffic, backend liveness, and anonymous frontend protection. These checks do not prove authenticated founder or Agno Live behavior.
 
+The routine workflow remains image-only. A separately reviewed queue rollout can use
+[prepare-cloud-run-queue.sh](../scripts/prepare-cloud-run-queue.sh) after the exact VPC
+network, subnet, Redis secret name, and numeric secret version have been discovered and
+authorized. It is fixed to project `samurai-ai-company-2026`, region `asia-south1`, and
+an immutable backend digest. It applies `QUEUE_ENABLED=true`, the secret-backed
+`REDIS_URL`, Direct VPC private-range egress, 1 vCPU/2 GiB with unthrottled CPU,
+min/max instances 1/2, and concurrency 8. Before mutation it requires the existing
+runtime identity, Cloud SQL binding, startup probe, and both JWT trust bindings; after
+mutation it verifies those guards are unchanged and reads back every new setting.
+
+Use `--dry-run` for a sanitized local command preview. Dry-run does not call `gcloud`
+and is preparation only; it is not deployment or cloud acceptance. There is no implicit
+default action: `--execute` is required to change the existing backend service and must
+only follow concrete Task 11 deployment authorization plus refreshed inventory, cost,
+and immutable-commit review. If the update succeeds but readback fails, the new revision
+or configuration may already be active; update failure, command timeout, and post-update
+readback failure all exit nonzero and identify the preserved prior revision for the
+authorized rollback procedure below. Cloud CLI commands are bounded to 20 minutes by
+default and at most 30 minutes. The script does not roll back automatically, enable
+APIs, create Redis or secrets, change IAM, or modify the frontend service.
+
 ## Rollback and rollout limits
 
 Two service updates are not atomic. If frontend deployment fails after backend succeeds, the backend may already be serving the new image. The workflow stops; it does not automatically retry a run POST or roll back services. Avoid active long runs during rollout because cancellation remains process-local and revision replacement cannot resume in-flight work. Health GET retries are separate from business execution.

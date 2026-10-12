@@ -47,6 +47,7 @@ jobs:
       - run: npm run test:sites
       - run: npm run test:server
       - run: bash ../scripts/test-deploy-cloud-run.sh
+      - run: bash ../scripts/test-prepare-cloud-run-queue.sh
   recovery:
     runs-on: ubuntu-latest
     container: python:3.14.3-slim-bookworm
