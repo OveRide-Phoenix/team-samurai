@@ -1,6 +1,6 @@
-"""Verify an isolated PostgreSQL backup and restore without provider calls."""
+"""Verify an isolated PostgreSQL backup and restore."""
 
-# allow: SIZE_OK — task-scoped operator CLI; split if an executable cloud provider is added.
+# allow: SIZE_OK — cohesive local runner; cloud provider commands live in a separate helper.
 
 from __future__ import annotations
 
@@ -22,6 +22,15 @@ from urllib.parse import unquote, urlsplit
 import psycopg
 from psycopg import sql
 from pydantic import TypeAdapter
+
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).parents[1]))
+
+from scripts.cloud_database_recovery import (
+    CloudRecoveryArguments,
+    CloudRecoveryError,
+    run_cloud_recovery,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -58,7 +67,6 @@ class _Failure(StrEnum):
     TOOL_FAILED = "PostgreSQL backup or restore tool failed"
     TARGET_NOT_EMPTY = "target recovery database must be empty"
     RESTORE_INVALID = "restored row count, ownership, or lineage assertion failed"
-    CLOUD_BLOCKED = "cloud execution is blocked until approved task 11"
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +115,13 @@ class _RecoveryArguments(argparse.Namespace):
     target_env: str = ""
     evidence_dir: Path = Path()
     dry_run: bool = False
+    project: str = ""
+    region: str = ""
+    source_instance: str = ""
+    target_prefix: str = ""
+    target_instance: str = ""
+    point_in_time: str = ""
+    execute_cloud_restore: bool = False
 
 
 def _arguments() -> _RecoveryArguments:
@@ -115,16 +130,27 @@ def _arguments() -> _RecoveryArguments:
     )
     _ = parser.add_argument("--mode", choices=("local", "cloud"), required=True)
     _ = parser.add_argument(
-        "--source-env", required=True, help="Environment variable with source URL"
+        "--source-env", default="", help="Local source URL environment variable"
     )
     _ = parser.add_argument(
-        "--target-env", required=True, help="Environment variable with target URL"
+        "--target-env", default="", help="Local target URL environment variable"
     )
     _ = parser.add_argument("--evidence-dir", required=True, type=Path)
     _ = parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Validate identities and write a plan; this is never completion proof",
+    )
+    _ = parser.add_argument("--project", default="", help="Cloud SQL project")
+    _ = parser.add_argument("--region", default="", help="Cloud SQL region")
+    _ = parser.add_argument("--source-instance", default="", help="Discovered Cloud SQL source")
+    _ = parser.add_argument("--target-prefix", default="", help="Required cloud target prefix")
+    _ = parser.add_argument("--target-instance", default="", help="Disposable cloud target")
+    _ = parser.add_argument("--point-in-time", default="", help="RFC3339 PITR timestamp")
+    _ = parser.add_argument(
+        "--execute-cloud-restore",
+        action="store_true",
+        help="Explicitly allow guarded cloud create and cleanup",
     )
     return parser.parse_args(namespace=_RecoveryArguments())
 
@@ -296,10 +322,9 @@ def _plan(
     source: _DatabaseIdentity,
     target: _DatabaseIdentity,
 ) -> dict[str, EvidenceValue]:
-    blocked = arguments.mode == "cloud" and not arguments.dry_run
     return {
         "mode": arguments.mode,
-        "status": "blocked" if blocked else "planned",
+        "status": "planned",
         "completion_proof": False,
         "cloud_mutation_attempted": False,
         "source": source.safe_record,
@@ -371,15 +396,27 @@ def main() -> int:
     """Validate a plan or execute one isolated local backup and restore."""
     arguments = _arguments()
     try:
+        if arguments.mode == "cloud":
+            run_cloud_recovery(
+                CloudRecoveryArguments(
+                    project=arguments.project,
+                    region=arguments.region,
+                    source_instance=arguments.source_instance,
+                    target_prefix=arguments.target_prefix,
+                    target_instance=arguments.target_instance,
+                    point_in_time=arguments.point_in_time,
+                    evidence_dir=arguments.evidence_dir,
+                    dry_run=arguments.dry_run,
+                    execute=arguments.execute_cloud_restore,
+                )
+            )
+            return 0
         source, target = _validated_identities(arguments)
-        if arguments.dry_run or arguments.mode == "cloud":
+        if arguments.dry_run:
             _write_evidence(arguments.evidence_dir, _plan(arguments, source, target))
-            if arguments.mode == "cloud" and not arguments.dry_run:
-                _ = sys.stderr.write(f"recovery verification refused: {_Failure.CLOUD_BLOCKED}\n")
-                return 2
             return 0
         _run_local(arguments, source, target)
-    except (OSError, _RecoveryError) as error:
+    except (CloudRecoveryError, OSError, _RecoveryError) as error:
         _ = sys.stderr.write(f"recovery verification refused: {error}\n")
         return 2
     return 0

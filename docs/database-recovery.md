@@ -1,8 +1,8 @@
 # Database recovery verification
 
-`backend/scripts/verify_database_recovery.py` performs a provider-free PostgreSQL 18
-backup and restore into a separate disposable database. It never creates, drops, or
-overwrites a database. The operator must create an empty target whose name starts with
+`backend/scripts/verify_database_recovery.py` performs a PostgreSQL 18 backup and restore
+into a separate disposable database. Local mode never creates, drops, or overwrites a
+database. The operator must create an empty target whose name starts with
 `samurai_recovery_` and remove it after reviewing the evidence.
 
 The local runner requires PostgreSQL 18 `pg_dump` and `pg_restore` on `PATH`. Put database
@@ -38,10 +38,42 @@ after all of these checks pass:
 `completion_proof: false`. It does not connect to either database and cannot be cited as a
 restore result.
 
-`--mode cloud` is intentionally inert before task 11 cost and mutation approval. Without
-`--dry-run` it exits with code 2 after writing `status: blocked`,
-`cloud_mutation_attempted: false`, and `completion_proof: false`. It does not invoke `gcloud`
-or any provider API.
+Cloud mode is preparation for a separately authorized Task 11 drill. Its boundary is fixed to
+project `samurai-ai-company-2026`, region `asia-south1`, and target prefix
+`samurai-recovery-drill-`. The source and target instance names must be explicit and different.
+The runner uses `gcloud sql instances list` to prove the exact target is absent before any
+create command. It refuses every other project, region, prefix, existing target, or missing
+execution gate.
+
+A cloud `--dry-run` performs read-only `gcloud` discovery of the source and target. It chooses
+PITR when the source reports PITR enabled and requires an RFC3339 `--point-in-time`; otherwise
+it selects the latest successful backup. The receipt remains `status: planned` with
+`completion_proof: false`.
+
+```bash
+uv run --directory backend python scripts/verify_database_recovery.py \
+  --mode cloud \
+  --project samurai-ai-company-2026 \
+  --region asia-south1 \
+  --source-instance samurai-postgres \
+  --target-prefix samurai-recovery-drill- \
+  --target-instance samurai-recovery-drill-UNIQUE \
+  --point-in-time 2026-10-12T00:00:00Z \
+  --evidence-dir ../.omo/evidence/readiness/task-11 \
+  --dry-run
+```
+
+Without `--dry-run` or `--execute-cloud-restore`, cloud mode exits with code 2 after writing a
+blocked receipt and does not invoke `gcloud`. The execution gate enables a clone or backup
+restore only inside the fixed boundary. After target observation, and after any post-create
+failure, the runner inventories the exact target and deletes only that target. Its receipt
+records whether cleanup succeeded. Raw provider output is omitted from receipts and errors.
+
+The create, observation, failure, and cleanup paths are covered with a fake `gcloud`
+executable. No real Cloud SQL mutation or provider call was made during implementation. These
+tests prove CLI preparation only; they do not satisfy the authorized live drill, retention
+check, measured recovery time, restored application checks, or independent Cloud SQL evidence
+required by Task 11.
 
 The local baseline/candidate schema matrix is recorded in
 `.omo/evidence/readiness/task-8/migration-compatibility-matrix.md`. It proves c84 reads on the
