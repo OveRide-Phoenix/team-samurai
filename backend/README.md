@@ -52,10 +52,10 @@ probe before cleanup. Private native Cloud Run revision `samurai-backend-00001-9
 proved IAM health access, IAM-only configuration rejection, and configuration access with
 the temporary bootstrap application JWT. An approved bounded `run_company_journey` parent
 run completed with `gemini-3.5-flash-lite`; an owner-scoped `COMPLETED` readback proved its
-Cloud SQL-backed record. That run does not prove expected business artifacts for the full
-workflow. Agno sign-in/connection registration, production-key rotation, and private JWT
-validation remain pending; public transport is disabled and browser acceptance follows its
-controlled transition.
+Cloud SQL-backed record. Five artifacts were accepted, but overall verification remained
+`needs_rework`, so this is not verified business readiness. Agno sign-in/connection
+registration, production-key rotation, and private JWT validation remain pending; public
+transport is disabled and browser acceptance follows its controlled transition.
 The full local suite also has a cancellation timeout reproduced unchanged at base commit
 `14d47c2a70fd29999c0ca0ccacbd182e714dbc63`; it is not treated as a deployment-change pass.
 

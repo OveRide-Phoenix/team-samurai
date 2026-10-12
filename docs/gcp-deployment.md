@@ -33,8 +33,8 @@ An approved parent POST completed run `998bfc51-9399-4410-afab-7ff63dbdd5a9` wit
 `gemini-3.5-flash-lite`, 1,885 parent tokens, and a 15.78-second duration. The bounded
 `run_company_journey` tool was the only tool invoked in this test. An owner-scoped GET
 readback returned HTTP 200 with `COMPLETED`, proving the Cloud SQL-backed record and Gemini
-call for this controlled run. This does not confirm that the whole business workflow
-produced its expected artifacts.
+call for this controlled run. Five artifacts were accepted, but overall verification
+remained `needs_rework`, so this is not verified business readiness.
 
 Agno sign-in and Cloud Run connection registration are pending, followed by production-key
 rotation and private JWT/no-JWT validation. Public transport remains disabled until those
@@ -174,9 +174,8 @@ the following pending checks:
 3. After the controlled public transition, a public request to `/agentos/health` returns
    success, `/agentos/config` without a Samurai JWT returns HTTP 401, and browser
    acceptance completes through the AgentOS Live console.
-4. The intended business workflow produces and verifies its expected artifacts without
-   exposing keys, tokens, founder data, or database URLs. The completed bounded parent run
-   above is not evidence for this broader acceptance.
+4. Resolve the workflow's `needs_rework` verification outcome and establish verified
+   business readiness without exposing keys, tokens, founder data, or database URLs.
 
 If a revision fails, direct traffic back to the known-good revision using its actual
 revision name, investigate the failed revision's logs and configuration, and retain the
