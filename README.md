@@ -12,7 +12,7 @@ The repository has the React/Vite founder UI in [frontend/](frontend/), local Po
 
 ## Current readiness status
 
-The [architecture](docs/architecture.md) separates verified local foundation and recovery slices from durable queue/reconnect work that is still pending acceptance. The [deployment guide](docs/gcp-deployment.md) records historical cloud/IAP acceptance by exact revision; current local changes are not deployed by that record. The live second-account browser exercise was user-skipped, and the competition's portal-only team, deadline, and form details remain unverified.
+The [architecture](docs/architecture.md) separates the locally verified durable queue/recovery slice from the historical cloud/IAP baseline. The native queue implementation at `201f0f7`, formatted at `aa07b46`, the independently reviewed local PostgreSQL/Redis restore scenario, Task 7's terminal UI proof (`1a4c6a9`), and Task 10's provider-free readiness runner (`76c9884`) establish bounded local recovery. They do not deploy the current checkout. Task 9's combined check passed at `1f841e7` with 26 PostgreSQL tests intentionally skipped and full PostgreSQL coverage recorded separately; its independent terminal review is pending. Task 11 paid-resource authorization for a cloud rollout remains open. The live second-account browser exercise was user-skipped, and the competition's portal-only team, deadline, and form details remain unverified.
 
 The source defines the core journey as intake → brief check → grounded research → evidence check → strategy → product plan → verification. It retains typed, revisioned artifacts with founder statements, assumptions, source references, claims, and verification findings. Builder, Marketer, and Sales produce reviewable drafts only; Analyst requires eligible metrics and labels founder-supplied metrics as conditional. No current tool can publish, send, spend, contact prospects, run ads, or deploy.
 
@@ -148,7 +148,7 @@ Backend requirements: Python 3.14, Task, uv, and a running Podman machine. Node.
 
 Health endpoints show process liveness, not proof of Gemini access or a completed business workflow. Keep the shared backend key server-side; this local bootstrap must not be exposed as a multi-user service.
 
-The local AgentOS surface is `/agentos` on port 8000. JWT is the intended control-plane mode; use the actual AgentOS OpenAPI at `/agentos/docs` for the installed route schema. Historical foundation evidence and the current parent-agent verification boundary are recorded separately in [setup verification](docs/setup-verification.md). Persisted sessions do not establish resumable interrupted work.
+The local AgentOS surface is `/agentos` on port 8000. JWT is the intended control-plane mode; use the actual AgentOS OpenAPI at `/agentos/docs` for the installed route schema. Historical foundation evidence and the current parent-agent verification boundary are recorded separately in [setup verification](docs/setup-verification.md). Persisted sessions alone do not establish resumable interrupted work; the local queue/recovery proof is separately bounded and has not been deployed.
 
 ## Contributing
 
