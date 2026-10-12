@@ -323,7 +323,7 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
     Evidence: <attemptDir>/task-5-company-state-error.json
   ```
 
-  Commit: YES | Message: `feat(state): fence shared company state by workspace membership` | Files: [backend/src/samurai/company_store.py, backend/src/samurai/app.py, backend/src/samurai/company_workflow.py, backend/src/samurai/launch_workflows.py, backend/src/samurai/analysis_workflow.py, backend/src/samurai/contracts.py, backend/src/samurai/execution_state.py, backend/src/samurai/workflow_state.py, backend/src/samurai/parent.py, backend/tests/test_company_store.py, backend/tests/test_recovery_postgres.py, backend/tests/test_boundaries.py]
+  Commit: YES | Message: `feat(state): fence shared company state by workspace membership` | Files: [backend/src/samurai/company_store.py, backend/src/samurai/company_store_contracts.py, backend/src/samurai/company_store_queries.py, backend/src/samurai/app.py, backend/src/samurai/company_workflow.py, backend/src/samurai/launch_workflows.py, backend/src/samurai/analysis_workflow.py, backend/src/samurai/contracts.py, backend/src/samurai/execution_state.py, backend/src/samurai/workflow_state.py, backend/src/samurai/parent.py, backend/tests/test_company_store.py, backend/tests/test_company_store_*.py, backend/tests/company_store_support.py, backend/tests/test_queue_runtime.py, backend/tests/test_recovery_postgres.py, backend/tests/test_boundaries.py]
 
 - [ ] 6. Add workspace membership/company APIs and migrate the frontend company view
 
