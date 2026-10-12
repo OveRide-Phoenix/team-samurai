@@ -142,7 +142,7 @@ The user specifically likes Hark's conversational interface, persistent left pan
 
 | Service | Intended responsibility |
 |---|---|
-| Cloud Run | Target for the AgentOS backend and founder UI deployment; deployment is not configured yet. |
+| Cloud Run | AgentOS backend revision `samurai-backend-00002-p4s` is deployed on `Kalyan/gcp-deployment` with public transport and JWT-protected application routes. Agno Live connection, key rotation, authenticated chat, and reload persistence are verified; see [the deployment guide](docs/gcp-deployment.md) for evidence and remaining business-verification limits. |
 | Cloud SQL for PostgreSQL | Persist AgentOS sessions and company records. Local development uses PostgreSQL in Podman. |
 | Cloud Storage | Store generated artifacts; integration is planned. |
 | Firebase Authentication | Candidate for founder identity; end-user/company authorization is not implemented by the local shared service key. |

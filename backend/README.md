@@ -26,7 +26,7 @@ Each child workflow has a deadline of `GEMINI_TIMEOUT_SECONDS * 7` (420 seconds 
 
 Local onboarding validation at `d6d05fb` passed `task check`: 141 backend tests, Ruff, formatting, and basedpyright, plus the frontend check, type generation, and build. Separately, authenticated parent API checks cover parent registration, run reads, restart/recall, owner isolation, input rejection, sanitized errors, the five-artifact core journey, and conditional metrics analysis. The API primary retained three unique grounded sources and nine propagated references; claims remained unverified and verification returned `needs_rework`. The metrics child completed revision 6 with all seven fields, founder-supplied provenance, no connector receipt, and `based_on_founder_supplied_metrics`.
 
-The final real TCP cancellation regression observed streamed child progress, returned cancellation in about 20 ms, persisted both parent and child as `CANCELLED`, emptied the active registry, and prevented a late artifact. Chrome independently completed the fictional five-artifact primary, state recall, and reload persistence. These are local acceptance results. No live launch-draft generation, push, deployment, or external action is claimed. See [setup verification](../docs/setup-verification.md) for the detailed evidence boundary and [the parent-agent plan](../.omo/plans/samurai-parent-agents.md) for the acceptance scenarios.
+The final real TCP cancellation regression observed streamed child progress, returned cancellation in about 20 ms, persisted both parent and child as `CANCELLED`, emptied the active registry, and prevented a late artifact. Chrome independently completed the fictional five-artifact primary, state recall, and reload persistence. These are local acceptance results. Those local results do not claim live launch-draft generation, push, deployment, or external action; the separately verified GCP deployment is recorded below. See [setup verification](../docs/setup-verification.md) for the detailed evidence boundary and [the parent-agent plan](../.omo/plans/samurai-parent-agents.md) for the acceptance scenarios.
 
 ## Local setup
 
@@ -40,6 +40,33 @@ task backend:dev
 `task setup` installs locked Python dependencies, creates only missing root and backend `.env` files at owner-only permissions, and validates that their database credentials match. It never prints or replaces secrets. `task backend:dev` checks port 8000, starts only Samurai's PostgreSQL service, and runs Uvicorn in the foreground. `task health` checks PostgreSQL and `GET /agentos/health` without a model call. In shared-key mode, `GET /agentos/config` accepts `Authorization: Bearer <OS_SECURITY_KEY>`; when `JWT_VERIFICATION_KEY` is configured, use a valid user JWT instead. Use `/agentos/docs` for the installed API schema.
 
 Set `GOOGLE_API_KEY` only when ready to call Gemini. The model is locked to `gemini-3.5-flash-lite`, as requested; other model IDs fail configuration validation. Never commit that file. See [local development](../docs/local-development.md) for the full command reference and JWT test surface.
+
+## Cloud Run deployment
+
+The [GCP deployment guide](../docs/gcp-deployment.md) records the reviewed container,
+production JWT guard, Cloud SQL socket contract, and required Cloud Run inputs. The
+configuration, focused local tests, static checks, and final Linux/amd64 image build are
+verified. The equivalent initial image returned health 200 and rejected unauthenticated
+configuration access; the final-source image did not accept a local ARM-emulated loopback
+probe before cleanup. Private native Cloud Run revision `samurai-backend-00001-9mx` then
+proved IAM health access, IAM-only configuration rejection, and configuration access with
+the temporary bootstrap application JWT. An approved bounded `run_company_journey` parent
+run completed with `gemini-3.5-flash-lite`; an owner-scoped `COMPLETED` readback proved its
+Cloud SQL-backed record. Five artifacts were accepted, but overall verification remained
+`needs_rework`, so this is not verified business readiness.
+
+Final revision `samurai-backend-00002-p4s` uses the same image and runtime configuration
+with the Agno Live public key pinned as `samurai-jwt-verification-key:2`. Private IAM
+checks returned health 200 and configuration 401 without a JWT or with the retired
+bootstrap JWT. Public transport is now enabled: anonymous health returns 200, while
+missing or invalid JWTs return configuration 401. Bootstrap version 1 is disabled and
+the local bootstrap private key was removed. Agno Live shows **Samurai GCP** as **Active**;
+an authenticated one-sentence Samurai chat returned in about two seconds without
+workflows or artifacts, and a full reload retained its session. The authorized 30-day
+trial required no credit card; no payment details were added. See the deployment guide
+for the current command and the separate private-phase and browser evidence.
+The full local suite also has a cancellation timeout reproduced unchanged at base commit
+`14d47c2a70fd29999c0ca0ccacbd182e714dbc63`; it is not treated as a deployment-change pass.
 
 The runtime disables automatic database provisioning on startup so liveness/configuration checks work without a database. AgentOS creates required tables on its normal database write paths. Starting the process alone does not prove persistence. Use Cloud SQL and controlled schema management for deployment; do not expose this shared-key bootstrap publicly.
 
