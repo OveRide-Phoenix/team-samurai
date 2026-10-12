@@ -31,3 +31,6 @@ Landing omits the team and dental-demo shortcut. Company-name intake is one floa
 
 ## Live journey activity
 Prerequisite pages come from the backend and cover every required founder context field. Team roles expand in place with native details/summary controls to show retained step events. Completed details remain visible. No invented percentage or simulated worker. Existing theme tokens and card geometry apply.
+
+## Long artifact content
+Artifact lineage uses a wrapping preformatted details block with a 240px vertical cap and its own scroll for technical JSON. Message and panel content can shrink and wrap unbroken URLs/IDs within their existing width. Research blockers remain explicit in plain language; no source-free result is presented as validated.

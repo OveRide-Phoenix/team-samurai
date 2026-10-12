@@ -62,7 +62,7 @@ function BusinessPanel({ panel, compact = false, expanded = false, expandable = 
       </>}
       {panel.kind === 'pricing' && <div className="pricing-options">{panel.options.map(option => <div key={option.name}><span>{option.name}</span><strong>{option.price}</strong>{(!compact || expanded) && <p>{option.description}</p>}</div>)}</div>}
       <GenerativePanelBody panel={panel} compact={compact && !expanded} completedTasks={workspace.completedTasks} onComplete={completeTask} />
-      <p className="panel-note"><CircleHelp size={12} />{panel.note}</p>{panel.provenance && <details><summary>Artifact lineage</summary><p className="panel-note">{JSON.stringify(panel.provenance)}</p></details>}
+      <p className="panel-note"><CircleHelp size={12} />{panel.note}</p>{panel.provenance && <details className="artifact-lineage"><summary>Artifact lineage</summary><pre className="artifact-json">{JSON.stringify(panel.provenance, null, 2)}</pre></details>}
     </section>
   );
 }
@@ -83,7 +83,7 @@ function convertMessage(message: Message): ThreadMessageLike {
   return {
     id: message.id, role: message.role,
     content: [
-      { type: 'text', text: message.text },
+      { type: 'text', text: message.role === 'assistant' && message.text === 'research: insufficient_evidence' ? 'Research is paused. Web search is not connected, so there are no sources to verify or use for strategy yet.' : message.text },
       ...(message.panel ? [{ type: 'tool-call' as const, toolCallId: `${message.id}-panel`, toolName: 'business_panel', args: {}, argsText: '{}', result: message.panel }] : []),
     ],
   };
