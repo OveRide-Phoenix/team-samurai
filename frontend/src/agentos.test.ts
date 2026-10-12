@@ -362,3 +362,56 @@ describe('authoritative cancellation confirmation', () => {
     await expect(cancelAgentosRun('session-1', 'run-1')).rejects.toThrow('another session or run');
   });
 });
+
+describe('canonical company recall', () => {
+  const summary = {
+    company_id: company, revision: 3, artifact_count: 2, status: 'active',
+    brief: { idea: 'A clinic receptionist', target_customer: 'Independent clinics', geography: 'Pune', budget: 'INR 20000', founder_skills: 'Software delivery', goal: 'One pilot', supplied_context: [], assumptions: ['Customers may pay monthly'], open_questions: [], next_actions: ['Interview clinics'] },
+    sources: [{ source_id: sourceId, url: 'https://example.org/research', title: 'Independent reference', retrieved_at: '2026-10-11T00:00:00Z', search_query: 'pricing', excerpt: 'A limited sample' }],
+    evidence_conflicts: ['Prices differ between sources'],
+    verification_findings: [{ code: 'missing_evidence', message: 'Validate demand', severity: 'warning' }],
+    next_decision: 'Interview clinics',
+  };
+  function expectReadable(events: readonly WorkEvent[]) {
+    const messages = events.flatMap(event => event.type === 'message' ? [{ id: 'recall', role: 'assistant' as const, text: event.text, ...(event.panel ? { panel: event.panel } : {}) }] : []);
+    const displayed = presentMessages(messages);
+    const content = JSON.stringify(displayed);
+    for (const value of ['A clinic receptionist', 'Independent clinics', 'Interview clinics', 'Prices differ between sources', 'Validate demand', 'https://example.org/research']) expect(content).toContain(value);
+    expect(displayed.some(message => message.panel)).toBe(true);
+    expect(displayed.some(message => message.text.includes('could not be displayed'))).toBe(false);
+  }
+  it.each([true, false])('renders a canonical summary on streamed completion (string=%s)', async stringify => {
+    // Given a native read_company_state result, When the stream completes, Then its context is readable.
+    const content = stringify ? JSON.stringify(summary) : summary;
+    serve(frame(wire('RunStarted')) + frame(wire('ToolCallCompleted', { tool: { result: content } })) + frame(wire('RunCompleted', { content })));
+    const runs: AgentosRun[] = [];
+    const events = await collect(createAgentosTransport('session-1', run => runs.push(run))('Recall my company', new AbortController().signal));
+    expectReadable(events);
+    expect(events.filter(event => event.type === 'message' && event.panel)).toHaveLength(1);
+    expect(runs.at(-1)).toMatchObject({ companyId: company, revision: 3, status: 'completed' });
+  });
+  it('renders canonical summary when recovering a saved completed run', async () => {
+    // Given saved native JSON, When recovering it, Then the same readable context is restored.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(wire('RunCompleted', { status: 'COMPLETED', content: JSON.stringify(summary) })))));
+    expectReadable((await readAgentosRun('session-1', 'run-1')).events);
+  });
+  it('rejects a malformed canonical summary instead of rendering it', async () => {
+    // Given an invalid source URL, When consuming recall, Then boundary validation rejects it.
+    serve(frame(wire('RunStarted')) + frame(wire('RunCompleted', { content: { ...summary, sources: [{ ...summary.sources[0], url: 'javascript:alert(1)' }] } })));
+    await expect(collect(createAgentosTransport('session-1')('Recall', new AbortController().signal))).rejects.toThrow('invalid workflow result');
+  });
+  it('renders an unstarted company without inventing a company identity', async () => {
+    // Given a valid empty summary, When recalling it, Then no artificial company binding is created.
+    serve(frame(wire('RunStarted')) + frame(wire('RunCompleted', { content: { company_id: null, revision: 0, artifact_count: 0, status: 'not_started' } })));
+    const runs: AgentosRun[] = [];
+    const events = await collect(createAgentosTransport('session-1', run => runs.push(run))('Recall', new AbortController().signal));
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ type: 'message' });
+    expect(runs.at(-1)?.companyId).toBeUndefined();
+  });
+  it('presents previously saved summary JSON through the same readable view', () => {
+    // Given a stored raw summary, When presenting history, Then its content is available as a panel.
+    const displayed = presentMessages([{ id: 'saved-summary', role: 'assistant', text: JSON.stringify(summary) }]);
+    expectReadable(displayed.map(message => ({ type: 'message', text: message.text, ...(message.panel ? { panel: message.panel } : {}) })));
+  });
+});

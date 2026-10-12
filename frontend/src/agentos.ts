@@ -37,7 +37,14 @@ const artifact = z.strictObject({
   return value.payload.basis === 'based_on_founder_supplied_metrics' && value.status === 'based_on_founder_supplied_metrics' && ids.length === new Set(ids).size && value.measurements.length === ids.length && new Set(value.measurements.map(item => item.metric_id)).size === ids.length && value.measurements.every(item => ids.includes(item.metric_id) && item.provenance === 'founder_supplied');
 });
 const resultSchema = z.strictObject({ company_id: uuid, revision: z.number().int().min(0), outcome, artifacts: z.array(artifact).max(100).default([]), questions: z.array(z.string().min(1).max(200)).max(100).default([]) }).refine(value => (value.outcome === 'needs_input') === (value.questions.length > 0) && value.artifacts.every(item => item.company_id === value.company_id && item.revision <= value.revision));
-type WorkflowResult = z.infer<typeof resultSchema>;
+const summarySchema = z.strictObject({
+  company_id: uuid.nullable(), revision: z.number().int().min(0), artifact_count: z.number().int().min(0), status: z.enum(['active', 'not_started']),
+  brief: brief.nullable().default(null), sources: z.array(source).max(100).default([]), evidence_conflicts: strings.default([]),
+  verification_findings: z.array(z.strictObject({ code: text, message: text, severity: z.enum(['info', 'warning', 'error']) })).max(100).default([]),
+  next_decision: text.nullable().default(null),
+});
+const companyResultSchema = z.union([resultSchema, summarySchema]);
+type WorkflowResult = z.infer<typeof companyResultSchema>;
 
 export type AgentosRun = { readonly runId: string; readonly status: 'running' | 'completed' | 'cancelled' | 'failed'; readonly companyId?: string; readonly revision?: number };
 type AgentosRunResult = { readonly run: AgentosRun; readonly events: readonly WorkEvent[] };
@@ -61,18 +68,39 @@ function workflow(value: unknown): WorkflowResult | undefined {
     else if (value.trim().startsWith('{')) {
       value = json(value);
       const candidate = recordSchema.safeParse(value);
-      if (candidate.success && !('outcome' in candidate.data)) return undefined;
+      if (candidate.success && !('outcome' in candidate.data) && !('artifact_count' in candidate.data)) return undefined;
     }
     else return undefined;
   }
   if (value === undefined || value === null) return undefined;
-  const parsed = resultSchema.safeParse(value);
+  const parsed = companyResultSchema.safeParse(value);
   if (!parsed.success) throw new AgentosError('protocol', 'AgentOS returned an invalid workflow result.');
   return parsed.data;
 }
 
 function resultEvents(result: WorkflowResult, seen: Set<string>): WorkEvent[] {
   const events: WorkEvent[] = [];
+  if ('artifact_count' in result) {
+    const key = `summary:${result.company_id}:${result.revision}`;
+    if (seen.has(key)) return events;
+    seen.add(key);
+    if (!result.company_id) return [{ type: 'message', text: 'No company brief has been saved yet.' }];
+    const id = `company-summary-${result.company_id}`;
+    const context = result.brief;
+    const fields = context ? [
+      ['Idea', context.idea], ['First customers', context.target_customer], ['Market', context.geography],
+      ['Budget', context.budget], ['Skills & resources', context.founder_skills], ['First milestone', context.goal],
+      ['Supplied context', context.supplied_context.join('; ')], ['Assumptions', context.assumptions.join('; ')],
+      ['Open questions', context.open_questions.join('; ')], ['Proposed next actions', context.next_actions.join('; ')],
+    ] as const : [];
+    const claims: Extract<Panel, { kind: 'evidence' }>['claims'] = fields.flatMap(([label, value], index) => value ? [{
+      id: `${id}-context-${index}`, claim: `${label}: ${value}`, status: 'hypothesis' as const, detail: 'Founder supplied context, not market evidence', sources: [],
+    }] : []);
+    claims.push(...result.evidence_conflicts.map((claim, index) => ({ id: `${id}-conflict-${index}`, claim, status: 'needs-check' as const, detail: 'warning: evidence_conflict', sources: [] })));
+    claims.push(...result.verification_findings.map((finding, index) => ({ id: `${id}-finding-${index}`, claim: finding.message, status: 'needs-check' as const, detail: `${finding.severity}: ${finding.code}`, sources: [] })));
+    if (result.sources.length) claims.push({ id: `${id}-sources`, claim: 'Retained research references', status: 'needs-check', detail: 'Source attachment does not independently verify a finding.', sources: result.sources.map(entry => ({ title: entry.title, url: entry.url })) });
+    return [{ type: 'message', text: result.next_decision ? `Next decision: ${result.next_decision}` : '', panel: panelSchema.parse({ id, kind: 'evidence', title: 'Company context', note: '', claims, provenance: result }) }];
+  }
   for (const item of result.artifacts) {
     const key = `${item.artifact_id}:${item.revision}`;
     if (seen.has(key)) continue;
@@ -245,8 +273,8 @@ export function createAgentosTransport(sessionId: string, onRun?: (run: AgentosR
           const tool = event.tool === undefined ? undefined : recordSchema.parse(event.tool);
           const result = workflow(event.event === 'ToolCallCompleted' ? tool?.result : event.content);
           if (result) {
-            if (companyId && companyId !== result.company_id) throw new AgentosError('scope', 'AgentOS returned a result for another company.');
-            companyId = result.company_id; revision = result.revision; notify('running');
+            if (companyId && result.company_id && companyId !== result.company_id) throw new AgentosError('scope', 'AgentOS returned a result for another company.');
+            companyId = result.company_id ?? companyId; revision = result.revision; notify('running');
             for (const output of resultEvents(result, seen)) {
               if (signal.aborted) { cancel(); break stream; }
               yield output;
@@ -278,7 +306,7 @@ export async function readAgentosRun(sessionId: string, runId: string, signal?: 
   if (run.run_id !== runId || run.session_id !== sessionId) throw new AgentosError('scope', 'AgentOS returned another session or run.');
   const status = run.status === 'COMPLETED' ? 'completed' : run.status === 'CANCELLED' ? 'cancelled' : run.status === 'ERROR' ? 'failed' : 'running';
   const result = status === 'completed' ? workflow(run.content) : undefined;
-  return { run: { runId, status, ...(result ? { companyId: result.company_id, revision: result.revision } : {}) }, events: [...recoveredActivities(wire.events, sessionId, runId), ...(result ? resultEvents(result, artifactKeys(savedMessages)) : status === 'completed' && typeof run.content === 'string' ? [{ type: 'message' as const, text: run.content }] : [])] };
+  return { run: { runId, status, ...(result ? { ...(result.company_id ? { companyId: result.company_id } : {}), revision: result.revision } : {}) }, events: [...recoveredActivities(wire.events, sessionId, runId), ...(result ? resultEvents(result, artifactKeys(savedMessages)) : status === 'completed' && typeof run.content === 'string' ? [{ type: 'message' as const, text: run.content }] : [])] };
 }
 
 function recoveredActivities(value: unknown, sessionId: string, runId: string): WorkEvent[] {
@@ -306,7 +334,7 @@ export function presentMessages(messages: readonly Message[]): Message[] {
       let value: unknown;
       try { value = json(candidate.includes('SAMURAI_WORKFLOW_RESULT=') ? candidate.slice(candidate.lastIndexOf('SAMURAI_WORKFLOW_RESULT=') + 'SAMURAI_WORKFLOW_RESULT='.length) : candidate); }
       catch (error) { if (error instanceof AgentosError) { output.push({ ...message, text: 'This response could not be displayed. Please try again.' }); continue; } throw error; }
-      const result = resultSchema.safeParse(value);
+      const result = companyResultSchema.safeParse(value);
       const envelope = artifact.safeParse(value);
       const data = result.success ? result.data : envelope.success ? { company_id: envelope.data.company_id, revision: envelope.data.revision, outcome: 'needs_rework' as const, artifacts: [envelope.data], questions: [] } : undefined;
       if (data) {
