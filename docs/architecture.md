@@ -6,14 +6,14 @@ The owner's Agno proposal selects a workflow-first implementation of AI Idea →
 
 | Layer | Choice | Status |
 |---|---|---|
-| Founder workspace | React/Vite, TypeScript, Tailwind, assistant-ui, Radix | Authenticated local intake, SSE progress, cancellation, and saved-result recovery implemented; production IAP acceptance pending |
+| Founder workspace | React/Vite, TypeScript, Tailwind, assistant-ui, Radix | Authenticated local intake, SSE progress, cancellation, and saved-result recovery implemented; production IAP sign-in, live brief and reload verified |
 | Agent runtime | Python, Agno AgentOS, FastAPI | With a configured Gemini model, current source registers one ordinary `Samurai` parent Agent with four bounded tools; local API and Chrome acceptance passed |
 | Orchestration | Explicit Agno Workflow stages, with bounded branching/parallelism | The local parent journey, conditional metrics analysis, restart/recall, and cancellation paths passed; launch drafts remain draft-only and were not generated live |
 | Intelligence | Gemini API initially; Vertex AI is a future deployment choice | Model configuration present; live access requires credentials |
 | Research | Native Gemini Search with bounded retained source evidence | The local API primary retained three unique sources and nine propagated references; the Chrome primary retained five unique sources. Claims remained unverified and verification returned `needs_rework` |
 | Records | PostgreSQL locally through Podman; Cloud SQL in production | Parent/child AgentOS session model and revisioned `CompanyState` passed local persistence, recall, reload, and cancellation checks. Root Taskfile commands manage only the local Samurai PostgreSQL service; Cloud SQL-backed readback and Agno Live reload were verified in the recorded backend deployment |
 | Artifacts | Cloud Storage with metadata/revision references in PostgreSQL | Planned |
-| Hosting | Cloud Run for the Python backend and Node frontend serving Vite assets | Backend deployed; frontend rollout and CI/CD acceptance pending |
+| Hosting | Cloud Run for the Python backend and Node frontend serving Vite assets | Backend/frontend deployed; automatic and manual main rollouts verified |
 | Identity | JWT authentication plus company-scoped backend authorization | RS256 JWT/scope enforcement and owner isolation implemented; Agno Live key retained, additive frontend public key supports verified IAP subjects; live two-account acceptance pending |
 
 Agno agents are reasoning roles, not independent services. Samurai is the one founder-facing ordinary Agent; Intake, Researcher, Strategist, Product Manager, Builder, Marketer, Sales, Analyst, and Verifier are internal roles. Explicit workflows own their order and validation. Deterministic code owns identity/session bindings, revision checks, artifact acceptance, limits, calculations, and execution controls. Preserve the root README's product story and architecture map.
@@ -24,7 +24,7 @@ The selected team-only path is browser → Google IAP → Node frontend → Agen
 
 IAP restricts team membership; the backend enforces each user's session/run ownership. Existing Agno Live sessions and IAP sessions have distinct identities. Production browser persistence uses a SHA-256 namespace derived from the verified Google identity before React mounts, with no migration from the legacy shared cache. Already-open tabs retain loaded state until reloaded: refresh after switching Google accounts. Browser-local panels and drafts are not a cloud-synchronized company database. The backend retains public transport so Agno Live can supply its application JWT; IAP belongs on the frontend service.
 
-GitHub Actions checks the same source commit before building and deploying immutable image digests, backend first and frontend second. Main pushes and manual main dispatch use restricted OIDC federation. The two-service rollout is not atomic; record both previous revisions and preserve their runtime configuration. Run POSTs are not automatically retried. See [the deployment guide](gcp-deployment.md) for access, rollout, rollback, and pending acceptance.
+GitHub Actions checks the same source commit before building and deploying immutable image digests, backend first and frontend second. Main pushes and manual main dispatch use restricted OIDC federation. The two-service rollout is not atomic; record both previous revisions and preserve their runtime configuration. Run POSTs are not automatically retried. See [the deployment guide](gcp-deployment.md) for access, rollout, rollback, and acceptance limits.
 
 ## Parent, state, and workflow boundaries
 
