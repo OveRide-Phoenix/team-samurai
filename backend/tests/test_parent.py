@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from collections import abc  # noqa: TC003 - Agno resolves model annotations at runtime.
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Never, cast, final, override
+from typing import TYPE_CHECKING, ClassVar, Never, cast, final, override
 from uuid import UUID
 
 import anyio
@@ -73,6 +73,8 @@ EXPECTED_METRIC_QUESTIONS = (
 
 @final
 class _ToolSequenceModel(Model):
+    total_invocations: ClassVar[int] = 0
+
     def __init__(
         self,
         *tool_names: str,
@@ -100,6 +102,7 @@ class _ToolSequenceModel(Model):
         **_kwargs: Never,
     ) -> ModelResponse:
         assert messages
+        type(self).total_invocations += 1
         self.advertised_tools_json = json.dumps(tools or ())
         index = self.calls
         self.calls += 1

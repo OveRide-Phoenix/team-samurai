@@ -1,8 +1,8 @@
 import { Check, ExternalLink } from 'lucide-react';
 import type { Panel } from './model';
 
-export function GenerativePanelBody({ panel, compact, completedTasks, onComplete }: {
-  panel: Panel; compact: boolean; completedTasks: string[]; onComplete: (id: string) => void;
+export function GenerativePanelBody({ panel, compact, completedTasks, onComplete, readOnly = false }: {
+  panel: Panel; compact: boolean; completedTasks: string[]; onComplete: (id: string) => void; readOnly?: boolean;
 }) {
   if (panel.kind === 'evidence') {
     const brief = panel.title === 'Company brief';
@@ -25,7 +25,7 @@ export function GenerativePanelBody({ panel, compact, completedTasks, onComplete
         const render = (task: typeof panel.tasks[number]) => {
           const id = JSON.stringify([panel.id, task.id]);
           const done = completedTasks.includes(id);
-          return <div className={`launch-task ${done ? 'task-done' : ''}`} key={task.id}><button className="task-check" aria-label={`${done ? 'Reopen' : 'Complete'} ${task.title}`} aria-pressed={done} onClick={() => onComplete(id)}>{done && <Check size={15} />}</button><div><strong>{task.title}</strong>{task.timing !== 'Not scheduled' && <span>{task.timing} · {task.owner}</span>}{!compact && !['complete', 'needs_rework', 'needs_input', 'draft_only'].includes(task.detail) && <p>{task.detail}</p>}</div></div>;
+          return <div className={`launch-task ${done ? 'task-done' : ''}`} key={task.id}><button className="task-check" aria-label={`${done ? 'Reopen' : 'Complete'} ${task.title}`} aria-pressed={done} disabled={readOnly} onClick={() => onComplete(id)}>{done && <Check size={15} />}</button><div><strong>{task.title}</strong>{task.timing !== 'Not scheduled' && <span>{task.timing} · {task.owner}</span>}{!compact && !['complete', 'needs_rework', 'needs_input', 'draft_only'].includes(task.detail) && <p>{task.detail}</p>}</div></div>;
         };
         return <>{panel.tasks.slice(0, 3).map(render)}{panel.tasks.length > 3 && <details className="panel-details"><summary>More steps ({panel.tasks.length - 3})</summary>{panel.tasks.slice(3).map(render)}</details>}</>;
       })()}</div>;

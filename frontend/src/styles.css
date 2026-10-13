@@ -438,7 +438,8 @@ h1,h2,h3,p { margin: 0; }
 @media (max-width:760px) {
  .company-workspace:not(.dashboard-open) .home-pane > .home-heading { display: block; padding: 0 4px 12px; }
  .company-workspace:not(.dashboard-open) .home-selector-row > button { display: none; }
- .company-workspace:not(.dashboard-open) .conversation-scroll { padding-top: 254px; }
+ .company-workspace:not(.dashboard-open) .main-pane { position: absolute; inset: 238px 0 0; height: auto; }
+ .company-workspace:not(.dashboard-open) .conversation-scroll { padding-top: 18px; }
  .home-selector-row .company-name { font-size: 26px; }
  .dashboard-title { font-size: 30px; }
 }

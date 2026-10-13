@@ -61,9 +61,15 @@ Supported panel kinds are `offer`, `pricing`, `prospects`, `evidence`, and `laun
 
 ## Multi-company state
 
-`Portfolio` version 2 stores a company list, the active company ID, and a global light/dark mode. Each company contains an independent `Workspace`; the old single-workspace preview migrates without losing its conversation or panels. New companies start empty. Company IDs must be included in live requests, events, persistence, authorisation, and cancellation so concurrent runs cannot update another company. The old `Workspace.theme` field is retained solely for legacy compatibility; current visual mode is portfolio-level.
+`Portfolio` version 2 stores a company list, the active company ID, and a global light/dark mode. Each company contains an independent `CompanyView`; the old single-company preview migrates without losing its conversation or panels. New companies start empty. Company IDs must be included in live requests, events, persistence, authorisation, and cancellation so concurrent runs cannot update another company. The old persisted `workspace.theme` field is retained solely for legacy compatibility; current visual mode is portfolio-level.
 
 Gemini outputs are mapped into the validated panel catalog through native AgentOS SSE. assistant-ui renders known panel components; model-generated code is never executed.
+
+## Shared workspace directory
+
+Portfolio Home loads the authenticated directory through `/api/agentos/samurai`. The BFF permits only the fixed workspace, membership, company-list, company-reservation, and company-open paths; it rejects browser identity fields and forwards the verified JWT subject only. Workspace and company directory responses are parsed with strict Zod schemas.
+
+Creating a company reserves its server company and actor session before the brief starts. The browser uses the returned `parent_session_id` as its local CompanyView ID. `POST /workspaces/{workspace_id}/companies/{company_id}/open` accepts only `{}` and returns the current actor binding plus a strict snapshot envelope: `summary` and canonical `artifacts`, with no native session or context data. The client reuses the existing summary and artifact renderer to hydrate that envelope and never reads another actor's session. Viewer access shows the hydrated company but disables sending, runs, panel mutations, and task completion; backend authorization remains the enforcement boundary.
 
 ## Generative UI catalog
 

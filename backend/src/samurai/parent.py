@@ -50,6 +50,7 @@ from samurai.analysis_workflow import (
     run_analysis,
 )
 from samurai.company_store import CompanyStore
+from samurai.company_store_contracts import WorkspaceRole
 from samurai.company_workflow import (
     WORKFLOW_ID,
     CompanyJourneyRequest,
@@ -388,6 +389,9 @@ class SamuraiParentAgent(Agent):
         def reject_registry_execution() -> None:
             raise InputCheckError(REGISTRY_EXECUTION_ERROR)
 
+        def require_run_access(run_context: RunContext) -> None:
+            _require_canonical_run_access(db, run_context)
+
         super().__init__(  # pyright: ignore[reportUnknownMemberType]
             id=PARENT_AGENT_ID,
             name=PARENT_AGENT_NAME,
@@ -403,7 +407,7 @@ class SamuraiParentAgent(Agent):
             add_history_to_context=True,
             num_history_runs=5,
             tool_call_limit=settings.agent_tool_call_limit,
-            pre_hooks=[] if executable else [reject_registry_execution],
+            pre_hooks=[require_run_access] if executable else [reject_registry_execution],
             post_hooks=[_fail_closed_tool_errors],
             store_events=True,
             telemetry=False,
@@ -631,6 +635,24 @@ def _trusted_identity(run_context: RunContext) -> tuple[str, str, str]:
     if not run_context.session_id:
         raise ParentContextError(ParentContextIssue.SESSION_REQUIRED)
     return user_id, run_context.session_id, child_session_id(user_id, run_context.session_id)
+
+
+def _require_canonical_run_access(db: BaseDb, run_context: RunContext) -> None:
+    if not isinstance(db, SamuraiPostgresDb) or not db.table_exists(
+        "samurai_company_actor_bindings"
+    ):
+        return
+    user_id, parent_session_id, _child_id = _trusted_identity(run_context)
+    access = CompanyStore(db.db_engine, schema=db.db_schema).read_for_actor(
+        user_id,
+        parent_session_id,
+    )
+    if access is None:
+        message = "active company membership and session binding required"
+        raise InputCheckError(message)
+    if access.role is WorkspaceRole.VIEWER:
+        message = "viewer access is read-only"
+        raise InputCheckError(message)
 
 
 def _child_state(db: BaseDb, run_context: RunContext) -> tuple[str, CompanyState | None]:

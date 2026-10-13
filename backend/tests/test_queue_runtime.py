@@ -25,9 +25,8 @@ from samurai.app import (
     _DurableRunBoundary,  # pyright: ignore[reportPrivateUsage]
     create_app,
 )
-from samurai.company_store_contracts import ActorBinding, CompanyReservation
 from samurai.config import Settings
-from samurai.contracts import CompanyState, create_company_state
+from samurai.contracts import CompanyState, WorkflowRequest, create_company_state
 from samurai.execution_state import (
     WORK_INTENT_METADATA_KEY,
     AcceptanceToken,
@@ -43,6 +42,9 @@ from samurai.parent import (
     _bind_normalized_work,  # pyright: ignore[reportPrivateUsage]
     child_session_id,
 )
+from samurai.workflow_state import WorkflowContextError, load_company_state
+from samurai.workspace_directory import WorkspaceDirectory
+from tests.company_store_support import ClaimedJob, job
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -206,27 +208,18 @@ def test_http_admission_uses_current_server_workspace_role(
     expected_status: int,
 ) -> None:
     store, database, workspace_id = company_store
-    owner = store.reserve(
-        CompanyReservation(
-            workspace_id=workspace_id,
-            actor_id="owner",
-            parent_session_id="owner-parent",
-            child_session_id="owner-child",
-            created_at=datetime(2026, 10, 13, tzinfo=UTC),
-        )
-    )
-    access = (
-        owner
-        if actor_id == "owner"
-        else store.bind_actor(
-            ActorBinding(
-                company_id=owner.state.context.company_id,
-                actor_id=actor_id,
-                parent_session_id=f"{actor_id}-parent",
-                child_session_id=f"{actor_id}-child",
-            )
-        )
-    )
+    directory = WorkspaceDirectory(database)
+    company = directory.create_company("owner", workspace_id)
+    assert company.parent_session_id is not None
+    owner = store.read_for_actor("owner", company.parent_session_id)
+    assert owner is not None
+    if actor_id == "owner":
+        access = owner
+    else:
+        opened = directory.open_company(actor_id, workspace_id, company.company_id)
+        assert opened.parent_session_id is not None
+        access = store.read_for_actor(actor_id, opened.parent_session_id)
+        assert access is not None
     if membership_state == "revoked":
         memberships = Table(
             "samurai_workspace_memberships",
@@ -269,6 +262,60 @@ def test_http_admission_uses_current_server_workspace_role(
         approval = WorkIntentInput.model_validate(metadata[WORK_INTENT_METADATA_KEY])
         assert approval.workspace_id == workspace_id
         assert approval.authorization_epoch == 1
+        assert approval.child_session_id == access.child_session_id
+        run_id = f"shared-{actor_id}-run"
+        admitted = database.enqueue_work_job(job(run_id, approval), approval)
+        assert admitted["accepted"] is True
+        claimed = ClaimedJob.model_validate(database.claim_job(f"worker-{actor_id}", 30))
+        normalized = NormalizedWorkInput(
+            operation=approval.operation,
+            stage=approval.stage,
+            expected_revision=approval.expected_revision,
+            arguments={"idea": "Continue the reserved company"},
+        )
+        with worker_managed_execution(run_id, f"worker-{actor_id}", claimed.attempt):
+            token = database.bind_work_intent(run_id, normalized).token
+        context = RunContext(
+            run_id=run_id,
+            user_id=actor_id,
+            session_id=approval.child_session_id,
+            session_state={},
+            dependencies={
+                "trusted_parent_session_id": approval.parent_session_id,
+                "trusted_user_id": actor_id,
+                "child_session_id": approval.child_session_id,
+                "parent_run_id": token.parent_run_id,
+                "worker_id": token.worker_id,
+                "attempt": token.attempt,
+                "fingerprint": token.fingerprint,
+            },
+        )
+        loaded = load_company_state(
+            WorkflowRequest(company_id=approval.company_id, expected_revision=0),
+            context,
+            created_at=datetime(2026, 10, 13, tzinfo=UTC),
+            db=database,
+        )
+        assert loaded.context.company_id == access.state.context.company_id
+        forged_child = str(uuid4())
+        forged_context = RunContext(
+            run_id=f"{run_id}-forged",
+            user_id=actor_id,
+            session_id=forged_child,
+            session_state={},
+            dependencies={
+                "trusted_parent_session_id": approval.parent_session_id,
+                "trusted_user_id": actor_id,
+                "child_session_id": forged_child,
+            },
+        )
+        with pytest.raises(WorkflowContextError, match="child session does not match"):
+            _ = load_company_state(
+                WorkflowRequest(company_id=approval.company_id, expected_revision=0),
+                forged_context,
+                created_at=datetime(2026, 10, 13, tzinfo=UTC),
+                db=database,
+            )
 
 
 @pytest.mark.parametrize(
