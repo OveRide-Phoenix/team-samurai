@@ -227,7 +227,7 @@ export async function cancelAgentosRun(sessionId: string, runId: string, savedMe
   throw new AgentosError('cancel', 'Stop has not been confirmed. This run may still be active; check again before starting another request.');
 }
 
-export function createAgentosTransport(sessionId: string, onRun?: (run: AgentosRun) => void, savedMessages: () => readonly Message[] = () => []): Transport {
+export function createAgentosTransport(sessionId: string, onRun?: (run: AgentosRun) => void, savedMessages: () => readonly Message[] = () => [], start?: (input: string, signal: AbortSignal) => Promise<Response>): Transport {
   text.parse(sessionId);
   let companyId: string | undefined;
   return async function* (input, signal) {
@@ -254,7 +254,7 @@ export function createAgentosTransport(sessionId: string, onRun?: (run: AgentosR
     try {
       const form = new FormData();
       form.set('message', text.parse(input)); form.set('session_id', sessionId); form.set('stream', 'true'); form.set('background', 'false');
-      const response = await request(base, { method: 'POST', body: form, signal: controller.signal });
+      const response = start ? await start(text.parse(input), controller.signal) : await request(base, { method: 'POST', body: form, signal: controller.signal });
       if (!response.body || !response.headers.get('content-type')?.includes('text/event-stream')) throw new AgentosError('protocol', 'AgentOS did not return an event stream.');
       stream: for await (const raw of frames(response.body)) {
         const event = envelope(raw);
@@ -271,7 +271,12 @@ export function createAgentosTransport(sessionId: string, onRun?: (run: AgentosR
         }
         if (event.event === 'ToolCallCompleted' || event.event === 'RunCompleted') {
           const tool = event.tool === undefined ? undefined : recordSchema.parse(event.tool);
-          const result = workflow(event.event === 'ToolCallCompleted' ? tool?.result : event.content);
+          const value = event.event === 'ToolCallCompleted' ? tool?.result : event.content;
+          const view = presentation(value);
+          if (view) {
+            for (const output of presentationEvents(view, seen)) yield output;
+          }
+          const result = view ? undefined : workflow(value);
           if (result) {
             if (companyId && result.company_id && companyId !== result.company_id) throw new AgentosError('scope', 'AgentOS returned a result for another company.');
             companyId = result.company_id ?? companyId; revision = result.revision; notify('running');
@@ -279,7 +284,7 @@ export function createAgentosTransport(sessionId: string, onRun?: (run: AgentosR
               if (signal.aborted) { cancel(); break stream; }
               yield output;
             }
-          } else if (event.event === 'RunCompleted' && typeof event.content === 'string' && event.content.trim()) yield { type: 'message', text: event.content };
+          } else if (!view && event.event === 'RunCompleted' && typeof event.content === 'string' && event.content.trim()) yield { type: 'message', text: event.content };
         }
         if (event.event === 'RunError') { terminal = true; throw new AgentosError('stream', 'Samurai could not complete this run.'); }
         if (event.event === 'RunCompleted' || event.event === 'RunCancelled') { terminal = true; notify(event.event === 'RunCancelled' ? 'cancelled' : 'completed'); return; }
@@ -305,8 +310,9 @@ export async function readAgentosRun(sessionId: string, runId: string, signal?: 
   const run = z.strictObject({ run_id: text, session_id: text, agent_id: z.literal('samurai'), status: z.enum(['RUNNING', 'PENDING', 'COMPLETED', 'CANCELLED', 'ERROR']), content: z.unknown().optional() }).parse({ run_id: wire.run_id, session_id: wire.session_id, agent_id: wire.agent_id, status: wire.status, content: wire.content });
   if (run.run_id !== runId || run.session_id !== sessionId) throw new AgentosError('scope', 'AgentOS returned another session or run.');
   const status = run.status === 'COMPLETED' ? 'completed' : run.status === 'CANCELLED' ? 'cancelled' : run.status === 'ERROR' ? 'failed' : 'running';
-  const result = status === 'completed' ? workflow(run.content) : undefined;
-  return { run: { runId, status, ...(result ? { ...(result.company_id ? { companyId: result.company_id } : {}), revision: result.revision } : {}) }, events: [...recoveredActivities(wire.events, sessionId, runId), ...(result ? resultEvents(result, artifactKeys(savedMessages)) : status === 'completed' && typeof run.content === 'string' ? [{ type: 'message' as const, text: run.content }] : [])] };
+  const view = status === 'completed' ? presentation(run.content) : undefined;
+  const result = status === 'completed' && !view ? workflow(run.content) : undefined;
+  return { run: { runId, status, ...(result ? { ...(result.company_id ? { companyId: result.company_id } : {}), revision: result.revision } : {}) }, events: [...recoveredActivities(wire.events, sessionId, runId), ...(view ? presentationEvents(view, artifactKeys(savedMessages)) : result ? resultEvents(result, artifactKeys(savedMessages)) : status === 'completed' && typeof run.content === 'string' ? [{ type: 'message' as const, text: run.content }] : [])] };
 }
 
 function recoveredActivities(value: unknown, sessionId: string, runId: string): WorkEvent[] {
@@ -355,7 +361,24 @@ export function presentMessages(messages: readonly Message[]): Message[] {
 
 function artifactKeys(messages: readonly Message[]): Set<string> {
   return new Set(messages.flatMap(message => {
+    if (message.panel && ['declarative', 'custom'].includes(message.panel.kind)) return [`panel:${message.panel.id}:${JSON.stringify(message.panel)}`];
     const item = message.panel?.provenance;
     return item && typeof item.artifact_id === 'string' && typeof item.revision === 'number' ? [`${item.artifact_id}:${item.revision}`] : [];
   }));
+}
+
+function presentation(value: unknown): Panel | undefined {
+  if (typeof value !== 'string') return undefined;
+  const marker = 'SAMURAI_PANEL=';
+  const index = value.lastIndexOf(marker);
+  if (index < 0) return undefined;
+  const panel = panelSchema.parse(json(value.slice(index + marker.length)));
+  if (panel.kind !== 'declarative' && panel.kind !== 'custom') throw new AgentosError('protocol', 'Invalid presentation view.');
+  return panel;
+}
+function presentationEvents(panel: Panel, seen: Set<string>): WorkEvent[] {
+  const key = `panel:${panel.id}:${JSON.stringify(panel)}`;
+  if (seen.has(key)) return [];
+  seen.add(key);
+  return [{ type: 'message', text: '', panel }];
 }

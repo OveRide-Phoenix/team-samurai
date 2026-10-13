@@ -64,7 +64,7 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
 
 // shortcut: deterministic fixtures exercise the UI; replace this transport with Kalyan's backend event stream.
 export const demoTransport: Transport = async function* (input, signal) {
-  const workflow = chooseWorkflow(input);
+  const workflow = /^research our market/i.test(input) ? 'evidence' : chooseWorkflow(input);
   if (workflow === 'help') {
     yield { type: 'message', text: 'This preview uses a dental receptionist business. Try “Find our first customers”, “Review our offer”, “Explore pricing”, “Validate assumptions”, or “Create a launch plan” to see its interactive views.' };
     return;
@@ -89,26 +89,14 @@ export const demoTransport: Transport = async function* (input, signal) {
   }
 };
 
-// shortcut: preview orchestration uses the saved brief without claiming live research; replace with backend runs.
-export async function* onboardingPreview(input: CompanyBrief, signal: AbortSignal): AsyncIterable<WorkEvent> {
+export function previewBrief(input: CompanyBrief): Extract<Panel, { kind: 'evidence' }> {
   const brief = companyBriefSchema.parse(input);
-  for (const [agent, detail] of [
-    ['Researcher', 'Reviewing your idea and target customers · preview'],
-    ['Strategist', 'Organising your budget and first milestone · preview'],
-    ['Sales', 'Preparing customer-discovery steps · preview'],
-    ['Verifier', 'Checking that required brief fields are complete · preview'],
-  ] as const) {
-    if (signal.aborted) return;
-    yield { type: 'activity', agent, state: 'working', detail };
-    await pause(1000, signal);
-    yield { type: 'activity', agent, state: 'done', detail: 'Preview step complete' };
-  }
-  yield { type: 'message', text: 'Your brief is saved. Here is a starting checklist to refine together. No market research or outreach has run.', panel: {
-    id: 'intake-launch-v1', kind: 'launch-plan', title: 'Your starting plan', note: 'Generated from your brief with preview templates · not validated research', tasks: [
-      { id: 'customer-discovery', title: 'Speak to your first customers', owner: 'Founder', timing: 'First', detail: `Talk to ${brief.customer} in ${brief.location}. Test the problem before committing to the solution.` },
-      { id: 'offer-test', title: 'Test one clear offer', owner: 'Founder', timing: 'Next', detail: `Explore an offer around: ${brief.idea}. Ask for concrete evidence of demand.` },
-      { id: 'budget-check', title: 'Check delivery against your budget', owner: 'Founder', timing: 'Before a pilot', detail: `Starting budget: ${brief.budget}. Verify costs and delivery requirements before spending.` },
-      { id: 'first-milestone', title: 'Measure your first milestone', owner: 'Founder', timing: 'Within 30 days', detail: brief.goal },
-    ],
-  } };
+  const fields = [['Idea', brief.idea], ['First customers', brief.customer], ['Market', brief.location], ['Budget', brief.budget], ['Founder skills', brief.founderSkills], ['First milestone', brief.goal]];
+  return { id: 'preview-company-brief', kind: 'evidence', title: 'Company brief', note: '', claims: fields.flatMap(([label, value], index) => value ? [{ id: `brief-${index}`, claim: `${label}: ${value}`, status: 'hypothesis', detail: 'Founder supplied context, not market evidence', sources: [] }] : []) };
+}
+
+// Preview follows the same brief-first boundary without making a provider call.
+export async function* onboardingPreview(input: CompanyBrief, signal: AbortSignal): AsyncIterable<WorkEvent> {
+  if (signal.aborted) return;
+  yield { type: 'message', text: 'Your starting point is ready. Choose when to begin research.', panel: previewBrief(input) };
 }
