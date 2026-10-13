@@ -18,7 +18,7 @@ export function TeamPanel({ activities = {}, history = [], expanded = false, exe
       const activity = activities[agent];
       return <details className="agent-activity" key={agent}><summary className="activity-row"><span className={`agent-symbol ${activity?.state === 'working' ? 'working' : ''}`}>
         {activity?.state === 'waiting' ? <Clock3 size={16} /> : activity?.state === 'working' ? <LoaderCircle size={16} className="spin" /> : activity?.state === 'done' ? <Check size={16} /> : agent === 'Verifier' ? <ShieldCheck size={16} /> : agent === 'Sales' ? <Users size={16} /> : agent === 'Strategist' ? <Compass size={16} /> : <Search size={16} />}
-      </span><div><strong>{agent}</strong>{(activity || expanded) && <p>{activity?.detail || agentRoles[agent]}</p>}</div></summary><div className="agent-history"><p>{agentRoles[agent]}</p>{history.filter(item => item.agent === agent).length ? <ol>{history.filter(item => item.agent === agent).map((item, index) => <li key={index}><span>{item.state === 'done' ? 'Completed' : item.state === 'working' ? 'Started' : item.state === 'waiting' ? 'Waiting' : 'Stopped'}</span>{item.detail}</li>)}</ol> : <p>No work has started for this role.</p>}</div></details>;
+      </span><div><strong>{agent}</strong>{activity && <p>{activity.detail}</p>}</div></summary><div className="agent-history"><p>{agentRoles[agent]}</p>{history.filter(item => item.agent === agent).length ? <ol>{history.filter(item => item.agent === agent).map((item, index) => <li key={index}><span>{item.state === 'done' ? 'Completed' : item.state === 'working' ? 'Started' : item.state === 'waiting' ? 'Waiting' : 'Stopped'}</span>{item.detail}</li>)}</ol> : <p>No work has started for this role.</p>}</div></details>;
     })}</div>
   </section>;
 }

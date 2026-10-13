@@ -71,6 +71,7 @@ from samurai.launch_workflows import (
     create_launch_workflows,
     run_launch_drafts,
 )
+from samurai.panels import presentation_tools
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
@@ -1038,7 +1039,7 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
             model or create_model(settings),
             max_calls=settings.agent_tool_call_limit + 1,
         ),
-        tools=tools,
+        tools=[*tools, *presentation_tools()],
         skills=skills,
         instructions=[
             (Path(__file__).parent / "prompts" / "main.md").read_text(encoding="utf-8"),

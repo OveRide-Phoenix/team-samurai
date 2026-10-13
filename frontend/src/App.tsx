@@ -1,6 +1,6 @@
 import { TransitionGrain } from './TransitionGrain';
 import { Atmosphere } from './Atmosphere';
-import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, lazy, Suspense } from 'react';
 import {
   AssistantRuntimeProvider, ComposerPrimitive, MessagePrimitive, ThreadPrimitive,
   useAuiState, useExternalStoreRuntime, type AppendMessage, type ThreadMessageLike, type ToolCallMessagePartComponent,
@@ -22,11 +22,13 @@ import { finishActivities, toggleSavedSelection, applyBackendEvent, recordBacken
 
 type WorkspaceContextValue = {
   workspace: Workspace;
+  mode: 'light' | 'dark';
   pin: (panel: Panel) => void;
   shortlist: (id: string) => void;
   approve: (id: string) => void;
   completeTask: (id: string) => void;
   open: (panel: Panel | null) => void;
+  discuss: (prompt: string) => void;
 };
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 function useWorkspace() {
@@ -35,9 +37,12 @@ function useWorkspace() {
   return value;
 }
 
-function BusinessPanel({ panel, compact = false, expanded = false, expandable = false }: { panel: Panel; compact?: boolean; expanded?: boolean; expandable?: boolean }) {
-  const { workspace, pin, shortlist, approve, completeTask, open } = useWorkspace();
-  const [filter, setFilter] = useState('All');
+const KnownPanel = lazy(() => import('./KnownPanel'));
+function BusinessPanel(props: { panel: Panel; compact?: boolean; expanded?: boolean; expandable?: boolean }) {
+  return props.panel.kind === 'custom' || props.panel.kind === 'declarative' ? <BusinessPanelContent {...props} /> : <Suspense fallback={<BusinessPanelContent {...props} />}><KnownPanel {...props} render={BusinessPanelContent} /></Suspense>;
+}
+function BusinessPanelContent({ panel, compact = false, expanded = false, expandable = false }: { panel: Panel; compact?: boolean; expanded?: boolean; expandable?: boolean }) {
+  const { workspace, mode, pin, shortlist, approve, completeTask, open, discuss } = useWorkspace();
   const pinned = workspace.pinned.some(item => item.id === panel.id);
   const approved = workspace.approvedOffers.includes(panel.id);
   return (
@@ -49,23 +54,8 @@ function BusinessPanel({ panel, compact = false, expanded = false, expandable = 
           {expandable && <button className="icon-button" onClick={() => open(expanded ? null : panel)} aria-expanded={expanded} aria-label={`${expanded ? 'Collapse' : 'Expand'} ${panel.title}`}>{expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}</button>}
         </div>
       </div>
-      {panel.kind === 'offer' && <>
-        <p className="eyebrow">{panel.customer}</p>
-        <p className="offer-promise">{panel.promise}</p>
-        {(!compact || expanded) && <ul className="offer-includes">{panel.includes.map(item => <li key={item}><Check size={14} />{item}</li>)}</ul>}
-        <div className="offer-footer"><span><strong>{panel.price}</strong></span><button className={`soft-button ${approved ? 'approved-button' : ''}`} onClick={() => approve(panel.id)} aria-pressed={approved}>{approved ? <><CheckCheck size={15} /> Reviewed</> : <>Review draft <ArrowRight size={14} /></>}</button></div>
-      </>}
-      {panel.kind === 'prospects' && <>
-        <div className="panel-filter"><span>{compact ? `${workspace.shortlist.length} shortlisted` : 'Start with a conversation.'}</span><select aria-label="Filter prospects" value={filter} onChange={event => setFilter(event.target.value)}>{["All", "High fit", "Shortlisted"].map(value => <option key={value}>{value}</option>)}</select></div>
-        <div className="prospect-list">{panel.rows.filter(row => filter === 'All' || (filter === 'High fit' ? row.fit === 'High' : workspace.shortlist.includes(row.id))).map(row => <div className="prospect-row" key={row.id}><div><strong>{row.name}</strong><span>{row.area} · {row.fit} fit</span>{(!compact || expanded) && <p>{row.reason}</p>}</div><button className={`shortlist-button ${workspace.shortlist.includes(row.id) ? 'selected' : ''}`} onClick={() => shortlist(row.id)} aria-label={`${workspace.shortlist.includes(row.id) ? 'Remove' : 'Shortlist'} ${row.name}`} aria-pressed={workspace.shortlist.includes(row.id)}>{workspace.shortlist.includes(row.id) ? <Check size={16} /> : <Plus size={16} />}</button></div>)}</div>
-        {filter === 'Shortlisted' && !panel.rows.some(row => workspace.shortlist.includes(row.id)) && <p className="empty-note">Choose a clinic with the + button to start your shortlist.</p>}
-      </>}
-      {panel.kind === 'pricing' && <div className="pricing-options">{(() => {
-        const render = (option: typeof panel.options[number]) => <div key={option.name}><span>{option.name}</span><strong>{option.price}</strong>{(!compact || expanded) && option.description && <p>{option.description}</p>}</div>;
-        return <>{panel.options.slice(0, 3).map(render)}{panel.options.length > 3 && <details className="panel-details"><summary>More options ({panel.options.length - 3})</summary>{panel.options.slice(3).map(render)}</details>}</>;
-      })()}</div>}
-      <GenerativePanelBody panel={panel} compact={compact && !expanded} completedTasks={workspace.completedTasks} onComplete={completeTask} />
-      {!panel.provenance && panel.note && <p className="panel-note"><CircleHelp size={12} />{panel.note}</p>}
+      <GenerativePanelBody mode={mode} panel={panel} compact={compact && !expanded} completedTasks={workspace.completedTasks} onComplete={completeTask} shortlisted={workspace.shortlist} onShortlist={shortlist} approved={approved} onApprove={() => approve(panel.id)} onDiscuss={discuss} />
+      {!panel.provenance && panel.note && <details className="panel-note panel-note-details"><summary><CircleHelp size={12} />{panel.kind === 'custom' || panel.kind === 'declarative' ? 'Working assumptions' : workspace.executionMode === 'preview' ? 'Sample data' : 'Draft notes'}</summary><p>{panel.note}</p></details>}
       {panel.provenance && panel.kind !== 'evidence' && <p className="panel-note">Draft · Review before acting</p>}
     </section>
   );
@@ -96,15 +86,20 @@ function convertMessage(message: Message): ThreadMessageLike {
 type CompanyProps = {
   company: Portfolio['companies'][number]; workspace: Workspace;
   setWorkspace: (update: Workspace | ((current: Workspace) => Workspace)) => void;
+  initialView?: 'chat' | 'company';
   mode: 'light' | 'dark'; toggleMode: () => void; onOpen: (id: string | null) => void; storageError: boolean;
 };
-export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggleMode, onOpen, storageError }: CompanyProps) {
+const CopilotCompany = lazy(() => import('./CopilotCompany'));
+export function CompanyWorkspace(props: CompanyProps) {
+  return props.workspace.executionMode === 'live' ? <Suspense fallback={<CompanyWorkspaceContent {...props} />}><CopilotCompany companyId={props.company.id}>{(start, error) => <CompanyWorkspaceContent {...props} copilotStart={start} connectionError={error} />}</CopilotCompany></Suspense> : <CompanyWorkspaceContent {...props} />;
+}
+function CompanyWorkspaceContent({ company, workspace, setWorkspace, initialView, mode, toggleMode, onOpen, storageError, copilotStart, connectionError }: CompanyProps & { copilotStart?: (input: string, signal: AbortSignal) => Promise<Response>; connectionError?: string }) {
   const live = workspace.executionMode === 'live';
   const recoveringRef = useRef(live && Boolean(workspace.backendRun));
   const [recovering, setRecovering] = useState(recoveringRef.current);
   const [isRunning, setRunning] = useState(recoveringRef.current);
   const [activities, setActivities] = useState<Partial<Record<Agent, Activity>>>(() => Object.fromEntries(workspace.activityLog.map(activity => [activity.agent, activity])));
-  const [view, setView] = useState<'chat' | 'company'>('chat');
+  const [view, setView] = useState<'chat' | 'company'>(initialView ?? 'chat');
   const [dialog, setDialog] = useState<'panels' | null>(null);
   const [editingOrder, setEditingOrder] = useState(false);
   useEffect(() => { if (view === 'chat') setEditingOrder(false); }, [view]);
@@ -123,7 +118,7 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
     setWorkspace(current => ({ ...recordBackendRun(current, run), activityLog: finishActivities(current.activityLog, run.status) }));
     if (run.status !== 'running') setActivities(current => Object.fromEntries(finishActivities(Object.values(current).filter((activity): activity is Activity => Boolean(activity)), run.status).map(activity => [activity.agent, activity])));
   };
-  if (live && !transportRef.current) transportRef.current = createAgentosTransport(company.id, recordRun, () => messagesRef.current);
+  if (live && copilotStart && !transportRef.current) transportRef.current = createAgentosTransport(company.id, recordRun, () => messagesRef.current, copilotStart);
   const viewportRef = useRef<HTMLDivElement>(null);
   const homeRef = useRef<HTMLElement>(null);
   const chatRef = useRef<HTMLElement>(null);
@@ -201,7 +196,7 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
     }
   };
   const chatMessages = presentMessages(workspace.messages);
-  const runtime = useExternalStoreRuntime({ messages: chatMessages, convertMessage, isRunning, onNew, onCancel });
+  const runtime = useExternalStoreRuntime({ messages: chatMessages, convertMessage, isRunning: isRunning || (live && !copilotStart && !connectionError), onNew, onCancel });
   useEffect(() => {
     const saved = backendRunRef.current;
     if (!live || !saved) return;
@@ -232,22 +227,26 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
     return () => { clearTimeout(timer); controller.abort(); };
   }, []);
   useEffect(() => {
-    if (!workspace.brief || workspace.messages.length || workspace.backendRun) return;
+    if (!workspace.brief || workspace.messages.length || workspace.backendRun || (live && !copilotStart)) return;
     // Deferring lets StrictMode cancel its first mount without starting a duplicate run.
     const timer = setTimeout(() => { runtime.thread.composer.setText('Start my company'); runtime.thread.composer.send(); }, 0);
     return () => clearTimeout(timer);
-  }, []);
+  }, [Boolean(copilotStart)]);
   const ask = (text: string) => {
     if (isRunning) return;
     setView('chat'); setDialog(null);
     runtime.thread.composer.setText(text); runtime.thread.composer.send();
+  };
+  const discuss = (prompt: string) => {
+    setView('chat'); setDialog(null);
+    runtime.thread.composer.setText(prompt);
   };
   const pin = (panel: Panel) => setWorkspace(current => ({ ...current, pinned: current.pinned.some(item => item.id === panel.id) ? current.pinned.filter(item => item.id !== panel.id) : [...current.pinned, panel].slice(-12) }));
   const shortlist = (id: string) => setWorkspace(current => ({ ...current, shortlist: toggleSavedSelection(current.shortlist, id, 100) }));
   const approve = (id: string) => setWorkspace(current => ({ ...current, approvedOffers: toggleSavedSelection(current.approvedOffers, id, 20) }));
   const completeTask = (id: string) => setWorkspace(current => ({ ...current, completedTasks: current.completedTasks.includes(id) ? current.completedTasks.filter(item => item !== id) : [...current.completedTasks, id].slice(-400) }));
   const panels = latestPanels({ ...workspace, messages: chatMessages });
-  const nextStage = panels.some(panel => panel.provenance?.artifact_type === "product_plan") ? { label: "Review next steps", prompt: "Help me choose the next step from our existing plan." } : panels.some(panel => panel.provenance?.artifact_type === "strategy") ? { label: "Plan first version", prompt: 'Prepare the product and delivery plan.' } : panels.some(panel => panel.provenance?.artifact_type === "research") ? { label: "Shape offer", prompt: 'Shape our offer and positioning. Stop before creating the product plan.' } : { label: "Research market", prompt: 'Research our market. Stop before shaping the offer.' };
+  const nextStage = panels.some(panel => panel.provenance?.artifact_type === "product_plan" || (!live && panel.kind === "launch-plan")) ? { label: "Review next steps", prompt: "Help me choose the next step from our existing plan." } : panels.some(panel => panel.provenance?.artifact_type === "strategy" || (!live && panel.kind === "offer")) ? { label: "Plan first version", prompt: 'Prepare the product and delivery plan.' } : panels.some(panel => panel.provenance?.artifact_type === "research" || (!live && panel.kind === "evidence" && panel.title !== "Company brief")) ? { label: "Shape offer", prompt: 'Shape our offer and positioning. Stop before creating the product plan.' } : { label: "Research market", prompt: 'Research our market. Stop before shaping the offer.' };
   const currentPanel = (panel: Panel) => panels.find(item => item.id === panel.id) || panel;
   const dashboardPanels = orderedPanels([...panels, ...(expandedPanel && !panels.some(panel => panel.id === expandedPanel.id) ? [expandedPanel] : [])], workspace.panelOrder);
   const reorder = (id: string, target: string) => setWorkspace(current => ({ ...current, panelOrder: movePanel(orderedPanels(latestPanels({ ...current, messages: presentMessages(current.messages) }), current.panelOrder), id, target) }));
@@ -265,7 +264,7 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
     if (conversationAtBottom && view === 'chat') viewportRef.current?.scrollTo({ top: viewportRef.current.scrollHeight, behavior: 'smooth' });
   }, [workspace.messages.length, view, conversationAtBottom]);
 
-  return <WorkspaceContext.Provider value={{ workspace, pin, shortlist, approve, completeTask, open: openPanel }}><AssistantRuntimeProvider runtime={runtime}>
+  return <WorkspaceContext.Provider value={{ workspace, mode, pin, shortlist, approve, completeTask, open: openPanel, discuss }}><AssistantRuntimeProvider runtime={runtime}>
     <div className={`workspace company-workspace ${view === 'company' ? 'dashboard-open' : ''}`}>
       <Atmosphere mode={mode} /><TransitionGrain key={view} /><div className="bottom-blur" aria-hidden="true" />
       <header className="topbar">
@@ -307,8 +306,8 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
             <div className="conversation-content">{workspace.messages.length === 0 && <div className="conversation-intro empty-conversation"><span className="empty-company-name">{company.name}</span><h2>Start with<br />your idea.</h2><p>What do you want this company to do?</p></div>}
               <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage }} />
               {isRunning && <div className="working-message" role="status"><LoaderCircle size={15} className="spin" />{workingAgent?.detail || (recovering ? 'Recovering the saved backend run…' : live ? 'Waiting for the backend…' : 'Preparing the preview…')}</div>}
-              {runError && <div className="error-note" role="alert">{live ? 'Backend status: ' : 'Preview status: '}{runError}</div>}
-              {workspace.messages.length > 0 && <div className="suggestions"><button onClick={() => ask(live ? nextStage.prompt : 'Show sample dental customer prospects')} disabled={isRunning}>{live ? nextStage.label : 'Sample customers'} <ArrowRight size={13} /></button>{!live && <button onClick={() => ask('Is this pricing viable?')} disabled={isRunning}>Sample pricing <ArrowRight size={13} /></button>}</div>}
+              {(runError || connectionError) && <div className="error-note" role="alert">{live ? 'Backend status: ' : 'Preview status: '}{runError || connectionError}</div>}
+              {workspace.messages.length > 0 && <div className="suggestions"><button onClick={() => ask(nextStage.prompt)} disabled={isRunning}>{nextStage.label} <ArrowRight size={13} /></button>{!live && <button onClick={() => ask('Is this pricing viable?')} disabled={isRunning}>Sample pricing <ArrowRight size={13} /></button>}</div>}
             </div>
           </ThreadPrimitive.Viewport>
           <div className="composer-dock">{!conversationAtBottom && <button className="scroll-bottom" onClick={() => { setConversationAtBottom(true); viewportRef.current?.scrollTo({ top: viewportRef.current.scrollHeight, behavior: 'smooth' }); }} aria-label="Scroll to latest message"><ArrowDown size={16} /></button>}
@@ -320,7 +319,7 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, mode, toggl
       </main>
 
       <Dialog.Root open={!!dialog} onOpenChange={open => { if (!open) setDialog(null); }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><Dialog.Content className="dialog-content"><Dialog.Title className="sr-only">Business panels</Dialog.Title><Dialog.Description className="sr-only">Manage this company workspace.</Dialog.Description><div className="dialog-heading"><h2>What would you like to see?</h2><button className="icon-button" aria-label="Close dialog" onClick={() => setDialog(null)}><X size={19} /></button></div><p className="dialog-description">Ask for a view, then pin it to keep it on Home.</p>
-        {dialog === 'panels' && <div className="panel-choices">{[{ title: 'Customer pipeline', detail: 'Find and shortlist your first prospects', prompt: 'Show sample dental customer prospects', icon: Users }, { title: 'Offer & positioning', detail: 'Shape a clear promise for your customers', prompt: 'Show sample dental offer', icon: Compass }, { title: 'Pricing exploration', detail: 'Compare hypotheses before testing demand', prompt: 'Show sample dental pricing', icon: SlidersHorizontal }, { title: 'Evidence review', detail: 'Separate assumptions from supported claims', prompt: 'Show sample validation evidence', icon: ShieldCheck }, { title: 'Launch plan', detail: 'Track the next steps towards a pilot', prompt: 'Show sample launch plan', icon: CheckCheck }].map(choice => <button key={choice.title} onClick={() => ask(live ? ({ 'Customer pipeline': 'Research target customers and qualification criteria', 'Offer & positioning': 'Develop our offer and positioning', 'Pricing exploration': 'Review our pricing assumptions', 'Evidence review': 'Review evidence and verification findings', 'Launch plan': 'Develop our minimum offering and delivery plan' }[choice.title] || choice.title) : choice.prompt)} disabled={isRunning}><choice.icon size={21} /><span><strong>{choice.title}</strong><small>{choice.detail}</small></span><ArrowRight size={16} /></button>)}</div>}
+        {dialog === 'panels' && <div className="panel-choices">{[{ title: 'Customer pipeline', detail: 'Find and shortlist your first prospects', prompt: 'Show sample dental customer prospects', icon: Users }, { title: 'Offer & positioning', detail: 'Shape a clear promise for your customers', prompt: 'Show sample dental offer', icon: Compass }, { title: 'Pricing exploration', detail: 'Compare hypotheses before testing demand', prompt: 'Show sample dental pricing', icon: SlidersHorizontal }, { title: 'Evidence review', detail: 'Separate assumptions from supported claims', prompt: 'Show sample validation evidence', icon: ShieldCheck }, { title: 'Custom view', detail: 'Create your own interactive calculator or component', prompt: 'Help me describe a custom interactive business view', icon: SlidersHorizontal }, { title: 'Launch plan', detail: 'Track the next steps towards a pilot', prompt: 'Show sample launch plan', icon: CheckCheck }].filter(choice => live || choice.title !== 'Custom view').map(choice => <button key={choice.title} onClick={() => ask(live ? ({ 'Customer pipeline': 'Research target customers and qualification criteria', 'Offer & positioning': 'Develop our offer and positioning', 'Pricing exploration': 'Review our pricing assumptions', 'Evidence review': 'Review evidence and verification findings', 'Custom view': 'I want to create my own custom interactive business component. Ask what it should show and do before creating it.', 'Launch plan': 'Develop our minimum offering and delivery plan' }[choice.title] || choice.title) : choice.prompt)} disabled={isRunning}><choice.icon size={21} /><span><strong>{choice.title}</strong><small>{choice.detail}</small></span><ArrowRight size={16} /></button>)}</div>}
       </Dialog.Content></Dialog.Portal></Dialog.Root>
     </div>
   </AssistantRuntimeProvider></WorkspaceContext.Provider>;

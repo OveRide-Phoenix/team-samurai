@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict
 from starlette.formparsers import MultiPartException
 from starlette.requests import Request
 
+from samurai.agui import SamuraiAGUI
 from samurai.config import Settings
 from samurai.intake import INTAKE_PAGES, IntakePage
 from samurai.parent import (
@@ -114,6 +115,8 @@ class _HttpRequestMessage(BaseModel):
 
 
 def _input_fields_for_path(path: str) -> tuple[str, ...] | None:
+    if path == "/agentos/agents/samurai/agui":
+        return ()
     if path == RUN_PATH:
         return ("message",)
     run_id = path[len(RUN_CONTINUE_PREFIX) : -len(RUN_CONTINUE_SUFFIX)]
@@ -146,7 +149,7 @@ class _ParentInputBoundary:
     app: ASGIApp
     max_input_chars: int
 
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:  # noqa: PLR0911 - HTTP boundary exits.
         if scope["type"] != "http" or scope["method"] != "POST":
             await self.app(scope, receive, send)
             return
@@ -177,6 +180,9 @@ class _ParentInputBoundary:
                 return
             more_body = message.more_body
         payload = bytes(body)
+        if not input_fields:
+            await self.app(scope, _replay_body_once(payload, receive), send)
+            return
 
         try:
             headers = cast("list[tuple[bytes, bytes]]", scope.get("headers", []))
@@ -232,6 +238,9 @@ def create_app(
         db=runtime_db,
         agents=[parent_factory] if api_key or parent_model_factory is not None else [],
         workflows=[],
+        interfaces=[SamuraiAGUI(runtime_db, settings, parent_model_factory)]
+        if api_key or parent_model_factory is not None
+        else [],
         config=AgentOSConfig(chat=ChatConfig(quick_prompts={PARENT_AGENT_ID: STARTER_PROMPTS})),
         settings=AgnoAPISettings(os_security_key=settings.os_security_key.get_secret_value()),
         authorization=Authorization(

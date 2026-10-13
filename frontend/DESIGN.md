@@ -41,3 +41,13 @@ No raw artifact JSON, wire-status chat labels or repeated evidence badges in the
 Collapsed Details retains all validated findings, source excerpts, conflicts and plan steps. Bounded native payloads may contain up to 500 draft/evidence entries, 400 plan steps and 100 sources per finding. Show only the first three findings/steps and two source links initially; keep overflow readable through Details. Mobile dashboard Team scrolls with cards so it cannot cover results.
 
 Mobile result disclosures retain native indicators and at least 44px tap height. Source-support excerpts identify their finding inside Details.
+
+## Interactive business panels — 13 October 2026
+
+Known views use purpose-built interactive layouts, not paragraphs of artifact fields: Brief Overview/Inputs with customer/market context and a milestone; evidence review counts, filters and source disclosures; offer/inclusions and saved review; selectable pricing hypotheses and a discussion draft; a real checklist progress ring; searchable/filterable prospects with a saved shortlist. Discussion controls fill the existing composer without submitting a run. Preserve company-scoped callbacks, uncertainty and source lineage.
+
+Shared controls live in `src/panel-controls.css`, used by the host and the custom-view shell. Custom components get a transparent, content-sized frame and a first important CSS layer that protects theme tokens, typography and control styling from generated CSS. Inline style attributes are rejected by the frame CSP. A size-only message accepts only the exact opaque iframe window and bounded integer height; it cannot invoke host functions. The previous fixed tinted calculator block is removed.
+
+Local development exposes labelled sample previews at `?preview=panels` and `?preview=intake`; production excludes that loader. They make no backend or provider calls.
+
+Default panels keep copy concise: idle team roles show names/icons with descriptions on expansion; pricing explanations, prospect reasons, owners and notes sit behind disclosures. Brief labels and actions are short. Preserve primary values, evidence status, scenario labels and every saved action. No information is discarded to make the view lighter.

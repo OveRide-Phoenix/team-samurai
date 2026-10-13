@@ -98,20 +98,19 @@ describe('company prerequisites', () => {
   it('uses the supplied brief without inventing dental fixtures and yields valid events', async () => {
     const events = [];
     for await (const raw of onboardingPreview(brief, new AbortController().signal)) events.push(eventSchema.parse(raw));
-    expect(events.filter(e => e.type === 'activity' && e.state === 'working')).toHaveLength(4);
+    expect(events).toHaveLength(1);
+    expect(events.filter(e => e.type === 'activity')).toHaveLength(0);
     const result = events.find(e => e.type === 'message');
     expect(JSON.stringify(result)).toContain('Local cyclists');
     expect(JSON.stringify(result)).toContain('Pune');
     expect(JSON.stringify(result)).not.toContain('Dental');
-    expect(result?.type === 'message' && result.panel?.kind).toBe('launch-plan');
+    expect(result?.type === 'message' && result.panel?.title).toBe('Company brief');
   });
-  it('cancels the initial preview before producing a plan', async () => {
+  it('does not produce a brief when the initial preview was cancelled', async () => {
     const controller = new AbortController();
     const stream = onboardingPreview(brief, controller.signal)[Symbol.asyncIterator]();
-    expect((await stream.next()).value?.type).toBe('activity');
-    const waiting = stream.next();
     controller.abort();
-    await expect(waiting).rejects.toBeDefined();
+    expect((await stream.next()).done).toBe(true);
   });
 });
 
@@ -142,6 +141,7 @@ describe('live workspace state', () => {
     expect(first.messages[0].backendRunId).toBe('r1');
     expect(first.pinned[0]).toMatchObject({ price: 'Revised assumption' });
     expect(applyBackendEvent(first, 'r2', event).messages).toHaveLength(2);
+    if (event.panel.kind !== 'offer') throw new Error('Expected offer fixture');
     const revised = applyBackendEvent(first, 'r1', { ...event, panel: { ...event.panel, note: 'New revision' } });
     expect(revised.messages).toHaveLength(2);
     expect(revised.pinned[0].note).toBe('New revision');
