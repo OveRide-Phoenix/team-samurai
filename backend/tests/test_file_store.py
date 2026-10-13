@@ -157,6 +157,19 @@ class BlockingWriteStore(FakeObjectStore):
         return stored
 
 
+class BlockingPromoteStore(FakeObjectStore):
+    def __init__(self, promoted: Event, release: Event) -> None:
+        super().__init__()
+        self._promoted: Event = promoted
+        self._release: Event = release
+
+    @override
+    def promote(self, quarantine_key: str, ready_key: str) -> None:
+        super().promote(quarantine_key, ready_key)
+        self._promoted.set()
+        assert self._release.wait(timeout=2)
+
+
 def test_ready_upload_is_immutable_authorized_and_quota_backed(
     file_database: SamuraiPostgresDb, tmp_path: Path
 ) -> None:
@@ -456,6 +469,32 @@ def test_promote_failure_stays_quarantined_until_cleanup(
     assert store.cleanup_quarantine(now=2**62) == 0
     assert _quota(file_database, workspace_id) == (0, 0)
     assert objects.objects == {}
+
+
+def test_quarantine_cleanup_serializes_with_inflight_promotion(
+    file_database: SamuraiPostgresDb,
+) -> None:
+    workspace_id = _workspace(file_database)
+    promoted = Event()
+    release = Event()
+    objects = BlockingPromoteStore(promoted, release)
+    store = _store(file_database, Path("unused"), objects=objects)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        upload_future = executor.submit(
+            store.upload, "owner", workspace_id, "brief.txt", "text/plain", [b"promoted"]
+        )
+        assert promoted.wait(timeout=2)
+        cleanup_future = executor.submit(store.cleanup_quarantine, now=2**62)
+        with pytest.raises(FutureTimeoutError):
+            _ = cleanup_future.result(timeout=0.1)
+        release.set()
+        uploaded = upload_future.result(timeout=2)
+        assert cleanup_future.result(timeout=2) == 0
+
+    assert uploaded.state is FileState.READY
+    assert store.read("owner", workspace_id, uploaded.file_id) == b"promoted"
+    assert _quota(file_database, workspace_id) == (1, 8)
 
 
 def test_deleted_blob_purge_and_receipt_retention_are_idempotent(

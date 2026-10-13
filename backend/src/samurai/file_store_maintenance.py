@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import time
-from typing import TYPE_CHECKING, cast, final
+from typing import TYPE_CHECKING, final
+from uuid import UUID  # noqa: TC003 - Pydantic resolves UUID fields at runtime.
 
+from pydantic import BaseModel
 from sqlalchemy import text
 
 from samurai.quota import WorkspaceQuota
 
 if TYPE_CHECKING:
-    from uuid import UUID
-
     from sqlalchemy.engine import Connection, Engine
     from sqlalchemy.sql.elements import TextClause
 
@@ -21,6 +21,34 @@ if TYPE_CHECKING:
 QUARANTINE_SECONDS = 3600
 PURGE_SECONDS = 7 * 86400
 RECEIPT_SECONDS = 30 * 86400
+
+
+class _Candidate(BaseModel):
+    file_id: UUID
+    workspace_id: UUID
+    content_sha256: str
+
+
+class _ReceiptCandidate(BaseModel):
+    receipt_id: UUID
+    workspace_id: UUID
+
+
+class _QuarantineRow(BaseModel):
+    byte_size: int
+    storage_key: str
+
+
+class _ReceiptRow(BaseModel):
+    file_id: UUID
+    content_sha256: str
+    retain_until: int
+
+
+class _ReconcileCandidate(BaseModel):
+    file_id: UUID
+    workspace_id: UUID
+    content_sha256: str
 
 
 @final
@@ -38,43 +66,47 @@ class FileStoreMaintenance:
         """Reject quarantines older than one hour and release their quota."""
         timestamp = int(time.time()) if now is None else now
         with self._engine.connect() as connection:
-            candidates = cast(
-                "list[tuple[UUID, UUID]]",
-                connection.execute(
+            candidates = [
+                _Candidate.model_validate(row)
+                for row in connection.execute(
                     self._sql(
-                        """SELECT file_id, workspace_id FROM "{schema}".samurai_files
+                        """SELECT file_id, workspace_id, content_sha256
+                        FROM "{schema}".samurai_files
                         WHERE state = 'quarantined' AND updated_at <= :cutoff"""
                     ),
                     {"cutoff": timestamp - QUARANTINE_SECONDS},
-                ).all(),
-            )
+                ).mappings()
+            ]
         cleaned = 0
-        for file_id, workspace_id in candidates:
+        for candidate in candidates:
             with self._engine.begin() as connection:
-                self._quota.lock(connection, workspace_id)
-                row = cast(
-                    "tuple[int, str] | None",
+                self._quota.lock(connection, candidate.workspace_id)
+                ready_key = self._ready_key(candidate.workspace_id, candidate.content_sha256)
+                self._lock_object(connection, ready_key)
+                raw_row = (
                     connection.execute(
                         self._sql(
                             """SELECT byte_size, storage_key FROM "{schema}".samurai_files
                             WHERE file_id = :file_id AND state = 'quarantined'
                             AND updated_at <= :cutoff FOR UPDATE"""
                         ),
-                        {"file_id": file_id, "cutoff": timestamp - QUARANTINE_SECONDS},
-                    ).one_or_none(),
+                        {"file_id": candidate.file_id, "cutoff": timestamp - QUARANTINE_SECONDS},
+                    )
+                    .mappings()
+                    .one_or_none()
                 )
-                if row is None:
+                if raw_row is None:
                     continue
-                byte_size, storage_key = row
-                self._quota.release_file(connection, workspace_id, byte_size)
-                self._objects.delete(storage_key)
+                row = _QuarantineRow.model_validate(raw_row)
+                self._quota.release_file(connection, candidate.workspace_id, row.byte_size)
+                self._objects.delete(row.storage_key)
                 _ = connection.execute(
                     self._sql(
                         """UPDATE "{schema}".samurai_files SET state = 'rejected',
                         rejection_code = 'quarantine_expired', updated_at = :now,
                         storage_key = 'redacted' WHERE file_id = :file_id"""
                     ),
-                    {"file_id": file_id, "now": timestamp},
+                    {"file_id": candidate.file_id, "now": timestamp},
                 )
                 cleaned += 1
         return cleaned
@@ -85,35 +117,36 @@ class FileStoreMaintenance:
         purged = 0
         expired = 0
         with self._engine.connect() as connection:
-            candidates = cast(
-                "list[tuple[UUID, UUID]]",
-                connection.execute(
+            candidates = [
+                _ReceiptCandidate.model_validate(row)
+                for row in connection.execute(
                     self._sql(
                         """SELECT receipt_id, workspace_id
                         FROM "{schema}".samurai_file_deletion_receipts
                         WHERE purge_after <= :now"""
                     ),
                     {"now": timestamp},
-                ).all(),
-            )
-        for receipt_id, workspace_id in candidates:
+                ).mappings()
+            ]
+        for candidate in candidates:
             with self._engine.begin() as connection:
-                self._quota.lock(connection, workspace_id)
-                receipt = cast(
-                    "tuple[UUID, str, int] | None",
+                self._quota.lock(connection, candidate.workspace_id)
+                raw_receipt = (
                     connection.execute(
                         self._sql(
                             """SELECT file_id, content_sha256, retain_until
                             FROM "{schema}".samurai_file_deletion_receipts
                             WHERE receipt_id = :receipt_id AND purge_after <= :now FOR UPDATE"""
                         ),
-                        {"receipt_id": receipt_id, "now": timestamp},
-                    ).one_or_none(),
+                        {"receipt_id": candidate.receipt_id, "now": timestamp},
+                    )
+                    .mappings()
+                    .one_or_none()
                 )
-                if receipt is None:
+                if raw_receipt is None:
                     continue
-                file_id, content_sha256, retain_until = receipt
-                key = self._ready_key(workspace_id, content_sha256)
+                receipt = _ReceiptRow.model_validate(raw_receipt)
+                key = self._ready_key(candidate.workspace_id, receipt.content_sha256)
                 self._lock_object(connection, key)
                 active = connection.execute(
                     self._sql(
@@ -121,25 +154,28 @@ class FileStoreMaintenance:
                         WHERE workspace_id = :workspace_id AND content_sha256 = :sha256
                         AND state IN ('quarantined', 'ready') LIMIT 1"""
                     ),
-                    {"workspace_id": workspace_id, "sha256": content_sha256},
+                    {
+                        "workspace_id": candidate.workspace_id,
+                        "sha256": receipt.content_sha256,
+                    },
                 ).scalar_one_or_none()
                 if active is None and self._objects.exists(key):
                     self._objects.delete(key)
                     purged += 1
-                if retain_until <= timestamp:
+                if receipt.retain_until <= timestamp:
                     _ = connection.execute(
                         self._sql(
                             """DELETE FROM "{schema}".samurai_file_deletion_receipts
                             WHERE receipt_id = :receipt_id"""
                         ),
-                        {"receipt_id": receipt_id},
+                        {"receipt_id": candidate.receipt_id},
                     )
                     _ = connection.execute(
                         self._sql(
                             """DELETE FROM "{schema}".samurai_files
                             WHERE file_id = :file_id AND state = 'deleted'"""
                         ),
-                        {"file_id": file_id},
+                        {"file_id": receipt.file_id},
                     )
                     expired += 1
         return purged, expired
@@ -149,37 +185,34 @@ class FileStoreMaintenance:
         timestamp = int(time.time()) if now is None else now
         repaired = 0
         with self._engine.connect() as connection:
-            candidates = cast(
-                "list[tuple[UUID, UUID, str]]",
-                connection.execute(
+            candidates = [
+                _ReconcileCandidate.model_validate(row)
+                for row in connection.execute(
                     self._sql(
                         """SELECT file_id, workspace_id, content_sha256
                         FROM "{schema}".samurai_files
                         WHERE state = 'quarantined'"""
                     )
-                ).all(),
-            )
-        for file_id, workspace_id, content_sha256 in candidates:
-            ready_key = self._ready_key(workspace_id, content_sha256)
+                ).mappings()
+            ]
+        for candidate in candidates:
+            ready_key = self._ready_key(candidate.workspace_id, candidate.content_sha256)
             with self._engine.begin() as connection:
                 self._lock_object(connection, ready_key)
-                byte_size = cast(
-                    "int | None",
-                    connection.execute(
-                        self._sql(
-                            """SELECT byte_size FROM "{schema}".samurai_files
+                byte_size = connection.execute(
+                    self._sql(
+                        """SELECT byte_size FROM "{schema}".samurai_files
                             WHERE file_id = :file_id AND state = 'quarantined' FOR UPDATE"""
-                        ),
-                        {"file_id": file_id},
-                    ).scalar_one_or_none(),
-                )
+                    ),
+                    {"file_id": candidate.file_id},
+                ).scalar_one_or_none()
                 if byte_size is None:
                     continue
                 if not self._objects.exists(ready_key):
                     continue
                 content = self._objects.read(ready_key)
                 if (
-                    hashlib.sha256(content).hexdigest() != content_sha256
+                    hashlib.sha256(content).hexdigest() != candidate.content_sha256
                     or len(content) != byte_size
                 ):
                     continue
@@ -188,7 +221,7 @@ class FileStoreMaintenance:
                         """UPDATE "{schema}".samurai_files SET state = 'ready',
                         storage_key = :key, updated_at = :now WHERE file_id = :file_id"""
                     ),
-                    {"file_id": file_id, "key": ready_key, "now": timestamp},
+                    {"file_id": candidate.file_id, "key": ready_key, "now": timestamp},
                 )
                 repaired += 1
         removed = 0

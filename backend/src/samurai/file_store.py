@@ -6,7 +6,7 @@ import hashlib
 import json
 import time
 from pathlib import PurePosixPath
-from typing import TYPE_CHECKING, Final, cast, final
+from typing import TYPE_CHECKING, Final, final
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
@@ -16,6 +16,7 @@ from samurai.company_store_contracts import WorkspaceRole
 from samurai.company_store_queries import valid_schema
 from samurai.config import WORKSPACE_QUOTA_LIMITS
 from samurai.file_store_contracts import (
+    FileContentReference,
     FileRecord,
     FileState,
     FileStoreError,
@@ -106,20 +107,22 @@ class FileStore:
             self._objects.delete(quarantined.key)
             raise
         ready_key = f"ready/{workspace_id}/{quarantined.sha256}"
-        try:
-            with self._engine.begin() as connection:
-                self._lock_object(connection, ready_key)
+        with self._engine.begin() as connection:
+            self._lock_object(connection, ready_key)
+            try:
                 self._objects.promote(quarantined.key, ready_key)
-                _ = connection.execute(
-                    self._sql(
-                        """UPDATE "{schema}".samurai_files SET state = 'ready',
+            except (FileStoreError, OSError) as error:
+                raise FileStoreError(FileStoreIssue.PROMOTION_FAILED) from error
+            promoted = connection.execute(
+                self._sql(
+                    """UPDATE "{schema}".samurai_files SET state = 'ready',
                         storage_key = :storage_key, updated_at = :now
                         WHERE file_id = :file_id AND state = 'quarantined'"""
-                    ),
-                    {"file_id": file_id, "storage_key": ready_key, "now": timestamp},
-                )
-        except (FileStoreError, OSError) as error:
-            raise FileStoreError(FileStoreIssue.PROMOTION_FAILED) from error
+                ),
+                {"file_id": file_id, "storage_key": ready_key, "now": timestamp},
+            )
+            if promoted.rowcount != 1:
+                raise FileStoreError(FileStoreIssue.PROMOTION_FAILED)
         return self._record(actor_id, workspace_id, file_id)
 
     def read(self, actor_id: str, workspace_id: UUID, file_id: UUID) -> bytes:
@@ -145,8 +148,7 @@ class FileStore:
         with self._engine.begin() as connection:
             self._quota.lock(connection, workspace_id)
             self._require_writable(actor_id, workspace_id, connection)
-            row = cast(
-                "tuple[int, str] | None",
+            raw_row = (
                 connection.execute(
                     self._sql(
                         """SELECT byte_size, content_sha256 FROM "{schema}".samurai_files
@@ -154,12 +156,14 @@ class FileStore:
                     AND state IN ('quarantined', 'ready') FOR UPDATE"""
                     ),
                     {"file_id": file_id, "workspace_id": workspace_id},
-                ).one_or_none(),
+                )
+                .mappings()
+                .one_or_none()
             )
-            if row is None:
+            if raw_row is None:
                 raise FileStoreError(FileStoreIssue.NOT_READY)
-            byte_size, content_sha256 = row
-            self._quota.release_file(connection, workspace_id, byte_size)
+            row = FileContentReference.model_validate(raw_row)
+            self._quota.release_file(connection, workspace_id, row.byte_size)
             _ = connection.execute(
                 self._sql(
                     """UPDATE "{schema}".samurai_files SET state = 'deleted', deleted_at = :now,
@@ -179,7 +183,7 @@ class FileStore:
                     "receipt_id": uuid4(),
                     "file_id": file_id,
                     "workspace_id": workspace_id,
-                    "sha256": content_sha256,
+                    "sha256": row.content_sha256,
                     "actor_id": actor_id,
                     "now": timestamp,
                     "purge_after": timestamp + maintenance.PURGE_SECONDS,
@@ -249,7 +253,7 @@ class FileStore:
             raise FileStoreError(FileStoreIssue.INVALID_UTF8) from error
         if media_type == "application/json":
             try:
-                _ = cast("object", json.loads(decoded, parse_constant=_reject_json_constant))
+                json.loads(decoded, parse_constant=_reject_json_constant)
             except (json.JSONDecodeError, ValueError) as error:
                 raise FileStoreError(FileStoreIssue.INVALID_JSON) from error
 

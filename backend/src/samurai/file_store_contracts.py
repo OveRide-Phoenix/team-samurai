@@ -80,6 +80,13 @@ class FileRecord(BaseModel):
     updated_at: int
 
 
+class FileContentReference(BaseModel):
+    """Checked byte accounting and content identity from file metadata."""
+
+    byte_size: int
+    content_sha256: str
+
+
 @runtime_checkable
 class ObjectStore(Protocol):
     """Minimum object semantics required by local and future cloud adapters."""
