@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, NoReturn, cast, final
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from fastapi import HTTPException
 
@@ -67,16 +67,29 @@ class WorkspaceDirectory:
         """Deactivate a workspace member."""
         self._members.delete(actor_id, workspace_id, user_id)
 
-    def create_company(self, actor_id: str, workspace_id: UUID) -> CompanyRecord:
+    def create_company(
+        self, actor_id: str, workspace_id: UUID, idempotency_key: UUID | None = None
+    ) -> CompanyRecord:
         """Reserve a canonical company before brief collection begins."""
+        parent_session_id = (
+            str(uuid4())
+            if idempotency_key is None
+            else str(uuid5(NAMESPACE_URL, f"samurai-company:{actor_id}:{idempotency_key}:parent"))
+        )
+        child_session_id = (
+            str(uuid4())
+            if idempotency_key is None
+            else str(uuid5(NAMESPACE_URL, f"samurai-company:{actor_id}:{idempotency_key}:child"))
+        )
         access = self._store_call(
             lambda: self._store.reserve(
                 CompanyReservation(
                     workspace_id=workspace_id,
                     actor_id=actor_id,
-                    parent_session_id=str(uuid4()),
-                    child_session_id=str(uuid4()),
+                    parent_session_id=parent_session_id,
+                    child_session_id=child_session_id,
                     created_at=datetime.now(UTC),
+                    idempotency_key=idempotency_key,
                 )
             )
         )

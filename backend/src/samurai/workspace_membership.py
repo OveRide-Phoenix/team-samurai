@@ -10,6 +10,7 @@ from fastapi import HTTPException
 
 from samurai import workspace_directory_queries as queries
 from samurai.company_store_contracts import WorkspaceRole
+from samurai.quota import QuotaResource, WorkspaceQuota, WorkspaceQuotaExceededError
 from samurai.workspace_directory_contracts import MemberRecord, MembershipRow, WorkspaceRecord
 
 if TYPE_CHECKING:
@@ -24,6 +25,7 @@ class WorkspaceMembership:
         """Use the app-owned engine and schema."""
         self._engine = engine
         self._schema = schema
+        self._quota = WorkspaceQuota(schema)
 
     def create(self, actor_id: str, display_name: str) -> WorkspaceRecord:
         """Create a shared workspace and first owner."""
@@ -42,6 +44,7 @@ class WorkspaceMembership:
                 queries.render(queries.CREATE_OWNER, self._schema),
                 {"workspace_id": workspace_id, "actor_id": actor_id, "timestamp": timestamp},
             )
+            self._quota.create(connection, workspace_id, timestamp)
         return WorkspaceRecord(
             workspace_id=workspace_id,
             display_name=display_name,
@@ -63,6 +66,7 @@ class WorkspaceMembership:
         """Create, reactivate, or change a member as an owner."""
         timestamp = self._now()
         with self._engine.begin() as connection:
+            self._quota.lock(connection, workspace_id)
             self.require_owner(connection, workspace_id, actor_id)
             raw_target = (
                 connection.execute(
@@ -76,6 +80,11 @@ class WorkspaceMembership:
             if target is not None and target.active and target.role is role:
                 epoch = target.authorization_epoch
             else:
+                if target is None or not target.active:
+                    try:
+                        self._quota.reserve(connection, workspace_id, QuotaResource.MEMBER)
+                    except WorkspaceQuotaExceededError as error:
+                        raise HTTPException(status_code=409, detail=str(error)) from error
                 if target is not None and target.active and target.role is WorkspaceRole.OWNER:
                     self._protect_last_owner(connection, workspace_id)
                 epoch = 1 if target is None else target.authorization_epoch + 1
@@ -101,6 +110,7 @@ class WorkspaceMembership:
         """Deactivate a member while advancing its authorization epoch."""
         timestamp = self._now()
         with self._engine.begin() as connection:
+            self._quota.lock(connection, workspace_id)
             self.require_owner(connection, workspace_id, actor_id)
             role = cast(
                 "str | None",
@@ -117,6 +127,7 @@ class WorkspaceMembership:
                 queries.render(queries.DEACTIVATE_MEMBER, self._schema),
                 {"workspace_id": workspace_id, "user_id": user_id, "timestamp": timestamp},
             )
+            self._quota.release(connection, workspace_id, QuotaResource.MEMBER)
 
     def require_owner(self, connection: Connection, workspace_id: UUID, actor_id: str) -> None:
         """Lock a workspace and require owner authority."""
@@ -154,4 +165,3 @@ class WorkspaceMembership:
     @staticmethod
     def _now() -> int:
         return int(datetime.now(UTC).timestamp())
-

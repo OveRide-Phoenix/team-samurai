@@ -33,6 +33,18 @@ test('forwards only strict workspace directory requests', async t => {
   assert.deepEqual(calls.map(([url, options]) => [url, options.method, options.body]), [['https://backend.example/agentos/samurai/workspaces', 'POST', JSON.stringify({ display_name: 'Founders' })]]);
 });
 
+test('requires a submission ID for company reservations and maps it to the upstream idempotency key', async t => {
+  const calls = [];
+  const app = await fixture(t, async (url, options) => { calls.push([url, options]); return Response.json({}); });
+  const workspaceId = '00000000-0000-4000-8000-000000000001';
+  const submissionId = '00000000-0000-4000-8000-000000000003';
+  const headers = { origin: 'https://samurai.example', 'content-type': 'application/json', 'x-samurai-submission-id': submissionId, 'idempotency-key': 'browser-forged' };
+  const response = await app.request(`/api/agentos/samurai/workspaces/${workspaceId}/companies`, { method: 'POST', headers, body: '{}' });
+  assert.equal(response.status, 200);
+  assert.equal(calls[0][1].headers['idempotency-key'], submissionId);
+  assert.equal((await app.request(`/api/agentos/samurai/workspaces/${workspaceId}/companies`, { method: 'POST', headers: { origin: 'https://samurai.example', 'content-type': 'application/json' }, body: '{}' })).status, 400);
+});
+
 test('rejects forged directory fields and invalid directory routes before upstream access', async t => {
   const app = await fixture(t, () => assert.fail('upstream reached'));
   const headers = { origin: 'https://samurai.example', 'content-type': 'application/json' };

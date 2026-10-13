@@ -34,6 +34,8 @@ class CompanyStoreIssue(StrEnum):
     STALE_REVISION = "canonical company revision changed before acceptance"
     BINDING_CONFLICT = "actor session is already bound to another company"
     MIRROR_MISSING = "legacy owner session is missing"
+    WORKSPACE_QUOTA = "workspace quota exceeded"
+    CHANGED_RESERVATION = "idempotency key was reused for another workspace"
 
 
 @dataclass(slots=True)
@@ -56,6 +58,7 @@ class CompanyReservation:
     parent_session_id: str
     child_session_id: str
     created_at: datetime
+    idempotency_key: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)

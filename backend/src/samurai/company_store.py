@@ -24,6 +24,7 @@ from samurai.company_store_contracts import (
     WorkspaceRow,
 )
 from samurai.contracts import CompanyState, create_company_state
+from samurai.quota import QuotaResource, WorkspaceQuota, WorkspaceQuotaExceededError
 from samurai.schema_contracts import canonical_state_hash
 
 if TYPE_CHECKING:
@@ -42,16 +43,54 @@ class CompanyStore:
             raise CompanyStoreError(CompanyStoreIssue.NOT_FOUND)
         self._engine: Engine = engine
         self._schema: str = schema
+        self._quota: WorkspaceQuota = WorkspaceQuota(schema)
 
     def reserve(self, reservation: CompanyReservation) -> CompanyAccess:
         """Create one company for an active owner or editor membership."""
         with self._engine.begin() as connection:
+            _ = self._membership(
+                connection,
+                reservation.workspace_id,
+                reservation.actor_id,
+                writable=True,
+                lock=False,
+            )
+            self._quota.lock(connection, reservation.workspace_id)
             membership = self._membership(
                 connection,
                 reservation.workspace_id,
                 reservation.actor_id,
                 writable=True,
             )
+            existing_row = None
+            if reservation.idempotency_key is not None:
+                existing_row = (
+                    connection.execute(
+                        queries.render_company_sql(queries.READ_ACCESS, self._schema),
+                        {
+                            "actor_id": reservation.actor_id,
+                            "parent_session_id": reservation.parent_session_id,
+                        },
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
+            if existing_row is not None:
+                existing = CompanyAccessRow.model_validate(existing_row)
+                if existing.workspace_id != reservation.workspace_id:
+                    raise CompanyStoreError(CompanyStoreIssue.CHANGED_RESERVATION)
+                return CompanyAccess(
+                    state=CompanyState.model_validate(existing.canonical_state),
+                    workspace_id=existing.workspace_id,
+                    role=membership.role,
+                    authorization_epoch=membership.authorization_epoch,
+                    parent_session_id=existing.parent_session_id,
+                    child_session_id=existing.child_session_id,
+                )
+            try:
+                self._quota.reserve(connection, reservation.workspace_id, QuotaResource.COMPANY)
+            except WorkspaceQuotaExceededError as error:
+                raise CompanyStoreError(CompanyStoreIssue.WORKSPACE_QUOTA) from error
             state = create_company_state(
                 reservation.parent_session_id,
                 created_at=reservation.created_at,
@@ -248,10 +287,12 @@ class CompanyStore:
         actor_id: str,
         *,
         writable: bool,
+        lock: bool = True,
     ) -> MembershipRow:
+        statement = queries.READ_MEMBERSHIP + (" FOR SHARE" if lock else "")
         row = (
             connection.execute(
-                queries.render_company_sql(queries.READ_MEMBERSHIP + " FOR SHARE", self._schema),
+                queries.render_company_sql(statement, self._schema),
                 {"workspace_id": workspace_id, "actor_id": actor_id},
             )
             .mappings()

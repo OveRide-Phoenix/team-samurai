@@ -12,6 +12,7 @@ import { createLatestRequestGuard, createOneAtATimeGate, createWorkspace, create
 import { ModeToggle, SearchBar } from './ShellParts';
 
 type Reservation = { readonly workspace: WorkspaceDirectory; readonly company: DirectoryCompany };
+type CompanyCreationRetry = { readonly workspace: WorkspaceDirectory; readonly submissionId: string };
 
 function companyName(workspace: WorkspaceDirectory, company: DirectoryCompany): string {
   return `${workspace.display_name} · ${company.company_id.slice(0, 8)}`;
@@ -44,6 +45,7 @@ export function App({ scope }: { readonly scope: BrowserScope }) {
   portfolioRef.current = portfolio;
   const [name, setName] = useState('');
   const [reservation, setReservation] = useState<Reservation | null>(null);
+  const [companyCreationRetry, setCompanyCreationRetry] = useState<CompanyCreationRetry | null>(null);
   const [workspaces, setWorkspaces] = useState<readonly WorkspaceDirectory[]>([]);
   const [directory, setDirectory] = useState<readonly Reservation[]>([]);
   const [directoryError, setDirectoryError] = useState('');
@@ -83,7 +85,7 @@ export function App({ scope }: { readonly scope: BrowserScope }) {
     return true;
   };
   const toggleMode = () => { updatePortfolio(current => ({ ...current, mode: current.mode === 'light' ? 'dark' : 'light' })); };
-  const open = (activeId: string | null) => { openGuard.current.invalidate(); setReservation(null); updatePortfolio(current => ({ ...current, activeId })); };
+  const open = (activeId: string | null) => { openGuard.current.invalidate(); setReservation(null); setCompanyCreationRetry(null); updatePortfolio(current => ({ ...current, activeId })); };
   const create = (brief: CompanyBrief, pending: Reservation) => {
     const parentSessionId = pending.company.parent_session_id;
     if (!parentSessionId) { setDirectoryError('The company reservation did not include a session. Return Home and try again.'); return; }
@@ -99,11 +101,15 @@ export function App({ scope }: { readonly scope: BrowserScope }) {
     if (!name.trim() || portfolio.companies.length >= 50 || openGuard.current.isPending() || !startGate.current.tryBegin()) return;
     openGuard.current.invalidate();
     setStartingCompany(true);
+    const retry = companyCreationRetry;
+    const submissionId = retry?.submissionId ?? crypto.randomUUID();
+    let workspace = retry?.workspace;
     try {
-      const workspace = firstWritableWorkspace(workspaces) ?? await createWorkspace(`${name.trim()} workspace`);
-      const company = await createWorkspaceCompany(workspace.workspace_id);
-      setReservation({ workspace, company }); setDirectoryError('');
+      workspace ??= firstWritableWorkspace(workspaces) ?? await createWorkspace(`${name.trim()} workspace`);
+      const company = await createWorkspaceCompany(workspace.workspace_id, submissionId);
+      setCompanyCreationRetry(null); setReservation({ workspace, company }); setDirectoryError('');
     } catch {
+      setCompanyCreationRetry(workspace ? { workspace, submissionId } : null);
       setDirectoryError('Could not reserve a company. Try again.');
     } finally { startGate.current.finish(); setStartingCompany(false); }
   };
@@ -146,7 +152,7 @@ export function App({ scope }: { readonly scope: BrowserScope }) {
       <header className="topbar"><span className="wordmark">Samurai</span><div className="topbar-actions"><SearchBar placeholder="Search companies" items={portfolio.companies.map(item => ({ id: item.id, title: item.name }))} onSelect={open} /><ModeToggle mode={portfolio.mode} onToggle={toggleMode} /></div></header>
       <main key={reservation ? 'intake' : 'home'} className="landing-content"><div className="landing-main">{reservation ? <Onboarding name={name.trim()} onCancel={() => setReservation(null)} onComplete={brief => create(brief, reservation)} /> : <><h1>An idea is<br />just the beginning.</h1><p className="landing-description">Build a company worth believing in.</p>
         <form className="company-intake" onSubmit={event => { event.preventDefault(); void startCompany(); }}>
-          <input aria-label="Company name" placeholder="What will you call your company?" value={name} onChange={event => setName(event.target.value)} maxLength={80} className="intake-input" />
+          <input aria-label="Company name" placeholder="What will you call your company?" value={name} onChange={event => { setName(event.target.value); setCompanyCreationRetry(null); }} maxLength={80} className="intake-input" />
           <button type="submit" className="send-button intake-send" aria-label="Start company" aria-busy={startingCompany} disabled={!name.trim() || portfolio.companies.length >= 50 || startingCompany || openGuard.current.isPending()}><ArrowUp size={20} /></button>
         </form>
         {portfolio.companies.length >= 50 && <p className="empty-note">This local preview supports up to 50 companies.</p>}
