@@ -203,6 +203,7 @@ def test_apply_reapply_and_legacy_mirror_are_idempotent(
                 "samurai_workspace_memberships",
                 "samurai_companies",
                 "samurai_schema_migrations",
+                "samurai_workspace_quotas",
             )
         )
         counts = tuple(
@@ -210,6 +211,14 @@ def test_apply_reapply_and_legacy_mirror_are_idempotent(
             for table in tables
         )
         company_table = tables[2]
+        quota_table = tables[4]
+        quota_counts = tuple(
+            connection.execute(
+                select(quota_table.c.company_count, quota_table.c.member_count).order_by(
+                    quota_table.c.company_count
+                )
+            ).all()
+        )
         migrated = tuple(
             _MigratedCompany.model_validate(row)
             for row in connection.execute(select(company_table)).mappings()
@@ -229,7 +238,8 @@ def test_apply_reapply_and_legacy_mirror_are_idempotent(
     # Then the idempotent backfill is byte-equivalent and leaves legacy JSON intact.
     expected = {str(state.context.company_id): canonical_state_hash(state) for state in seeded}
     assert first == second
-    assert counts == (2, 2, 3, 1)
+    assert counts == (2, 2, 3, 1, 2)
+    assert quota_counts == ((1, 1), (2, 1))
     assert {str(row.company_id): row.state_sha256 for row in migrated} == expected
     assert all(row.canonical_state.context.company_id == row.company_id for row in migrated)
     assert legacy_after == legacy_before

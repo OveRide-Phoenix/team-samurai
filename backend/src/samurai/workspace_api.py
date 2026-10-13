@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Annotated, ClassVar
 from uuid import UUID  # noqa: TC003 - Pydantic resolves route and response UUIDs at runtime.
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, Header, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, StringConstraints
 
 from samurai.company_store_contracts import WorkspaceRole  # noqa: TC001 - Pydantic runtime field.
@@ -121,8 +121,15 @@ def workspace_router(database: SamuraiPostgresDb) -> APIRouter:
         response_model=CompanyView,
         status_code=status.HTTP_201_CREATED,
     )
-    def create_company(request: Request, workspace_id: UUID, _payload: EmptyRequest) -> CompanyView:
-        return CompanyView.model_validate(directory.create_company(_actor(request), workspace_id))
+    def create_company(
+        request: Request,
+        workspace_id: UUID,
+        _payload: EmptyRequest,
+        idempotency_key: Annotated[UUID, Header(alias="Idempotency-Key")],
+    ) -> CompanyView:
+        return CompanyView.model_validate(
+            directory.create_company(_actor(request), workspace_id, idempotency_key)
+        )
 
     @router.get("/workspaces/{workspace_id}/companies", response_model=list[CompanyView])
     def list_companies(request: Request, workspace_id: UUID) -> list[CompanyView]:

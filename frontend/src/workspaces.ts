@@ -85,8 +85,8 @@ export function listWorkspaceCompanies(workspaceId: string): Promise<DirectoryCo
   return request(`/workspaces/${uuid.parse(workspaceId)}/companies`, z.array(directoryCompanySchema), { method: 'GET' });
 }
 
-export function createWorkspaceCompany(workspaceId: string): Promise<DirectoryCompany> {
-  return request(`/workspaces/${uuid.parse(workspaceId)}/companies`, directoryCompanySchema, { method: 'POST', body: '{}' });
+export function createWorkspaceCompany(workspaceId: string, submissionId: string): Promise<DirectoryCompany> {
+  return request(`/workspaces/${uuid.parse(workspaceId)}/companies`, directoryCompanySchema, { method: 'POST', body: '{}', headers: { 'X-Samurai-Submission-Id': uuid.parse(submissionId) } });
 }
 
 export function openWorkspaceCompany(workspaceId: string, companyId: string): Promise<DirectoryCompany> {

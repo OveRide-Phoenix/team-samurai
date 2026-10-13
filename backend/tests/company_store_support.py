@@ -165,6 +165,11 @@ def company_store(postgres_url: str) -> Iterator[tuple[CompanyStore, SamuraiPost
         metadata,
         autoload_with=database.db_engine,
     )
+    quotas = Table(
+        "samurai_workspace_quotas",
+        metadata,
+        autoload_with=database.db_engine,
+    )
     with database.db_engine.begin() as connection:
         _ = connection.execute(
             workspaces.insert().values(
@@ -193,6 +198,9 @@ def company_store(postgres_url: str) -> Iterator[tuple[CompanyStore, SamuraiPost
                     ("viewer", "viewer"),
                 )
             ],
+        )
+        _ = connection.execute(
+            quotas.insert().values(workspace_id=workspace_id, member_count=3, updated_at=1)
         )
     yield CompanyStore(database.db_engine, schema=schema), database, workspace_id
     with database.db_engine.begin() as connection:

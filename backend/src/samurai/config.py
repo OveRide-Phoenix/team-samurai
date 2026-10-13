@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from math import ceil
 from typing import TYPE_CHECKING, ClassVar, Final, Literal, Self
 
@@ -16,6 +17,23 @@ if TYPE_CHECKING:
 PRODUCTION_JWT_KEY_REQUIRED: Final = "JWT_VERIFICATION_KEY is required in production"
 PRODUCTION_GEMINI_KEY_REQUIRED: Final = "GOOGLE_API_KEY is required in production"
 QUEUE_REDIS_REQUIRED: Final = "REDIS_URL is required when the durable queue is enabled"
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceQuotaLimits:
+    """Code-reviewed limits shared by every workspace quota row."""
+
+    companies: int = 10
+    members: int = 10
+    files: int = 100
+    stored_bytes: int = 100 * 1024 * 1024
+    per_file_bytes: int = 10 * 1024 * 1024
+    active_jobs: int = 3
+    schedules: int = 20
+    knowledge_chunks: int = 1000
+
+
+WORKSPACE_QUOTA_LIMITS: Final = WorkspaceQuotaLimits()
 
 
 class Settings(BaseSettings):

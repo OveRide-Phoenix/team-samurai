@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, final
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -12,6 +13,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import Engine, text
 
+from samurai.quota import WorkspaceQuota
 from samurai.schema_contracts import (
     LegacyCompany,
     LegacyMigrationError,
@@ -29,6 +31,7 @@ MIGRATIONS_DIR: Final = Path(__file__).with_name("migrations")
 MIGRATION_NAME: Final = "0001_founder_platform"
 SCHEMA_NAME: Final = re.compile(r"^[a-z_][a-z0-9_]*$")
 MIGRATION_FILE: Final = re.compile(r"^(?P<version>\d{4})_[a-z0-9_]+\.sql$")
+UUID_LIST_ADAPTER = TypeAdapter(list[UUID])
 
 
 @final
@@ -65,7 +68,9 @@ class FounderPlatformMigrator:
                         ),
                         {"version": version, "digest": digest},
                     )
+            self._lock_quota_workspaces(connection, companies)
             self._backfill(connection, companies)
+            self._reconcile_quotas(connection)
             receipt = self._receipt(companies, status="applied")
             _ = connection.execute(
                 self._sql(
@@ -189,6 +194,26 @@ class FounderPlatformMigrator:
             for company in owned:
                 self._backfill_company(connection, workspace_id, company)
 
+    def _lock_quota_workspaces(
+        self, connection: Connection, companies: tuple[LegacyCompany, ...]
+    ) -> None:
+        workspace_ids = set(
+            UUID_LIST_ADAPTER.validate_python(
+                connection.execute(
+                    self._sql('SELECT workspace_id FROM "{{schema}}".samurai_workspaces')
+                )
+                .scalars()
+                .all()
+            )
+        )
+        workspace_ids.update(
+            uuid5(NAMESPACE_URL, f"samurai:{company.owner_id}:personal-workspace")
+            for company in companies
+        )
+        quota = WorkspaceQuota(self._schema)
+        for workspace_id in sorted(workspace_ids):
+            quota.lock(connection, workspace_id)
+
     def _backfill_company(
         self, connection: Connection, workspace_id: UUID, company: LegacyCompany
     ) -> None:
@@ -235,3 +260,52 @@ class FounderPlatformMigrator:
         )
         if matches != 1:
             raise LegacyMigrationError(LegacyMigrationIssue.COMPANY_CONFLICT)
+
+    def _reconcile_quotas(self, connection: Connection) -> None:
+        timestamp = int(datetime.now(UTC).timestamp())
+        _ = connection.execute(
+            self._sql(
+                """INSERT INTO "{{schema}}".samurai_workspace_quotas
+                (workspace_id, updated_at)
+                SELECT workspace_id, :timestamp FROM "{{schema}}".samurai_workspaces
+                ON CONFLICT (workspace_id) DO NOTHING"""
+            ),
+            {"timestamp": timestamp},
+        )
+        intents_table = connection.execute(
+            text("SELECT to_regclass(:table_name)"),
+            {"table_name": f"{self._schema}.samurai_work_intents"},
+        ).scalar_one_or_none()
+        if intents_table is not None:
+            _ = connection.execute(
+                self._sql(
+                    """UPDATE "{{schema}}".samurai_workspace_quotas q SET
+                    active_job_count = (SELECT count(*)
+                    FROM "{{schema}}".samurai_work_intents i
+                    WHERE i.workspace_id = q.workspace_id AND i.active_job_reserved),
+                    updated_at = :timestamp"""
+                ),
+                {"timestamp": timestamp},
+            )
+        _ = connection.execute(
+            self._sql(
+                """UPDATE "{{schema}}".samurai_workspace_quotas q SET
+                company_count = (SELECT count(*) FROM "{{schema}}".samurai_companies c
+                    WHERE c.workspace_id = q.workspace_id),
+                member_count = (SELECT count(*) FROM "{{schema}}".samurai_workspace_memberships m
+                    WHERE m.workspace_id = q.workspace_id AND m.active),
+                file_count = (SELECT count(*) FROM "{{schema}}".samurai_files f
+                    WHERE f.workspace_id = q.workspace_id
+                    AND f.state IN ('quarantined', 'ready')),
+                stored_bytes = COALESCE((SELECT sum(f.byte_size)
+                    FROM "{{schema}}".samurai_files f WHERE f.workspace_id = q.workspace_id
+                    AND f.state IN ('quarantined', 'ready')), 0),
+                schedule_count = (SELECT count(*) FROM "{{schema}}".samurai_schedules s
+                    WHERE s.workspace_id = q.workspace_id AND s.enabled),
+                knowledge_chunk_count = (SELECT count(*)
+                    FROM "{{schema}}".samurai_knowledge_chunks k
+                    WHERE k.workspace_id = q.workspace_id),
+                updated_at = :timestamp"""
+            ),
+            {"timestamp": timestamp},
+        )

@@ -143,6 +143,11 @@ export function createProductionServer(config, { verifyIdentity = createIapVerif
         if (!['run', 'resume', ...directoryKinds].includes(selected.kind) && (req.headers['transfer-encoding'] || Number(req.headers['content-length'] ?? 0) > 0)) throw new RequestError(400, 'Body not allowed.');
         const upstreamHeaders = { authorization: `Bearer ${signAgentosToken(subject, config.key)}`, 'x-samurai-client': '1' };
         if (directoryKinds.includes(selected.kind)) upstreamHeaders['content-type'] = 'application/json';
+        if (selected.kind === 'company_create') {
+          const submissionId = req.headers['x-samurai-submission-id'];
+          if (typeof submissionId !== 'string' || !uuid.test(submissionId)) throw new RequestError(400, 'Valid submission id required.');
+          upstreamHeaders['idempotency-key'] = submissionId;
+        }
         if (selected.kind === 'run') {
           const submissionId = req.headers['x-samurai-submission-id'];
           if (typeof submissionId !== 'string' || !uuid.test(submissionId)) throw new RequestError(400, 'Valid submission id required.');

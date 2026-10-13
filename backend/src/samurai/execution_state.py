@@ -18,6 +18,7 @@ from agno.session import AgentSession, WorkflowSession
 from pydantic import BaseModel, Field, JsonValue, TypeAdapter
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     Column,
     Index,
     MetaData,
@@ -33,22 +34,30 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as SqlAlchemySession
 
+from samurai import company_store_queries as company_queries
 from samurai.company_store import CompanyStore
 from samurai.company_store_contracts import (
     CompanyAcceptance,
     CompanyStoreError,
     CompanyStoreIssue,
+    MembershipRow,
+    WorkspaceRole,
 )
 from samurai.contracts import ArtifactType, CompanyState, Contract
+from samurai.quota import QuotaResource, WorkspaceQuota, WorkspaceQuotaExceededError
 
 if TYPE_CHECKING:
     from agno.session import Session
+    from sqlalchemy.engine import Connection
     from sqlalchemy.sql.elements import ColumnElement
 
 
 JSON_ADAPTER = TypeAdapter(JsonValue)
 JSON_OBJECT_ADAPTER = TypeAdapter(dict[str, JsonValue])
 OBJECT_DICT_ADAPTER = TypeAdapter(dict[str, object])
+BOOL_ADAPTER = TypeAdapter(bool)
+UUID_ADAPTER = TypeAdapter(UUID)
+UUID_LIST_ADAPTER = TypeAdapter(list[UUID])
 
 WORK_INTENT_METADATA_KEY: Final = "samurai_work_intent"
 PARENT_BINDING_KEYS: Final = ("child_session_id", "company_id", "current_revision")
@@ -168,6 +177,7 @@ class _IntentRow(BaseModel):
     bound_fingerprint: str | None = None
     state: str
     accepted_revision: int | None = None
+    active_job_reserved: bool = False
 
 
 class _ChildSessionRow(BaseModel):
@@ -207,9 +217,10 @@ class WorkIntentIssue(StrEnum):
     AUTHORIZATION_CHANGED = "workspace authorization changed before acceptance"
     SESSION_MISSING = "canonical child session is missing"
     STALE_REVISION = "canonical company revision changed before acceptance"
+    WORKSPACE_QUOTA = "workspace quota exceeded"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class WorkIntentError(Exception):
     """Reject unsafe queue admission or company-state acceptance."""
 
@@ -298,6 +309,12 @@ class SamuraiPostgresDb(PostgresDb):
             Column("parent_binding", JSONB, nullable=True),
             Column("created_at", BigInteger, nullable=False),
             Column("updated_at", BigInteger, nullable=False),
+            Column(
+                "active_job_reserved",
+                Boolean,
+                nullable=False,
+                server_default=text("false"),
+            ),
         )
         _ = Index(
             "uq_samurai_active_company_work",
@@ -305,6 +322,12 @@ class SamuraiPostgresDb(PostgresDb):
             func.coalesce(table.c.company_id, table.c.parent_session_id),
             unique=True,
             postgresql_where=text("state = 'active'"),
+        )
+        _ = Index(
+            "uq_samurai_reserved_company_work",
+            table.c.company_id,
+            unique=True,
+            postgresql_where=text("active_job_reserved AND company_id IS NOT NULL"),
         )
         _ = Index(
             "uq_samurai_active_company_work_v2",
@@ -328,6 +351,21 @@ class SamuraiPostgresDb(PostgresDb):
         table = self._work_intent_table(create=True)
         with self.db_engine.begin() as connection:
             _ = connection.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:upgrade_key, 0))"),
+                {"upgrade_key": f"samurai-work-intent-upgrade:{self.db_schema}"},
+            )
+            self._lock_active_job_quota_workspaces(connection, table)
+            reservation_column_exists = BOOL_ADAPTER.validate_python(
+                connection.execute(
+                    text(
+                        """SELECT EXISTS (SELECT 1 FROM information_schema.columns
+                        WHERE table_schema = :schema AND table_name = :table
+                        AND column_name = 'active_job_reserved')"""
+                    ),
+                    {"schema": self.db_schema, "table": self.work_intent_table_name},
+                ).scalar_one()
+            )
+            _ = connection.execute(
                 text(
                     f"""ALTER TABLE "{self.db_schema}".{self.work_intent_table_name}
                     ADD COLUMN IF NOT EXISTS workspace_id uuid"""
@@ -339,8 +377,165 @@ class SamuraiPostgresDb(PostgresDb):
                     ADD COLUMN IF NOT EXISTS authorization_epoch bigint"""
                 )
             )
+            _ = connection.execute(
+                text(
+                    f"""ALTER TABLE "{self.db_schema}".{self.work_intent_table_name}
+                    ADD COLUMN IF NOT EXISTS active_job_reserved boolean NOT NULL DEFAULT false"""
+                )
+            )
+            if not reservation_column_exists:
+                self._backfill_active_job_reservations(connection, table)
         for index in table.indexes:
             index.create(self.db_engine, checkfirst=True)
+
+    def _backfill_active_job_reservations(self, connection: Connection, intents: Table) -> None:
+        jobs = self._get_table(table_type="jobs")
+        if jobs is None:
+            return
+        _ = connection.execute(
+            intents.update()
+            .where(
+                intents.c.workspace_id.is_not(None),
+                intents.c.job_id.in_(
+                    select(jobs.c.id).where(jobs.c.status.in_(["queued", "running", "paused"]))
+                ),
+            )
+            .values(active_job_reserved=True)
+        )
+        quota_table = connection.execute(
+            text("SELECT to_regclass(:table_name)"),
+            {"table_name": f"{self.db_schema}.samurai_workspace_quotas"},
+        ).scalar_one_or_none()
+        if quota_table is None:
+            return
+        _ = connection.execute(
+            text(
+                f"""UPDATE "{self.db_schema}".samurai_workspace_quotas q
+                SET active_job_count = (SELECT count(*)
+                FROM "{self.db_schema}".{self.work_intent_table_name} i
+                WHERE i.workspace_id = q.workspace_id AND i.active_job_reserved),
+                updated_at = EXTRACT(EPOCH FROM clock_timestamp())::bigint"""  # noqa: S608
+            )
+        )
+
+    def _lock_active_job_quota_workspaces(
+        self,
+        connection: Connection,
+        intents: Table,
+    ) -> None:
+        quota_table = connection.execute(
+            text("SELECT to_regclass(:table_name)"),
+            {"table_name": f"{self.db_schema}.samurai_workspace_quotas"},
+        ).scalar_one_or_none()
+        workspace_column_exists = BOOL_ADAPTER.validate_python(
+            connection.execute(
+                text(
+                    """SELECT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = :schema AND table_name = :table
+                    AND column_name = 'workspace_id')"""
+                ),
+                {"schema": self.db_schema, "table": self.work_intent_table_name},
+            ).scalar_one()
+        )
+        workspace_ids: set[UUID] = set()
+        if quota_table is not None:
+            workspace_ids.update(
+                UUID_LIST_ADAPTER.validate_python(
+                    connection.execute(
+                        text(
+                            f'SELECT workspace_id FROM "{self.db_schema}".samurai_workspace_quotas'  # noqa: S608 - validated schema identifier.
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+            )
+        if workspace_column_exists:
+            workspace_ids.update(
+                UUID_LIST_ADAPTER.validate_python(
+                    connection.execute(
+                        select(intents.c.workspace_id).where(intents.c.workspace_id.is_not(None))
+                    )
+                    .scalars()
+                    .all()
+                )
+            )
+        quota = WorkspaceQuota(self.db_schema)
+        for workspace_id in sorted(workspace_ids):
+            quota.lock(connection, workspace_id)
+
+    def _validate_shared_intent(
+        self,
+        session: SqlAlchemySession,
+        intent: WorkIntentInput,
+        *,
+        lock_membership: bool,
+    ) -> UUID | None:
+        if intent.workspace_id is None and intent.authorization_epoch is None:
+            return None
+        shared_fields = (intent.workspace_id, intent.authorization_epoch, intent.company_id)
+        if any(value is None for value in shared_fields):
+            raise WorkIntentError(WorkIntentIssue.FORGED_APPROVAL)
+        workspace_id = intent.workspace_id
+        company_id = intent.company_id
+        if workspace_id is None or company_id is None:
+            raise WorkIntentError(WorkIntentIssue.FORGED_APPROVAL)
+        membership_query = company_queries.READ_MEMBERSHIP
+        if lock_membership:
+            membership_query += " FOR SHARE"
+        membership = (
+            session.execute(
+                company_queries.render_company_sql(membership_query, self.db_schema),
+                {"workspace_id": workspace_id, "actor_id": intent.owner_id},
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if membership is None:
+            raise WorkIntentError(WorkIntentIssue.AUTHORIZATION_CHANGED)
+        authorized = MembershipRow.model_validate(membership)
+        if (
+            authorized.role is WorkspaceRole.VIEWER
+            or authorized.authorization_epoch != intent.authorization_epoch
+        ):
+            raise WorkIntentError(WorkIntentIssue.AUTHORIZATION_CHANGED)
+        actual_workspace = session.execute(
+            company_queries.render_company_sql(
+                company_queries.READ_COMPANY_WORKSPACE,
+                self.db_schema,
+            ),
+            {"company_id": company_id},
+        ).scalar_one_or_none()
+        if actual_workspace != workspace_id:
+            raise WorkIntentError(WorkIntentIssue.FORGED_APPROVAL)
+        return workspace_id
+
+    def _reserve_active_job(
+        self,
+        session: SqlAlchemySession,
+        intent: WorkIntentInput,
+    ) -> UUID | None:
+        workspace_id = self._validate_shared_intent(
+            session,
+            intent,
+            lock_membership=False,
+        )
+        if workspace_id is None:
+            return None
+        try:
+            WorkspaceQuota(self.db_schema).reserve(
+                session,
+                workspace_id,
+                QuotaResource.ACTIVE_JOB,
+            )
+        except WorkspaceQuotaExceededError as error:
+            raise WorkIntentError(WorkIntentIssue.WORKSPACE_QUOTA) from error
+        _ = self._validate_shared_intent(
+            session,
+            intent,
+            lock_membership=True,
+        )
+        return workspace_id
 
     @override
     def enqueue_job(self, job: object, max_depth: int = 0) -> dict[str, object]:
@@ -413,6 +608,7 @@ class SamuraiPostgresDb(PostgresDb):
                     ).scalar_one()
                     if queued >= max_depth:
                         return {"accepted": False, "reason": "queue_full", "job": None}
+                workspace_id = self._reserve_active_job(session, intent)
                 now = int(time.time())
                 _ = session.execute(jobs.insert().values(**clean_job))
                 _ = session.execute(
@@ -436,6 +632,7 @@ class SamuraiPostgresDb(PostgresDb):
                         approved_input=intent.approved_input,
                         fingerprint=fingerprint,
                         state="active",
+                        active_job_reserved=workspace_id is not None,
                         accepted_artifact_ids=[],
                         created_at=now,
                         updated_at=now,
@@ -606,6 +803,11 @@ class SamuraiPostgresDb(PostgresDb):
                 stage=intent_row.stage,
                 expected_revision=intent_row.expected_revision,
                 approved_input=intent_row.approved_input,
+            )
+            _ = self._validate_shared_intent(
+                session,
+                approval,
+                lock_membership=True,
             )
             bound_input = intent_row.bound_input
             bound_fingerprint = intent_row.bound_fingerprint
@@ -876,19 +1078,45 @@ class SamuraiPostgresDb(PostgresDb):
             ).scalar_one_or_none()
         return ParentBinding.model_validate(payload) if payload is not None else None
 
-    @staticmethod
+    def _lock_job_quota(
+        self,
+        session: SqlAlchemySession,
+        intents: Table,
+        job_id: str,
+    ) -> None:
+        workspace_id = session.execute(
+            select(intents.c.workspace_id).where(intents.c.job_id == job_id)
+        ).scalar_one_or_none()
+        if workspace_id is not None:
+            WorkspaceQuota(self.db_schema).lock(session, UUID_ADAPTER.validate_python(workspace_id))
+
     def _release_terminal_intent(
+        self,
         session: SqlAlchemySession,
         intents: Table,
         job_id: str,
         status: str,
         now: int,
     ) -> None:
-        if status in {"cancelled", "failed"}:
+        if status in {"completed", "cancelled", "failed"}:
             _ = session.execute(
                 intents.update()
                 .where(intents.c.job_id == job_id, intents.c.state == "active")
                 .values(state=status, updated_at=now)
+            )
+        if status not in {"completed", "cancelled", "failed"}:
+            return
+        workspace_id = session.execute(
+            intents.update()
+            .where(intents.c.job_id == job_id, intents.c.active_job_reserved)
+            .values(active_job_reserved=False, updated_at=now)
+            .returning(intents.c.workspace_id)
+        ).scalar_one_or_none()
+        if workspace_id is not None:
+            WorkspaceQuota(self.db_schema).release(
+                session,
+                UUID_ADAPTER.validate_python(workspace_id),
+                QuotaResource.ACTIVE_JOB,
             )
 
     @override
@@ -907,6 +1135,7 @@ class SamuraiPostgresDb(PostgresDb):
             return False
         now = int(time.time())
         with SqlAlchemySession(self.db_engine) as session, session.begin():
+            self._lock_job_quota(session, intents, job_id)
             job = session.execute(
                 select(jobs)
                 .where(
@@ -955,6 +1184,7 @@ class SamuraiPostgresDb(PostgresDb):
             return None
         now = int(time.time())
         with SqlAlchemySession(self.db_engine) as session, session.begin():
+            self._lock_job_quota(session, intents, job_id)
             job = (
                 session.execute(
                     select(jobs)
@@ -1003,6 +1233,7 @@ class SamuraiPostgresDb(PostgresDb):
             return False
         now = int(time.time())
         with SqlAlchemySession(self.db_engine) as session, session.begin():
+            self._lock_job_quota(session, intents, job_id)
             job = session.execute(
                 select(jobs)
                 .where(jobs.c.id == job_id, jobs.c.status.in_(["queued", "paused"]))
@@ -1037,6 +1268,7 @@ class SamuraiPostgresDb(PostgresDb):
             return False
         now = int(time.time())
         with SqlAlchemySession(self.db_engine) as session, session.begin():
+            self._lock_job_quota(session, intents, job_id)
             job = (
                 session.execute(
                     select(jobs)
@@ -1129,6 +1361,7 @@ class SamuraiPostgresDb(PostgresDb):
             return False
         now = int(time.time())
         with SqlAlchemySession(self.db_engine) as session, session.begin():
+            self._lock_job_quota(session, intents, job_id)
             predicate = [jobs.c.id == job_id, jobs.c.status == required_status]
             if worker_id is not None:
                 predicate.append(jobs.c.locked_by == worker_id)

@@ -562,7 +562,11 @@ def create_app(
 
     @runtime_base.exception_handler(WorkIntentError)
     async def work_intent_error(_request: Request, error: WorkIntentError) -> JSONResponse:
-        conflict = error.issue in {WorkIntentIssue.ACTIVE_WORK, WorkIntentIssue.CHANGED_APPROVAL}
+        conflict = error.issue in {
+            WorkIntentIssue.ACTIVE_WORK,
+            WorkIntentIssue.CHANGED_APPROVAL,
+            WorkIntentIssue.WORKSPACE_QUOTA,
+        }
         return JSONResponse(status_code=409 if conflict else 422, content={"detail": str(error)})
 
     @runtime_base.get("/work-receipts/{submission_id}", response_model=WorkReceipt)

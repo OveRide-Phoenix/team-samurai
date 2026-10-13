@@ -10,6 +10,7 @@ const SAFE_ID = '[A-Za-z0-9_-]{1,200}';
 const RUN_ID = new RegExp(`^/api/agentos/agents/samurai/runs/(${SAFE_ID})$`);
 const CANCEL = new RegExp(`^/api/agentos/agents/samurai/runs/(${SAFE_ID})/cancel$`);
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
+const IDEMPOTENCY_KEY = new RegExp(`^${UUID}$`, 'i');
 const WORKSPACES = /^\/api\/agentos\/samurai\/workspaces$/;
 const MEMBERS = new RegExp(`^/api/agentos/samurai/workspaces/(${UUID})/members/([A-Za-z0-9._:@-]{1,200})$`);
 const COMPANIES = new RegExp(`^/api/agentos/samurai/workspaces/(${UUID})/companies$`);
@@ -87,6 +88,11 @@ export function agentosProxy(root, fetchImpl = fetch) {
     const target = isIntake ? `${BACKEND}/api/company/intake` : `${BACKEND}/agentos${url.pathname.slice('/api/agentos'.length)}${url.search}`;
     const headers = { authorization: `Bearer ${token}`, 'x-samurai-client': '1' };
     if (req.headers['content-type']) headers['content-type'] = req.headers['content-type'];
+    if (directoryKind === 'company_create') {
+      const submissionId = req.headers['x-samurai-submission-id'];
+      if (typeof submissionId !== 'string' || !IDEMPOTENCY_KEY.test(submissionId)) return reject(res, 400, 'Valid submission id required.');
+      headers['idempotency-key'] = submissionId;
+    }
     const controller = new AbortController();
     res.once('close', () => { if (!res.writableFinished) controller.abort(); });
     try {

@@ -85,14 +85,12 @@ def test_acceptance_rechecks_workspace_authorization_before_writes(
     )
     store_session(database, "owner", owner)
     store_session(database, actor_id, actor)
-    token = bound_attempt(database, actor, actor_id, f"{actor_id}-authorization")
-    before = canonical_state_hash(owner.state)
-    if actor_id == "editor":
-        memberships = Table(
-            "samurai_workspace_memberships",
-            MetaData(schema=database.db_schema),
-            autoload_with=database.db_engine,
-        )
+    memberships = Table(
+        "samurai_workspace_memberships",
+        MetaData(schema=database.db_schema),
+        autoload_with=database.db_engine,
+    )
+    if actor_id == "viewer":
         with database.db_engine.begin() as connection:
             _ = connection.execute(
                 memberships.update()
@@ -100,8 +98,23 @@ def test_acceptance_rechecks_workspace_authorization_before_writes(
                     memberships.c.workspace_id == workspace_id,
                     memberships.c.user_id == actor_id,
                 )
-                .values(active=False, authorization_epoch=2)
+                .values(role="editor")
             )
+    token = bound_attempt(database, actor, actor_id, f"{actor_id}-authorization")
+    before = canonical_state_hash(owner.state)
+    with database.db_engine.begin() as connection:
+        _ = connection.execute(
+            memberships.update()
+            .where(
+                memberships.c.workspace_id == workspace_id,
+                memberships.c.user_id == actor_id,
+            )
+            .values(
+                role="viewer" if actor_id == "viewer" else "editor",
+                active=actor_id == "viewer",
+                authorization_epoch=1 if actor_id == "viewer" else 2,
+            )
+        )
 
     # When the claimed attempt tries to accept after the authorization boundary changed.
     with (
@@ -178,6 +191,11 @@ def test_two_editor_acceptance_race_commits_one_revision(
         MetaData(schema=database.db_schema),
         autoload_with=database.db_engine,
     )
+    quotas = Table(
+        "samurai_workspace_quotas",
+        MetaData(schema=database.db_schema),
+        autoload_with=database.db_engine,
+    )
     for actor_id, access in zip(("editor", "editor-2"), editors, strict=True):
         token = bound_attempt(database, access, actor_id, f"race-{actor_id}")
         tokens.append(token)
@@ -185,7 +203,12 @@ def test_two_editor_acceptance_race_commits_one_revision(
             _ = connection.execute(
                 intents.update()
                 .where(intents.c.parent_run_id == token.parent_run_id)
-                .values(state="legacy_active")
+                .values(state="legacy_active", active_job_reserved=False)
+            )
+            _ = connection.execute(
+                quotas.update()
+                .where(quotas.c.workspace_id == workspace_id)
+                .values(active_job_count=quotas.c.active_job_count - 1)
             )
 
     # When both processes cross a barrier and accept the same proposed revision.

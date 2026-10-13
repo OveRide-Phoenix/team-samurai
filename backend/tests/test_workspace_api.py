@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from threading import Barrier
 from typing import TYPE_CHECKING, Literal, Protocol, cast
 from uuid import uuid4
 
@@ -51,6 +52,12 @@ class _CountingModelType(Protocol):
     def __call__(self, *tool_names: str) -> Model: ...
 
 
+class _HttpResponse(Protocol):
+    status_code: int
+
+    def json(self) -> object: ...
+
+
 @pytest.fixture
 def workspace_client(
     postgres_url: str,
@@ -85,6 +92,10 @@ def _headers(private_key: rsa.RSAPrivateKey, subject: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _company_headers(headers: dict[str, str]) -> dict[str, str]:
+    return {**headers, "Idempotency-Key": str(uuid4())}
+
+
 def test_members_share_workspace_without_sharing_actor_sessions(
     workspace_client: tuple[TestClient, rsa.RSAPrivateKey, SamuraiPostgresDb],
 ) -> None:
@@ -102,7 +113,7 @@ def test_members_share_workspace_without_sharing_actor_sessions(
     workspace_id = workspace.workspace_id
     first = client.post(
         f"/agentos/samurai/workspaces/{workspace_id}/companies",
-        headers=owner,
+        headers=_company_headers(owner),
         json={},
     )
     assert first.status_code == 201
@@ -119,7 +130,7 @@ def test_members_share_workspace_without_sharing_actor_sessions(
     listed = client.get("/agentos/samurai/workspaces", headers=editor)
     second = client.post(
         f"/agentos/samurai/workspaces/{workspace_id}/companies",
-        headers=editor,
+        headers=_company_headers(editor),
         json={},
     )
     companies_for_a = client.get(
@@ -205,6 +216,119 @@ def test_members_share_workspace_without_sharing_actor_sessions(
     assert canonical.context.company_id == opened_view.company_id
 
 
+def test_company_quota_is_http_conflict_and_request_validation_stays_unprocessable(
+    workspace_client: tuple[TestClient, rsa.RSAPrivateKey, SamuraiPostgresDb],
+) -> None:
+    # Given an authenticated workspace with all ten company slots committed.
+    client, private_key, _database = workspace_client
+    owner = _headers(private_key, "quota-owner")
+    workspace = WorkspaceView.model_validate(
+        client.post(
+            "/agentos/samurai/workspaces",
+            headers=owner,
+            json={"display_name": "HTTP quota"},
+        ).json()
+    )
+    endpoint = f"/agentos/samurai/workspaces/{workspace.workspace_id}/companies"
+    missing_key = client.post(endpoint, headers=owner, json={})
+    malformed_key = client.post(
+        endpoint, headers={**owner, "Idempotency-Key": "not-a-uuid"}, json={}
+    )
+    assert all(
+        client.post(endpoint, headers=_company_headers(owner), json={}).status_code == 201
+        for _ in range(10)
+    )
+
+    # When another valid reservation and an invalid request cross the API boundary.
+    exceeded = client.post(endpoint, headers=_company_headers(owner), json={})
+    invalid = client.post(endpoint, headers=_company_headers(owner), json={"unexpected": True})
+
+    # Then the domain conflict survives transaction unwind while validation remains distinct.
+    assert missing_key.status_code == malformed_key.status_code == 422
+    assert exceeded.status_code == 409
+    assert exceeded.json() == {"detail": "workspace quota exceeded"}
+    assert invalid.status_code == 422
+
+
+def test_company_reservation_idempotency_reuses_original_and_rejects_changed_workspace(
+    workspace_client: tuple[TestClient, rsa.RSAPrivateKey, SamuraiPostgresDb],
+) -> None:
+    # Given two writable workspaces and one UUID idempotency key.
+    client, private_key, database = workspace_client
+    owner = _headers(private_key, "idempotent-owner")
+    workspace_ids = tuple(
+        WorkspaceView.model_validate(
+            client.post(
+                "/agentos/samurai/workspaces",
+                headers=owner,
+                json={"display_name": f"Idempotency {index}"},
+            ).json()
+        ).workspace_id
+        for index in range(2)
+    )
+    key = str(uuid4())
+    headers = {**owner, "Idempotency-Key": key}
+
+    # When concurrent identical and changed-workspace retries reuse that key.
+    barrier = Barrier(2)
+
+    def reserve() -> _HttpResponse:
+        _ = barrier.wait()
+        return client.post(
+            f"/agentos/samurai/workspaces/{workspace_ids[0]}/companies",
+            headers=headers,
+            json={},
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = (executor.submit(reserve), executor.submit(reserve))
+        first, identical = (future.result() for future in futures)
+    changed = client.post(
+        f"/agentos/samurai/workspaces/{workspace_ids[1]}/companies", headers=headers, json={}
+    )
+    second_owner_headers = _headers(private_key, "idempotent-second-owner")
+    assert (
+        client.put(
+            f"/agentos/samurai/workspaces/{workspace_ids[0]}/members/idempotent-second-owner",
+            headers=owner,
+            json={"role": "owner"},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.put(
+            f"/agentos/samurai/workspaces/{workspace_ids[0]}/members/idempotent-owner",
+            headers=second_owner_headers,
+            json={"role": "viewer"},
+        ).status_code
+        == 200
+    )
+    demoted_replay = client.post(
+        f"/agentos/samurai/workspaces/{workspace_ids[0]}/companies", headers=headers, json={}
+    )
+
+    # Then the original company and reservation are reused while changed scope conflicts.
+    assert first.status_code == identical.status_code == 201
+    assert first.json() == identical.json()
+    assert changed.status_code == 409
+    assert changed.json() == {"detail": "idempotency key was reused for another workspace"}
+    assert demoted_replay.status_code == 403
+    quotas = Table(
+        "samurai_workspace_quotas",
+        MetaData(schema=database.db_schema),
+        autoload_with=database.db_engine,
+    )
+    with database.db_engine.connect() as connection:
+        counts = tuple(
+            connection.execute(
+                select(quotas.c.company_count)
+                .where(quotas.c.workspace_id.in_(workspace_ids))
+                .order_by(quotas.c.workspace_id)
+            ).scalars()
+        )
+    assert sorted(counts) == [0, 1]
+
+
 def test_editor_native_run_uses_actor_binding_and_viewer_is_denied(
     workspace_client: tuple[TestClient, rsa.RSAPrivateKey, SamuraiPostgresDb],
 ) -> None:
@@ -220,7 +344,9 @@ def test_editor_native_run_uses_actor_binding_and_viewer_is_denied(
     workspace_id = workspace.workspace_id
     company = CompanyView.model_validate(
         client.post(
-            f"/agentos/samurai/workspaces/{workspace_id}/companies", headers=owner, json={}
+            f"/agentos/samurai/workspaces/{workspace_id}/companies",
+            headers=_company_headers(owner),
+            json={},
         ).json()
     )
     for subject, role in (("native-editor", "editor"), ("native-viewer", "viewer")):
@@ -251,9 +377,7 @@ def test_editor_native_run_uses_actor_binding_and_viewer_is_denied(
         serialization.PublicFormat.SubjectPublicKeyInfo,
     )
     settings = Settings.model_validate({"jwt_verification_key": public_key.decode()})
-    model_type = cast(
-        "_CountingModelType", getattr(parent_test_module, "_" + "ToolSequenceModel")
-    )
+    model_type = cast("_CountingModelType", getattr(parent_test_module, "_" + "ToolSequenceModel"))
     model_type.total_invocations = 0
     models: list[Model] = []
 
@@ -349,7 +473,7 @@ def test_membership_permissions_last_owner_and_identity_fields_fail_closed(
     )
     viewer_company = client.post(
         f"/agentos/samurai/workspaces/{workspace_id}/companies",
-        headers=viewer,
+        headers=_company_headers(viewer),
         json={},
     )
     foreign_response = client.post(
@@ -362,7 +486,7 @@ def test_membership_permissions_last_owner_and_identity_fields_fail_closed(
     ).workspace_id
     owner_company = client.post(
         f"/agentos/samurai/workspaces/{workspace_id}/companies",
-        headers=owner,
+        headers=_company_headers(owner),
         json={},
     )
     owner_company_view = CompanyView.model_validate(cast("object", owner_company.json()))
@@ -383,7 +507,7 @@ def test_membership_permissions_last_owner_and_identity_fields_fail_closed(
     )
     forged_company = client.post(
         f"/agentos/samurai/workspaces/{workspace_id}/companies",
-        headers=owner,
+        headers=_company_headers(owner),
         json={"user_id": "opaque-viewer"},
     )
     last_owner = client.delete(
@@ -480,7 +604,9 @@ def test_concurrent_company_opens_reuse_one_actor_binding(
         cast("object", workspace_response.json())
     ).workspace_id
     company_response = client.post(
-        f"/agentos/samurai/workspaces/{workspace_id}/companies", headers=owner, json={}
+        f"/agentos/samurai/workspaces/{workspace_id}/companies",
+        headers=_company_headers(owner),
+        json={},
     )
     company_id = CompanyView.model_validate(cast("object", company_response.json())).company_id
     added = client.put(
@@ -573,7 +699,9 @@ def test_open_projects_populated_company_as_truthful_read_summary(
         cast("object", workspace_response.json())
     ).workspace_id
     company_response = client.post(
-        f"/agentos/samurai/workspaces/{workspace_id}/companies", headers=owner, json={}
+        f"/agentos/samurai/workspaces/{workspace_id}/companies",
+        headers=_company_headers(owner),
+        json={},
     )
     company = CompanyView.model_validate(cast("object", company_response.json()))
     assert company.parent_session_id is not None

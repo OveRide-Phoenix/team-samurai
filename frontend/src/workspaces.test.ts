@@ -14,14 +14,29 @@ describe('workspace directory client', () => {
     expect(shouldLoadWorkspaceDirectory('cached-parent-session')).toBe(false);
     expect(firstWritableWorkspace([{ ...workspace, role: 'viewer' }, { ...workspace, workspace_id: '00000000-0000-4000-8000-000000000003', role: 'editor' }])).toMatchObject({ role: 'editor' });
   });
-  it('uses fixed directory paths and strict empty POST bodies', async () => {
+  it('uses fixed directory paths and maps a reservation submission ID to the company request', async () => {
     const request = vi.fn(async () => Response.json(company));
     vi.stubGlobal('fetch', request);
-    await expect(createWorkspaceCompany(workspaceId)).resolves.toEqual(company);
+    const submissionId = '00000000-0000-4000-8000-000000000003';
+    await expect(createWorkspaceCompany(workspaceId, submissionId)).resolves.toEqual(company);
     await expect(openWorkspaceCompany(workspaceId, companyId)).resolves.toEqual(company);
     expect(request.mock.calls).toEqual([
-      [`/api/agentos/samurai/workspaces/${workspaceId}/companies`, expect.objectContaining({ method: 'POST', body: '{}', credentials: 'same-origin' })],
+      [`/api/agentos/samurai/workspaces/${workspaceId}/companies`, expect.objectContaining({ method: 'POST', body: '{}', credentials: 'same-origin', headers: expect.objectContaining({ 'X-Samurai-Submission-Id': submissionId }) })],
       [`/api/agentos/samurai/workspaces/${workspaceId}/companies/${companyId}/open`, expect.objectContaining({ method: 'POST', body: '{}', credentials: 'same-origin' })],
+    ]);
+  });
+
+  it('reuses the same company request contract after an ambiguous transport loss', async () => {
+    const submissionId = '00000000-0000-4000-8000-000000000003';
+    const request = vi.fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError('network lost after reservation'))
+      .mockResolvedValueOnce(Response.json(company));
+    vi.stubGlobal('fetch', request);
+    await expect(createWorkspaceCompany(workspaceId, submissionId)).rejects.toThrow('network lost after reservation');
+    await expect(createWorkspaceCompany(workspaceId, submissionId)).resolves.toEqual(company);
+    expect(request.mock.calls.map(([, init]) => init?.headers)).toEqual([
+      expect.objectContaining({ 'X-Samurai-Submission-Id': submissionId }),
+      expect.objectContaining({ 'X-Samurai-Submission-Id': submissionId }),
     ]);
   });
 
