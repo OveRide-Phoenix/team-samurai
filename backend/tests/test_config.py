@@ -5,7 +5,7 @@ from agno.job_queue import RedisCoordination
 from pydantic import ValidationError
 from sqlalchemy import create_engine
 
-from samurai.config import Settings, create_queue_config
+from samurai.config import GCS_STORAGE_DISABLED, Settings, create_queue_config
 
 if TYPE_CHECKING:
     from agno.db.base import BaseDb
@@ -85,3 +85,8 @@ def test_queue_config_uses_the_bounded_native_contract() -> None:
 def test_enabled_queue_requires_redis_coordination() -> None:
     with pytest.raises(ValidationError, match="REDIS_URL is required"):
         _ = Settings.model_validate({"queue_enabled": True})
+
+
+def test_gcs_storage_fails_during_configuration_without_adapter_import() -> None:
+    with pytest.raises(ValidationError, match=GCS_STORAGE_DISABLED):
+        _ = Settings.model_validate({"storage_backend": "gcs"})

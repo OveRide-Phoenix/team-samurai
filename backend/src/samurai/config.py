@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import ceil
+from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Final, Literal, Self
 
 from agno.job_queue import QueueConfig, RedisCoordination
@@ -17,6 +18,7 @@ if TYPE_CHECKING:
 PRODUCTION_JWT_KEY_REQUIRED: Final = "JWT_VERIFICATION_KEY is required in production"
 PRODUCTION_GEMINI_KEY_REQUIRED: Final = "GOOGLE_API_KEY is required in production"
 QUEUE_REDIS_REQUIRED: Final = "REDIS_URL is required when the durable queue is enabled"
+GCS_STORAGE_DISABLED: Final = "GCS file storage is not enabled in this build"
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,9 +60,13 @@ class Settings(BaseSettings):
     redis_url: SecretStr | None = None
     jwt_verification_key: str | None = None
     frontend_jwt_verification_key: str | None = None
+    storage_backend: Literal["local", "gcs"] = "local"
+    storage_root: Path = Path(".samurai-storage")
 
     @model_validator(mode="after")
     def _require_production_credentials(self) -> Self:
+        if self.storage_backend == "gcs":
+            raise ValueError(GCS_STORAGE_DISABLED)
         if self.queue_enabled and (
             self.redis_url is None or not self.redis_url.get_secret_value().strip()
         ):
