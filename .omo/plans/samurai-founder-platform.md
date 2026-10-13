@@ -432,7 +432,7 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
     Evidence: <attemptDir>/task-8-file-store-error.json
   ```
 
-  Commit: YES | Message: `feat(files): add bounded local object lifecycle` | Files: [backend/src/samurai/file_store.py, backend/src/samurai/config.py, backend/tests/test_file_store.py, backend/tests/fixtures/files/, backend/.env.example, .gitignore]
+  Commit: YES | Message: `feat(files): add bounded local object lifecycle` | Files: [backend/src/samurai/file_store.py, backend/src/samurai/file_store_contracts.py, backend/src/samurai/local_object_store.py, backend/src/samurai/file_store_maintenance.py, backend/src/samurai/config.py, backend/tests/test_file_store.py, backend/tests/test_config.py, backend/tests/fixtures/files/, backend/.env.example, .gitignore]
 
 - [ ] 9. Expose authorized file flows and close workspace/file acceptance
 
