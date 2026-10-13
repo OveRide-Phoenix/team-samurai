@@ -27,6 +27,30 @@ async function fixture(configured = true, upstream = vi.fn<typeof fetch>(async (
   return { upstream, request: (path: string, options: RequestInit = {}) => fetch(url + path, { ...options, headers: { 'X-Samurai-Client': '1', ...options.headers } }) };
 }
 describe('actual local AgentOS proxy', () => {
+  it('forwards only strict workspace directory requests', async () => {
+    const { request, upstream } = await fixture();
+    const workspaceId = '00000000-0000-4000-8000-000000000001';
+    const companyId = '00000000-0000-4000-8000-000000000002';
+    expect((await request('/api/agentos/samurai/workspaces')).status).toBe(200);
+    expect((await request(`/api/agentos/samurai/workspaces/${workspaceId}/companies/${companyId}/open`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status).toBe(200);
+    expect(upstream.mock.calls.map(call => call[0])).toEqual([
+      'http://127.0.0.1:8000/agentos/samurai/workspaces',
+      `http://127.0.0.1:8000/agentos/samurai/workspaces/${workspaceId}/companies/${companyId}/open`,
+    ]);
+  });
+  it('rejects malformed directory bodies, unsafe identity fields, invalid UUIDs and methods', async () => {
+    const { request, upstream } = await fixture();
+    const workspaceId = '00000000-0000-4000-8000-000000000001';
+    for (const body of ['{', JSON.stringify({ display_name: 'Founders', user_id: 'forged' })]) {
+      expect((await request('/api/agentos/samurai/workspaces', { method: 'POST', headers: { 'content-type': 'application/json' }, body })).status).toBe(400);
+    }
+    for (const body of ['null', '[]', 'false', '42']) {
+      expect((await request(`/api/agentos/samurai/workspaces/${workspaceId}/companies`, { method: 'POST', headers: { 'content-type': 'application/json' }, body })).status).toBe(400);
+    }
+    expect((await request('/api/agentos/samurai/workspaces/not-a-uuid/companies', { method: 'GET' })).status).toBe(404);
+    expect((await request(`/api/agentos/samurai/workspaces/${workspaceId}/companies`, { method: 'PUT' })).status).toBe(404);
+    expect(upstream).not.toHaveBeenCalled();
+  });
   it('serves sanitized missing-config status without preventing UI startup', async () => {
     const { request, upstream } = await fixture(false);
     const response = await request('/api/agentos/connection');

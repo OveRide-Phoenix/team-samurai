@@ -1,4 +1,4 @@
-import type { Panel, Transport, Workspace } from './model';
+import type { CompanyView, Panel, Transport } from './model';
 import { chooseWorkflow, companyBriefSchema, type CompanyBrief, type WorkEvent } from './model';
 
 export const offer: Panel = {
@@ -43,7 +43,7 @@ export const launchPlan: Panel = {
     { id: 'review', title: 'Review what changed', owner: 'Founder', timing: 'Week 3', detail: 'Use actual bookings and customer feedback to revise the offer.' },
   ],
 };
-export const initialWorkspace: Workspace = {
+export const initialWorkspace: CompanyView = {
   executionMode: 'preview', activityLog: [],
   version: 1, theme: 'sky', pinned: [offer], completedTasks: [], panelOrder: [], shortlist: [], approvedOffers: [],
   messages: [

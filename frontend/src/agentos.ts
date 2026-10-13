@@ -43,8 +43,10 @@ const summarySchema = z.strictObject({
   verification_findings: z.array(z.strictObject({ code: text, message: text, severity: z.enum(['info', 'warning', 'error']) })).max(100).default([]),
   next_decision: text.nullable().default(null),
 });
-const companyResultSchema = z.union([resultSchema, summarySchema]);
+export const companyResultSchema = z.union([resultSchema, summarySchema]);
 type WorkflowResult = z.infer<typeof companyResultSchema>;
+export const companySnapshotSchema = z.strictObject({ summary: summarySchema, artifacts: z.array(artifact).max(100) }).refine(value => value.summary.company_id !== null && value.artifacts.every(item => item.company_id === value.summary.company_id && item.revision <= value.summary.revision));
+type CompanySnapshot = z.infer<typeof companySnapshotSchema>;
 
 export type AgentosRun = BackendRun;
 export type AgentosApproval = {
@@ -84,15 +86,17 @@ function workflow(value: unknown): WorkflowResult | undefined {
   return parsed.data;
 }
 
-function resultEvents(result: WorkflowResult, seen: Set<string>): WorkEvent[] {
+function resultEvents(result: WorkflowResult | CompanySnapshot, seen: Set<string>): WorkEvent[] {
   const events: WorkEvent[] = [];
-  if ('artifact_count' in result) {
-    const key = `summary:${result.company_id}:${result.revision}`;
+  const summary = 'summary' in result ? result.summary : 'artifact_count' in result ? result : undefined;
+  const artifacts = 'summary' in result ? result.artifacts : 'artifact_count' in result ? [] : result.artifacts;
+  if (summary) {
+    const key = `summary:${summary.company_id}:${summary.revision}`;
     if (seen.has(key)) return events;
     seen.add(key);
-    if (!result.company_id) return [{ type: 'message', text: 'No company brief has been saved yet.' }];
-    const id = `company-summary-${result.company_id}`;
-    const context = result.brief;
+    if (!summary.company_id) return [{ type: 'message', text: 'No company brief has been saved yet.' }];
+    const id = `company-summary-${summary.company_id}`;
+    const context = summary.brief;
     const fields = context ? [
       ['Idea', context.idea], ['First customers', context.target_customer], ['Market', context.geography],
       ['Budget', context.budget], ['Skills & resources', context.founder_skills], ['First milestone', context.goal],
@@ -102,12 +106,12 @@ function resultEvents(result: WorkflowResult, seen: Set<string>): WorkEvent[] {
     const claims: Extract<Panel, { kind: 'evidence' }>['claims'] = fields.flatMap(([label, value], index) => value ? [{
       id: `${id}-context-${index}`, claim: `${label}: ${value}`, status: 'hypothesis' as const, detail: 'Founder supplied context, not market evidence', sources: [],
     }] : []);
-    claims.push(...result.evidence_conflicts.map((claim, index) => ({ id: `${id}-conflict-${index}`, claim, status: 'needs-check' as const, detail: 'warning: evidence_conflict', sources: [] })));
-    claims.push(...result.verification_findings.map((finding, index) => ({ id: `${id}-finding-${index}`, claim: finding.message, status: 'needs-check' as const, detail: `${finding.severity}: ${finding.code}`, sources: [] })));
-    if (result.sources.length) claims.push({ id: `${id}-sources`, claim: 'Retained research references', status: 'needs-check', detail: 'Source attachment does not independently verify a finding.', sources: result.sources.map(entry => ({ title: entry.title, url: entry.url })) });
-    return [{ type: 'message', text: result.next_decision ? `Next decision: ${result.next_decision}` : '', panel: panelSchema.parse({ id, kind: 'evidence', title: 'Company context', note: '', claims, provenance: result }) }];
+    claims.push(...summary.evidence_conflicts.map((claim, index) => ({ id: `${id}-conflict-${index}`, claim, status: 'needs-check' as const, detail: 'warning: evidence_conflict', sources: [] })));
+    claims.push(...summary.verification_findings.map((finding, index) => ({ id: `${id}-finding-${index}`, claim: finding.message, status: 'needs-check' as const, detail: `${finding.severity}: ${finding.code}`, sources: [] })));
+    if (summary.sources.length) claims.push({ id: `${id}-sources`, claim: 'Retained research references', status: 'needs-check', detail: 'Source attachment does not independently verify a finding.', sources: summary.sources.map(entry => ({ title: entry.title, url: entry.url })) });
+    events.push({ type: 'message', text: summary.next_decision ? `Next decision: ${summary.next_decision}` : '', panel: panelSchema.parse({ id, kind: 'evidence', title: 'Company context', note: '', claims, provenance: summary }) });
   }
-  for (const item of result.artifacts) {
+  for (const item of artifacts) {
     const key = `${item.artifact_id}:${item.revision}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -143,8 +147,8 @@ function resultEvents(result: WorkflowResult, seen: Set<string>): WorkEvent[] {
     }
     for (const panel of panels) events.push({ type: 'message', text: '', panel: panelSchema.parse({ ...panel, provenance: item }) });
   }
-  const outcomeKey = `outcome:${result.company_id}:${result.revision}:${result.outcome}`;
-  if (result.outcome === 'insufficient_evidence' && !seen.has(outcomeKey)) {
+  const outcomeKey = 'outcome' in result ? `outcome:${result.company_id}:${result.revision}:${result.outcome}` : '';
+  if ('outcome' in result && result.outcome === 'insufficient_evidence' && !seen.has(outcomeKey)) {
     seen.add(outcomeKey);
     events.push(
       { type: 'activity', agent: 'Researcher', state: 'waiting', detail: 'Research finished without sufficient source evidence.' },
@@ -152,12 +156,21 @@ function resultEvents(result: WorkflowResult, seen: Set<string>): WorkEvent[] {
       { type: 'activity', agent: 'Strategist', state: 'waiting', detail: 'Waiting for source evidence before strategy can start.' },
     );
   }
-  const questionsKey = `questions:${JSON.stringify(result.questions)}`;
-  if (result.questions.length && !seen.has(questionsKey)) {
+  const questionsKey = 'questions' in result ? `questions:${JSON.stringify(result.questions)}` : '';
+  if ('questions' in result && result.questions.length && !seen.has(questionsKey)) {
     seen.add(questionsKey);
     events.push({ type: 'message', text: result.questions.join('\n') });
   }
   return events;
+}
+
+export function companySnapshotEvents(snapshot: unknown, companyId: string): WorkEvent[] {
+  const expectedCompanyId = uuid.parse(companyId);
+  const result = companySnapshotSchema.safeParse(snapshot);
+  if (!result.success || result.data.summary.company_id !== expectedCompanyId) {
+    throw new AgentosError('scope', 'The company snapshot does not match the selected company.');
+  }
+  return resultEvents(result.data, new Set());
 }
 
 // Agno adds versioned metadata to envelopes; project only consumed fields, then validate strictly.

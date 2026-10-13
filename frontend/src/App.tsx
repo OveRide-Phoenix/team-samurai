@@ -18,10 +18,11 @@ import {
 import { GenerativePanelBody } from './GenerativePanelBody';
 import { demoTransport, onboardingPreview } from './demo';
 import { presentMessages, createAgentosTransport, resumeAgentosRun, cancelAgentosRun, type AgentosApproval, type AgentosRun } from './agentos';
-import { beginBackendRun, finishActivities, hasActiveBackendRun, isCancellableBackendRun, nextJourneyApproval, toggleSavedSelection, applyBackendEvent, recordBackendRun, initialCompanyPrompt, eventSchema, panelSchema, latestPanels, orderedPanels, movePanel, type Agent, type Message, type Panel, type Workspace, type Portfolio, type Transport, type WorkEvent }  from './model';
+import { beginBackendRun, finishActivities, hasActiveBackendRun, isCancellableBackendRun, nextJourneyApproval, toggleSavedSelection, applyBackendEvent, recordBackendRun, initialCompanyPrompt, eventSchema, panelSchema, latestPanels, orderedPanels, movePanel, type Agent, type CompanyView, type Message, type Panel, type Portfolio, type Transport, type WorkEvent }  from './model';
 
 type WorkspaceContextValue = {
-  workspace: Workspace;
+  workspace: CompanyView;
+  readOnly: boolean;
   pin: (panel: Panel) => void;
   shortlist: (id: string) => void;
   approve: (id: string) => void;
@@ -36,7 +37,7 @@ function useWorkspace() {
 }
 
 function BusinessPanel({ panel, compact = false, expanded = false, expandable = false }: { panel: Panel; compact?: boolean; expanded?: boolean; expandable?: boolean }) {
-  const { workspace, pin, shortlist, approve, completeTask, open } = useWorkspace();
+  const { workspace, readOnly, pin, shortlist, approve, completeTask, open } = useWorkspace();
   const [filter, setFilter] = useState('All');
   const pinned = workspace.pinned.some(item => item.id === panel.id);
   const approved = workspace.approvedOffers.includes(panel.id);
@@ -45,7 +46,7 @@ function BusinessPanel({ panel, compact = false, expanded = false, expandable = 
       <div className="panel-heading">
         <div className="panel-title"><span className="panel-icon">{panel.kind === 'prospects' ? <Users size={16} /> : panel.kind === 'offer' ? <Compass size={16} /> : panel.kind === 'evidence' ? <ShieldCheck size={16} /> : panel.kind === 'launch-plan' ? <CheckCheck size={16} /> : <SlidersHorizontal size={16} />}</span><h3>{panel.title}</h3></div>
         <div className="panel-tools">
-          <button className={`icon-button ${pinned ? 'is-pinned' : ''}`} onClick={() => pin(panel)} aria-label={`${pinned ? 'Unpin' : 'Pin'} ${panel.title}`} title={pinned ? 'Unpin panel' : 'Keep on Home'}><Pin size={15} /></button>
+          <button className={`icon-button ${pinned ? 'is-pinned' : ''}`} onClick={() => pin(panel)} disabled={readOnly} aria-label={`${pinned ? 'Unpin' : 'Pin'} ${panel.title}`} title={pinned ? 'Unpin panel' : 'Keep on Home'}><Pin size={15} /></button>
           {expandable && <button className="icon-button" onClick={() => open(expanded ? null : panel)} aria-expanded={expanded} aria-label={`${expanded ? 'Collapse' : 'Expand'} ${panel.title}`}>{expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}</button>}
         </div>
       </div>
@@ -53,18 +54,18 @@ function BusinessPanel({ panel, compact = false, expanded = false, expandable = 
         <p className="eyebrow">{panel.customer}</p>
         <p className="offer-promise">{panel.promise}</p>
         {(!compact || expanded) && <ul className="offer-includes">{panel.includes.map(item => <li key={item}><Check size={14} />{item}</li>)}</ul>}
-        <div className="offer-footer"><span><strong>{panel.price}</strong></span><button className={`soft-button ${approved ? 'approved-button' : ''}`} onClick={() => approve(panel.id)} aria-pressed={approved}>{approved ? <><CheckCheck size={15} /> Reviewed</> : <>Review draft <ArrowRight size={14} /></>}</button></div>
+        <div className="offer-footer"><span><strong>{panel.price}</strong></span><button className={`soft-button ${approved ? 'approved-button' : ''}`} onClick={() => approve(panel.id)} disabled={readOnly} aria-pressed={approved}>{approved ? <><CheckCheck size={15} /> Reviewed</> : <>Review draft <ArrowRight size={14} /></>}</button></div>
       </>}
       {panel.kind === 'prospects' && <>
         <div className="panel-filter"><span>{compact ? `${workspace.shortlist.length} shortlisted` : 'Start with a conversation.'}</span><select aria-label="Filter prospects" value={filter} onChange={event => setFilter(event.target.value)}>{["All", "High fit", "Shortlisted"].map(value => <option key={value}>{value}</option>)}</select></div>
-        <div className="prospect-list">{panel.rows.filter(row => filter === 'All' || (filter === 'High fit' ? row.fit === 'High' : workspace.shortlist.includes(row.id))).map(row => <div className="prospect-row" key={row.id}><div><strong>{row.name}</strong><span>{row.area} · {row.fit} fit</span>{(!compact || expanded) && <p>{row.reason}</p>}</div><button className={`shortlist-button ${workspace.shortlist.includes(row.id) ? 'selected' : ''}`} onClick={() => shortlist(row.id)} aria-label={`${workspace.shortlist.includes(row.id) ? 'Remove' : 'Shortlist'} ${row.name}`} aria-pressed={workspace.shortlist.includes(row.id)}>{workspace.shortlist.includes(row.id) ? <Check size={16} /> : <Plus size={16} />}</button></div>)}</div>
+        <div className="prospect-list">{panel.rows.filter(row => filter === 'All' || (filter === 'High fit' ? row.fit === 'High' : workspace.shortlist.includes(row.id))).map(row => <div className="prospect-row" key={row.id}><div><strong>{row.name}</strong><span>{row.area} · {row.fit} fit</span>{(!compact || expanded) && <p>{row.reason}</p>}</div><button className={`shortlist-button ${workspace.shortlist.includes(row.id) ? 'selected' : ''}`} onClick={() => shortlist(row.id)} disabled={readOnly} aria-label={`${workspace.shortlist.includes(row.id) ? 'Remove' : 'Shortlist'} ${row.name}`} aria-pressed={workspace.shortlist.includes(row.id)}>{workspace.shortlist.includes(row.id) ? <Check size={16} /> : <Plus size={16} />}</button></div>)}</div>
         {filter === 'Shortlisted' && !panel.rows.some(row => workspace.shortlist.includes(row.id)) && <p className="empty-note">Choose a clinic with the + button to start your shortlist.</p>}
       </>}
       {panel.kind === 'pricing' && <div className="pricing-options">{(() => {
         const render = (option: typeof panel.options[number]) => <div key={option.name}><span>{option.name}</span><strong>{option.price}</strong>{(!compact || expanded) && option.description && <p>{option.description}</p>}</div>;
         return <>{panel.options.slice(0, 3).map(render)}{panel.options.length > 3 && <details className="panel-details"><summary>More options ({panel.options.length - 3})</summary>{panel.options.slice(3).map(render)}</details>}</>;
       })()}</div>}
-      <GenerativePanelBody panel={panel} compact={compact && !expanded} completedTasks={workspace.completedTasks} onComplete={completeTask} />
+      <GenerativePanelBody panel={panel} compact={compact && !expanded} completedTasks={workspace.completedTasks} onComplete={completeTask} readOnly={readOnly} />
       {!panel.provenance && panel.note && <p className="panel-note"><CircleHelp size={12} />{panel.note}</p>}
       {panel.provenance && panel.kind !== 'evidence' && <p className="panel-note">Draft · Review before acting</p>}
     </section>
@@ -94,12 +95,12 @@ function convertMessage(message: Message): ThreadMessageLike {
 }
 
 type CompanyProps = {
-  company: Portfolio['companies'][number]; workspace: Workspace;
-  setWorkspace: (update: Workspace | ((current: Workspace) => Workspace)) => void;
-  persistWorkspace: (update: Workspace | ((current: Workspace) => Workspace)) => boolean;
-  mode: 'light' | 'dark'; toggleMode: () => void; onOpen: (id: string | null) => void; storageError: boolean;
+  company: Portfolio['companies'][number]; workspace: CompanyView;
+  setWorkspace: (update: CompanyView | ((current: CompanyView) => CompanyView)) => void;
+  persistWorkspace: (update: CompanyView | ((current: CompanyView) => CompanyView)) => boolean;
+  mode: 'light' | 'dark'; toggleMode: () => void; onOpen: (id: string | null) => void; storageError: boolean; readOnly?: boolean;
 };
-export function CompanyWorkspace({ company, workspace, setWorkspace, persistWorkspace, mode, toggleMode, onOpen, storageError }: CompanyProps) {
+export function CompanyWorkspace({ company, workspace, setWorkspace, persistWorkspace, mode, toggleMode, onOpen, storageError, readOnly = false }: CompanyProps) {
   const live = workspace.executionMode === 'live';
   const recoveringRef = useRef(live && Boolean(workspace.backendRun));
   const [recovering, setRecovering] = useState(recoveringRef.current);
@@ -123,7 +124,7 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, persistWork
     if (run.status === 'submitting') {
       if (!run.submissionId) return false;
       if (backendRunRef.current?.status === 'submitting' && backendRunRef.current.submissionId === run.submissionId) return true;
-      let saved: Workspace['backendRun'];
+      let saved: CompanyView['backendRun'];
       const persisted = persistWorkspace(current => {
         const next = beginBackendRun(current, run.submissionId!);
         saved = next.backendRun;
@@ -160,7 +161,7 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, persistWork
     const input = message.content.filter(part => part.type === 'text').map(part => part.text).join('\n').trim();
     const approval = approvalRef.current;
     approvalRef.current = undefined;
-    if (!input || recoveringRef.current || controllerRef.current || completionRef.current || backendRunning()) return;
+    if (readOnly || !input || recoveringRef.current || controllerRef.current || completionRef.current || backendRunning()) return;
     const controller = new AbortController();
     controllerRef.current = controller;
     let finish: (() => void) | undefined;
@@ -258,15 +259,15 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, persistWork
     return () => clearTimeout(timer);
   }, []);
   const ask = (text: string, approval?: AgentosApproval) => {
-    if (isRunning) return;
+    if (readOnly || isRunning) return;
     approvalRef.current = approval;
     setView('chat'); setDialog(null);
     runtime.thread.composer.setText(text); runtime.thread.composer.send();
   };
-  const pin = (panel: Panel) => setWorkspace(current => ({ ...current, pinned: current.pinned.some(item => item.id === panel.id) ? current.pinned.filter(item => item.id !== panel.id) : [...current.pinned, panel].slice(-12) }));
-  const shortlist = (id: string) => setWorkspace(current => ({ ...current, shortlist: toggleSavedSelection(current.shortlist, id, 100) }));
-  const approve = (id: string) => setWorkspace(current => ({ ...current, approvedOffers: toggleSavedSelection(current.approvedOffers, id, 20) }));
-  const completeTask = (id: string) => setWorkspace(current => ({ ...current, completedTasks: current.completedTasks.includes(id) ? current.completedTasks.filter(item => item !== id) : [...current.completedTasks, id].slice(-400) }));
+  const pin = (panel: Panel) => { if (!readOnly) setWorkspace(current => ({ ...current, pinned: current.pinned.some(item => item.id === panel.id) ? current.pinned.filter(item => item.id !== panel.id) : [...current.pinned, panel].slice(-12) })); };
+  const shortlist = (id: string) => { if (!readOnly) setWorkspace(current => ({ ...current, shortlist: toggleSavedSelection(current.shortlist, id, 100) })); };
+  const approve = (id: string) => { if (!readOnly) setWorkspace(current => ({ ...current, approvedOffers: toggleSavedSelection(current.approvedOffers, id, 20) })); };
+  const completeTask = (id: string) => { if (!readOnly) setWorkspace(current => ({ ...current, completedTasks: current.completedTasks.includes(id) ? current.completedTasks.filter(item => item !== id) : [...current.completedTasks, id].slice(-400) })); };
   const panels = latestPanels({ ...workspace, messages: chatMessages });
   const journeyApproval = nextJourneyApproval(workspace);
   const approveJourney = journeyApproval ? {
@@ -296,7 +297,7 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, persistWork
     if (conversationAtBottom && view === 'chat') viewportRef.current?.scrollTo({ top: viewportRef.current.scrollHeight, behavior: 'smooth' });
   }, [workspace.messages.length, view, conversationAtBottom]);
 
-  return <WorkspaceContext.Provider value={{ workspace, pin, shortlist, approve, completeTask, open: openPanel }}><AssistantRuntimeProvider runtime={runtime}>
+  return <WorkspaceContext.Provider value={{ workspace, readOnly, pin, shortlist, approve, completeTask, open: openPanel }}><AssistantRuntimeProvider runtime={runtime}>
     <div className={`workspace company-workspace ${view === 'company' ? 'dashboard-open' : ''}`}>
       <Atmosphere mode={mode} /><TransitionGrain key={view} /><div className="bottom-blur" aria-hidden="true" />
       <header className="topbar">
@@ -307,24 +308,24 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, persistWork
           if (message?.panel) openPanel(message.panel);
           else { setView('chat'); requestAnimationFrame(() => document.querySelector(`[data-message-id="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })); }
         }} /><ModeToggle mode={mode} onToggle={toggleMode} /><DropdownMenu.Root><DropdownMenu.Trigger asChild><button className="account-button" aria-label="Workspace settings"><SlidersHorizontal size={17} /></button></DropdownMenu.Trigger><DropdownMenu.Portal><DropdownMenu.Content className="workspace-menu" align="end" sideOffset={8} collisionPadding={14}>
-          <DropdownMenu.Item className="workspace-menu-item" disabled={!dashboardPanels.length} onSelect={() => { setView('company'); setEditingOrder(!editingOrder); }}><GripVertical size={16} />{editingOrder ? 'Done editing' : 'Edit card order'}</DropdownMenu.Item>
+          <DropdownMenu.Item className="workspace-menu-item" disabled={readOnly || !dashboardPanels.length} onSelect={() => { setView('company'); setEditingOrder(!editingOrder); }}><GripVertical size={16} />{editingOrder ? 'Done editing' : 'Edit card order'}</DropdownMenu.Item>
           <DropdownMenu.Item className="workspace-menu-item" onSelect={toggleMode}>{mode === 'light' ? <Moon size={16} /> : <Sun size={16} />}Switch to {mode === 'light' ? 'dark' : 'light'} mode</DropdownMenu.Item>
         </DropdownMenu.Content></DropdownMenu.Portal></DropdownMenu.Root></div>
       </header>
 
       <aside ref={homeRef} className="home-pane" aria-label={view === 'company' ? 'Company dashboard' : 'Company Home'}>
-        <div className="home-heading"><div className="home-selector-row"><h1 className={`company-name ${view === 'company' ? 'dashboard-title' : ''}`}>{company.name}</h1>{view === 'company' && <div className="panel-tools">{editingOrder && <button className="soft-button order-done" onClick={() => setEditingOrder(false)}><Check size={14} />Done</button>}<button className="icon-button" onClick={() => setDialog('panels')} aria-label="Add a business panel"><Plus size={17} /></button></div>}<button className="icon-button" onClick={() => setView(view === 'company' ? 'chat' : 'company')} aria-expanded={view === 'company'} aria-label={view === 'company' ? 'Collapse company dashboard' : 'Expand company dashboard'}>{view === 'company' ? <Minimize2 size={17} /> : <Maximize2 size={17} />}</button></div></div>
+        <div className="home-heading"><div className="home-selector-row"><h1 className={`company-name ${view === 'company' ? 'dashboard-title' : ''}`}>{company.name}</h1>{view === 'company' && <div className="panel-tools">{editingOrder && <button className="soft-button order-done" onClick={() => setEditingOrder(false)}><Check size={14} />Done</button>}<button className="icon-button" onClick={() => setDialog('panels')} disabled={readOnly} aria-label="Add a business panel"><Plus size={17} /></button></div>}<button className="icon-button" onClick={() => setView(view === 'company' ? 'chat' : 'company')} aria-expanded={view === 'company'} aria-label={view === 'company' ? 'Collapse company dashboard' : 'Expand company dashboard'}>{view === 'company' ? <Minimize2 size={17} /> : <Maximize2 size={17} />}</button></div></div>
         {view === 'chat' && workspace.messages.length > 0 && <div className="action-stack">
           {panels.some(panel => panel.kind === 'offer') && <button className="action-card" onClick={() => openPanel(panels.find(panel => panel.kind === 'offer')!)}><Compass size={18} /><span>Review offer</span><ArrowRight size={16} className="action-arrow" /></button>}
-          {(!live || approveJourney) && <button className="action-card" onClick={() => live && approveJourney ? ask(approveJourney.prompt, approveJourney.approval) : ask('Show sample dental customer prospects')} disabled={isRunning}><Users size={18} /><span>{live ? approveJourney?.label : 'Explore sample customers'}</span><ArrowRight size={16} className="action-arrow" /></button>}
+          {(!live || approveJourney) && <button className="action-card" onClick={() => live && approveJourney ? ask(approveJourney.prompt, approveJourney.approval) : ask('Show sample dental customer prospects')} disabled={readOnly || isRunning}><Users size={18} /><span>{live ? approveJourney?.label : 'Explore sample customers'}</span><ArrowRight size={16} className="action-arrow" /></button>}
         </div>}
         <TeamPanel activities={activities} history={workspace.activityLog} expanded={view === 'company'} executionMode={workspace.executionMode} />
-        {view === 'chat' && <div className="pinned-label"><span>Pinned</span><button className="icon-button" onClick={() => setDialog('panels')} aria-label="Add a business panel"><Plus size={17} /></button></div>}
+        {view === 'chat' && <div className="pinned-label"><span>Pinned</span><button className="icon-button" onClick={() => setDialog('panels')} disabled={readOnly} aria-label="Add a business panel"><Plus size={17} /></button></div>}
         <div className="home-panels">{(view === 'company' ? dashboardPanels : [...workspace.pinned, ...(expandedPanel && !workspace.pinned.some(panel => panel.id === expandedPanel.id) ? [expandedPanel] : [])]).map((panel, index) => <div className="home-panel-item" id={`home-panel-${panel.id}`} key={panel.id} onDragOver={event => { if (view === 'company' && editingOrder) event.preventDefault(); }} onDrop={event => { if (view !== 'company' || !editingOrder) return; event.preventDefault(); reorder(event.dataTransfer.getData('text/plain'), panel.id); }}>
           {view === 'company' && editingOrder && <div className="panel-reorder"><button className="icon-button drag-handle" draggable onDragStart={event => { event.dataTransfer.setData('text/plain', panel.id); event.dataTransfer.effectAllowed = 'move'; }} aria-label={`Drag ${panel.title} to reorder`}><GripVertical size={15} /></button><span /><button className="icon-button" disabled={index === 0} aria-label={`Move ${panel.title} earlier`} onClick={() => reorder(panel.id, dashboardPanels[index - 1].id)}><ArrowUp size={14} /></button><button className="icon-button" disabled={index === dashboardPanels.length - 1} aria-label={`Move ${panel.title} later`} onClick={() => reorder(panel.id, dashboardPanels[index + 1].id)}><ArrowDown size={14} /></button></div>}
           <BusinessPanel panel={currentPanel(panel)} compact={view === 'chat'} expandable={view === 'chat'} expanded={expandedPanel?.id === panel.id} /></div>)}</div>
         {(view === 'company' ? dashboardPanels : workspace.pinned).length === 0 && !expandedPanel && <div className="company-empty"><Compass size={24} /><h3>No panels yet.</h3>{view === 'company' && <button className="soft-button" onClick={() => setView('chat')}>Start a conversation<ArrowRight size={15} /></button>}</div>}
-        {view === 'chat' && <button className="create-panel" onClick={() => setDialog('panels')}><Plus size={15} />Add a panel<ArrowRight size={14} /></button>}
+        {view === 'chat' && <button className="create-panel" onClick={() => setDialog('panels')} disabled={readOnly}><Plus size={15} />Add a panel<ArrowRight size={14} /></button>}
         {view === 'company' && <p className="company-footnote">{live ? 'Live backend workflow · Review evidence before acting.' : 'Preview workspace · Sample data.'}</p>}
       </aside>
       {view === 'company' && <button className="dashboard-chat" onClick={() => { setView('chat'); requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('.composer-input')?.focus()); }}><MessageCircle size={18} /><span>Chat with Samurai</span><ArrowRight size={16} /></button>}
@@ -339,11 +340,11 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, persistWork
               <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage }} />
               {isRunning && <div className="working-message" role="status"><LoaderCircle size={15} className="spin" />{workingAgent?.detail || (live ? durableMessage : 'Preparing the preview…')}</div>}
               {runError && <div className="error-note" role="alert">{live ? 'Backend status: ' : 'Preview status: '}{runError}</div>}
-              {workspace.messages.length > 0 && <div className="suggestions">{live && approveJourney ? <button onClick={() => ask(approveJourney.prompt, approveJourney.approval)} disabled={isRunning}>{approveJourney.label} <ArrowRight size={13} /></button> : !live ? <><button onClick={() => ask('Show sample dental customer prospects')} disabled={isRunning}>Sample customers <ArrowRight size={13} /></button><button onClick={() => ask('Is this pricing viable?')} disabled={isRunning}>Sample pricing <ArrowRight size={13} /></button></> : null}</div>}
+              {workspace.messages.length > 0 && <div className="suggestions">{live && approveJourney ? <button onClick={() => ask(approveJourney.prompt, approveJourney.approval)} disabled={readOnly || isRunning}>{approveJourney.label} <ArrowRight size={13} /></button> : !live ? <><button onClick={() => ask('Show sample dental customer prospects')} disabled={readOnly || isRunning}>Sample customers <ArrowRight size={13} /></button><button onClick={() => ask('Is this pricing viable?')} disabled={readOnly || isRunning}>Sample pricing <ArrowRight size={13} /></button></> : null}</div>}
             </div>
           </ThreadPrimitive.Viewport>
           <div className="composer-dock">{!conversationAtBottom && <button className="scroll-bottom" onClick={() => { setConversationAtBottom(true); viewportRef.current?.scrollTo({ top: viewportRef.current.scrollHeight, behavior: 'smooth' }); }} aria-label="Scroll to latest message"><ArrowDown size={16} /></button>}
-            <ComposerPrimitive.Root className="composer"><LiquidBackdrop /><button type="button" className="composer-plus icon-button" onClick={() => setDialog('panels')} aria-label="Explore business panels"><Plus size={20} /></button><ComposerPrimitive.Input className="composer-input" placeholder="What’s our next move?" aria-label="Message Samurai" maxLength={4000} />{!isRunning && <ComposerPrimitive.Send asChild><button className="send-button" aria-label="Send message"><ArrowUp size={19} /></button></ComposerPrimitive.Send>}{isRunning && <ComposerPrimitive.Cancel asChild><button className="send-button stop-button" aria-label={live ? 'Stop backend run' : 'Stop preview'}><Square size={14} fill="currentColor" /></button></ComposerPrimitive.Cancel>}</ComposerPrimitive.Root>
+            <ComposerPrimitive.Root className="composer"><LiquidBackdrop /><button type="button" className="composer-plus icon-button" onClick={() => setDialog('panels')} disabled={readOnly} aria-label="Explore business panels"><Plus size={20} /></button><ComposerPrimitive.Input className="composer-input" placeholder={readOnly ? 'Viewer access is read-only' : 'What’s our next move?'} aria-label="Message Samurai" disabled={readOnly} maxLength={4000} />{!isRunning && <ComposerPrimitive.Send asChild><button className="send-button" disabled={readOnly} aria-label="Send message"><ArrowUp size={19} /></button></ComposerPrimitive.Send>}{isRunning && <ComposerPrimitive.Cancel asChild><button className="send-button stop-button" disabled={readOnly} aria-label={live ? 'Stop backend run' : 'Stop preview'}><Square size={14} fill="currentColor" /></button></ComposerPrimitive.Cancel>}</ComposerPrimitive.Root>
             <div className="preview-caption">{live ? 'Live Samurai workflow · Generated artifacts need review' : 'Preview agents · Sample data · No external actions'}</div>
             {storageError && <p role="status" className="storage-warning">Browser storage is unavailable. This session won’t be saved.</p>}
           </div>
@@ -351,7 +352,7 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, persistWork
       </main>
 
       <Dialog.Root open={!!dialog} onOpenChange={open => { if (!open) setDialog(null); }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><Dialog.Content className="dialog-content"><Dialog.Title className="sr-only">Business panels</Dialog.Title><Dialog.Description className="sr-only">Manage this company workspace.</Dialog.Description><div className="dialog-heading"><h2>What would you like to see?</h2><button className="icon-button" aria-label="Close dialog" onClick={() => setDialog(null)}><X size={19} /></button></div><p className="dialog-description">Ask for a view, then pin it to keep it on Home.</p>
-        {dialog === 'panels' && <div className="panel-choices">{[{ title: 'Customer pipeline', detail: 'Find and shortlist your first prospects', prompt: 'Show sample dental customer prospects', icon: Users }, { title: 'Offer & positioning', detail: 'Shape a clear promise for your customers', prompt: 'Show sample dental offer', icon: Compass }, { title: 'Pricing exploration', detail: 'Compare hypotheses before testing demand', prompt: 'Show sample dental pricing', icon: SlidersHorizontal }, { title: 'Evidence review', detail: 'Separate assumptions from supported claims', prompt: 'Show sample validation evidence', icon: ShieldCheck }, { title: 'Launch plan', detail: 'Track the next steps towards a pilot', prompt: 'Show sample launch plan', icon: CheckCheck }].map(choice => <button key={choice.title} onClick={() => ask(live ? ({ 'Customer pipeline': 'Research target customers and qualification criteria', 'Offer & positioning': 'Develop our offer and positioning', 'Pricing exploration': 'Review our pricing assumptions', 'Evidence review': 'Review evidence and verification findings', 'Launch plan': 'Develop our minimum offering and delivery plan' }[choice.title] || choice.title) : choice.prompt)} disabled={isRunning}><choice.icon size={21} /><span><strong>{choice.title}</strong><small>{choice.detail}</small></span><ArrowRight size={16} /></button>)}</div>}
+        {dialog === 'panels' && <div className="panel-choices">{[{ title: 'Customer pipeline', detail: 'Find and shortlist your first prospects', prompt: 'Show sample dental customer prospects', icon: Users }, { title: 'Offer & positioning', detail: 'Shape a clear promise for your customers', prompt: 'Show sample dental offer', icon: Compass }, { title: 'Pricing exploration', detail: 'Compare hypotheses before testing demand', prompt: 'Show sample dental pricing', icon: SlidersHorizontal }, { title: 'Evidence review', detail: 'Separate assumptions from supported claims', prompt: 'Show sample validation evidence', icon: ShieldCheck }, { title: 'Launch plan', detail: 'Track the next steps towards a pilot', prompt: 'Show sample launch plan', icon: CheckCheck }].map(choice => <button key={choice.title} onClick={() => ask(live ? ({ 'Customer pipeline': 'Research target customers and qualification criteria', 'Offer & positioning': 'Develop our offer and positioning', 'Pricing exploration': 'Review our pricing assumptions', 'Evidence review': 'Review evidence and verification findings', 'Launch plan': 'Develop our minimum offering and delivery plan' }[choice.title] || choice.title) : choice.prompt)} disabled={readOnly || isRunning}><choice.icon size={21} /><span><strong>{choice.title}</strong><small>{choice.detail}</small></span><ArrowRight size={16} /></button>)}</div>}
       </Dialog.Content></Dialog.Portal></Dialog.Root>
     </div>
   </AssistantRuntimeProvider></WorkspaceContext.Provider>;

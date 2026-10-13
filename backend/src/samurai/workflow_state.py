@@ -124,6 +124,7 @@ def load_company_state(
     payload = session_state.get("company") if session_state is not None else None
     store = _company_store(db)
     stored = _stored_company(store, trusted)
+    canonical = stored is not None
     if stored is not None:
         payload = stored.model_dump(mode="json")
     elif store is not None:
@@ -136,7 +137,10 @@ def load_company_state(
     state = CompanyState.model_validate(payload)
     if request.company_id is None:
         raise WorkflowContextError(WorkflowContextIssue.SESSION_ALREADY_BOUND)
-    if state.context.authenticated_session_id != trusted.trusted_parent_session_id:
+    if (
+        not canonical
+        and state.context.authenticated_session_id != trusted.trusted_parent_session_id
+    ):
         raise SessionMismatchError(
             state.context.authenticated_session_id, trusted.trusted_parent_session_id
         )

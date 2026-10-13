@@ -12,6 +12,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../dist/client');
 const safeId = /^[A-Za-z0-9_-]{1,200}$/;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const runPath = '/api/agentos/agents/samurai/runs';
+const workspacePath = '/api/agentos/samurai/workspaces';
 const operations = new Set(['journey', 'launch_drafts', 'metrics_analysis']);
 const stages = new Set(['brief', 'research', 'strategy', 'plan']);
 const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.json': 'application/json' };
@@ -23,6 +24,19 @@ function json(res, status, value) {
 function route(url, method) {
   if (!url.search && method === 'GET' && url.pathname === '/api/agentos/connection') return { kind: 'connection' };
   if (!url.search && method === 'GET' && url.pathname === '/api/agentos/intake') return { kind: 'intake', path: '/api/company/intake' };
+  if (!url.search && url.pathname === workspacePath && ['GET', 'POST'].includes(method)) return { kind: method === 'GET' ? 'workspace_list' : 'workspace_create', path: '/agentos/samurai/workspaces' };
+  const member = /^\/api\/agentos\/samurai\/workspaces\/([0-9a-f-]{36})\/members\/([A-Za-z0-9._:@-]{1,200})$/.exec(url.pathname);
+  if (member) {
+    if (!uuid.test(member[1]) || !['PUT', 'DELETE'].includes(method) || url.search) throw new RequestError(404, 'Route not available.');
+    return { kind: method === 'PUT' ? 'member_update' : 'member_delete', path: `/agentos/samurai/workspaces/${member[1]}/members/${member[2]}` };
+  }
+  const company = /^\/api\/agentos\/samurai\/workspaces\/([0-9a-f-]{36})\/companies(?:\/([0-9a-f-]{36})\/open)?$/.exec(url.pathname);
+  if (company) {
+    if (!uuid.test(company[1]) || (company[2] && !uuid.test(company[2])) || url.search) throw new RequestError(404, 'Route not available.');
+    if (!company[2] && ['GET', 'POST'].includes(method)) return { kind: method === 'GET' ? 'company_list' : 'company_create', path: `/agentos/samurai/workspaces/${company[1]}/companies` };
+    if (company[2] && method === 'POST') return { kind: 'company_open', path: `/agentos/samurai/workspaces/${company[1]}/companies/${company[2]}/open` };
+    throw new RequestError(404, 'Route not available.');
+  }
   if (method === 'POST' && url.pathname === runPath && !url.search) return { kind: 'run', path: '/agentos/agents/samurai/runs' };
   const receipt = /^\/api\/agentos\/work-receipts\/([0-9a-f-]{36})$/.exec(url.pathname);
   if (receipt) {
@@ -71,6 +85,25 @@ async function resumeBody(req) {
   if ([...form.keys()].some(key => !allowed.includes(key)) || form.getAll('session_id').length !== 1 || typeof sessionId !== 'string' || !safeId.test(sessionId) || cursors.length > 1 || (cursors.length === 1 && (typeof cursors[0] !== 'string' || !/^(0|[1-9][0-9]*)$/.test(cursors[0])))) throw new RequestError(400, 'Invalid resume fields.');
   return form;
 }
+async function directoryBody(req, kind) {
+  const chunks = [];
+  let length = 0;
+  for await (const chunk of req.iterator({ destroyOnReturn: false })) {
+    length += chunk.length;
+    if (length > bodyLimit) throw new RequestError(413, 'Request too large.');
+    chunks.push(chunk);
+  }
+  if (req.headers['content-type'] !== 'application/json') throw new RequestError(415, 'JSON required.');
+  let value;
+  try { value = JSON.parse(Buffer.concat(chunks).toString('utf8')); }
+  catch { throw new RequestError(400, 'Invalid JSON.'); }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new RequestError(400, 'Invalid workspace request fields.');
+  const keys = Object.keys(value);
+  if (kind === 'workspace_create' && keys.length === 1 && keys[0] === 'display_name' && typeof value.display_name === 'string' && value.display_name.trim() && value.display_name.trim().length <= 200) return JSON.stringify({ display_name: value.display_name });
+  if (kind === 'member_update' && keys.length === 1 && keys[0] === 'role' && ['owner', 'editor', 'viewer'].includes(value.role)) return JSON.stringify({ role: value.role });
+  if (['company_create', 'company_open'].includes(kind) && keys.length === 0) return '{}';
+  throw new RequestError(400, 'Invalid workspace request fields.');
+}
 async function staticFile(req, res, directory) {
   if (!['GET', 'HEAD'].includes(req.method)) throw new RequestError(405, 'Method not allowed.');
   let raw;
@@ -105,9 +138,11 @@ export function createProductionServer(config, { verifyIdentity = createIapVerif
         const selected = route(url, req.method);
         if (selected.kind === 'connection') return json(res, 200, { backend: config.backend, configured: true, auth: 'jwt', storageNamespace: createHash('sha256').update(subject).digest('hex') });
         if (Number(req.headers['content-length'] ?? 0) > bodyLimit) throw new RequestError(413, 'Request too large.');
-        const body = selected.kind === 'run' ? await runBody(req) : selected.kind === 'resume' ? await resumeBody(req) : undefined;
-        if (!['run', 'resume'].includes(selected.kind) && (req.headers['transfer-encoding'] || Number(req.headers['content-length'] ?? 0) > 0)) throw new RequestError(400, 'Body not allowed.');
+        const directoryKinds = ['workspace_create', 'member_update', 'company_create', 'company_open'];
+        const body = selected.kind === 'run' ? await runBody(req) : selected.kind === 'resume' ? await resumeBody(req) : directoryKinds.includes(selected.kind) ? await directoryBody(req, selected.kind) : undefined;
+        if (!['run', 'resume', ...directoryKinds].includes(selected.kind) && (req.headers['transfer-encoding'] || Number(req.headers['content-length'] ?? 0) > 0)) throw new RequestError(400, 'Body not allowed.');
         const upstreamHeaders = { authorization: `Bearer ${signAgentosToken(subject, config.key)}`, 'x-samurai-client': '1' };
+        if (directoryKinds.includes(selected.kind)) upstreamHeaders['content-type'] = 'application/json';
         if (selected.kind === 'run') {
           const submissionId = req.headers['x-samurai-submission-id'];
           if (typeof submissionId !== 'string' || !uuid.test(submissionId)) throw new RequestError(400, 'Valid submission id required.');

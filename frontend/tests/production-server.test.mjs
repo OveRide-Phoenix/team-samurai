@@ -25,6 +25,23 @@ test('returns the existing connection contract for a verified user', async t => 
   assert.deepEqual(await response.json(), { backend: 'https://backend.example', configured: true, auth: 'jwt', storageNamespace: createHash('sha256').update('iap:user-a').digest('hex') });
 });
 
+test('forwards only strict workspace directory requests', async t => {
+  const calls = [];
+  const app = await fixture(t, async (url, options) => { calls.push([url, options]); return Response.json({ workspace_id: '00000000-0000-4000-8000-000000000001', display_name: 'Founders', role: 'owner', authorization_epoch: 1 }); });
+  const response = await app.request('/api/agentos/samurai/workspaces', { method: 'POST', headers: { origin: 'https://samurai.example', 'content-type': 'application/json' }, body: JSON.stringify({ display_name: 'Founders' }) });
+  assert.equal(response.status, 200);
+  assert.deepEqual(calls.map(([url, options]) => [url, options.method, options.body]), [['https://backend.example/agentos/samurai/workspaces', 'POST', JSON.stringify({ display_name: 'Founders' })]]);
+});
+
+test('rejects forged directory fields and invalid directory routes before upstream access', async t => {
+  const app = await fixture(t, () => assert.fail('upstream reached'));
+  const headers = { origin: 'https://samurai.example', 'content-type': 'application/json' };
+  assert.equal((await app.request('/api/agentos/samurai/workspaces', { method: 'POST', headers, body: JSON.stringify({ display_name: 'Founders', user_id: 'forged' }) })).status, 400);
+  assert.equal((await app.request('/api/agentos/samurai/workspaces/not-a-uuid/companies')).status, 404);
+  assert.equal((await app.request('/api/agentos/samurai/workspaces/00000000-0000-4000-8000-000000000001/companies', { method: 'PUT', headers })).status, 404);
+  for (const body of ['null', '[]', 'false', '42']) assert.equal((await app.request('/api/agentos/samurai/workspaces/00000000-0000-4000-8000-000000000001/companies', { method: 'POST', headers, body })).status, 400);
+});
+
 export { assertion, publicKeys, privateKey, audience, rsa, now };
 
 async function fixture(t, fetchImpl) {

@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { loadPortfolio, persistPortfolio, portfolioStorageKey, resolveBrowserScope } from './browserStorage';
-import { emptyWorkspace, portfolioKey, storageKey } from './model';
+import { emptyCompanyView, portfolioKey, storageKey } from './model';
 
 it('does not request identity in development', async () => {
   const request = vi.fn<typeof fetch>();
@@ -12,8 +12,8 @@ it('does not request identity in development', async () => {
 it('isolates saved companies for two authenticated identities without migrating shared data', async () => {
   const first = await resolveBrowserScope(true, async () => Response.json({ storageNamespace: 'a'.repeat(64), configured: true }));
   const second = await resolveBrowserScope(true, async () => Response.json({ storageNamespace: 'b'.repeat(64), configured: true }));
-  const saved = JSON.stringify({ version: 2, mode: 'light', activeId: null, companies: [{ id: 'first', name: 'Private company', workspace: emptyWorkspace() }] });
-  const values = new Map([[portfolioStorageKey(first), saved], [portfolioKey, saved], [storageKey, JSON.stringify(emptyWorkspace())]]);
+  const saved = JSON.stringify({ version: 2, mode: 'light', activeId: null, companies: [{ id: 'first', name: 'Private company', workspace: emptyCompanyView() }] });
+  const values = new Map([[portfolioStorageKey(first), saved], [portfolioKey, saved], [storageKey, JSON.stringify(emptyCompanyView())]]);
   const storage = { getItem: (key: string) => values.get(key) ?? null };
   expect(loadPortfolio(storage, first).companies.map(company => company.id)).toEqual(['first']);
   expect(loadPortfolio(storage, second).companies).toEqual([]);
@@ -21,7 +21,7 @@ it('isolates saved companies for two authenticated identities without migrating 
 
 it('preserves development legacy migration', async () => {
   const scope = await resolveBrowserScope(false);
-  const storage = { getItem: (key: string) => key === storageKey ? JSON.stringify(emptyWorkspace()) : null };
+  const storage = { getItem: (key: string) => key === storageKey ? JSON.stringify(emptyCompanyView()) : null };
   expect(loadPortfolio(storage, scope).companies[0].id).toBe('legacy-dental');
   expect(portfolioStorageKey(scope)).toBe(portfolioKey);
 });

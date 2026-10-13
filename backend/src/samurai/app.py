@@ -45,6 +45,7 @@ from samurai.parent import (
     child_session_id,
     create_parent_agent,
 )
+from samurai.workspace_api import workspace_router
 
 __all__ = ["Settings"]
 
@@ -275,7 +276,7 @@ def _work_approval(runtime_db: BaseDb | None, scope: Scope, form: FormData) -> W
     return WorkIntentInput(
         owner_id=cast("str", owner_id),
         parent_session_id=cast("str", session_id),
-        child_session_id=child_id,
+        child_session_id=access.child_session_id if access is not None else child_id,
         workspace_id=access.workspace_id if access is not None else None,
         authorization_epoch=access.authorization_epoch if access is not None else None,
         company_id=company_id,
@@ -547,6 +548,8 @@ def create_app(
     )
 
     runtime_base = FastAPI(docs_url=None, redoc_url=None)
+    if isinstance(runtime_db, SamuraiPostgresDb):
+        runtime_base.include_router(workspace_router(runtime_db))
     runtime_base.add_middleware(
         _DurableRunBoundary,
         enabled=settings.queue_enabled,
