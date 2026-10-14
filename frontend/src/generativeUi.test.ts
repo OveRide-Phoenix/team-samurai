@@ -71,14 +71,14 @@ describe('interactive panel controls', () => {
     expect(customFrameHeight({ ...valid, data: { ...valid.data, height: NaN } }, frame)).toBeUndefined();
     expect(customFrameHeight({ ...valid, data: { ...valid.data, user: 'forged' } }, frame)).toBeUndefined();
   });
-  it('combines prospect search with the current company shortlist', () => {
+  it('filters prospects by fit and the current company shortlist', () => {
     const rows = [
       { id: 'a', name: 'Maple Clinic', area: 'Bengaluru', reason: 'Evening demand', fit: 'High' as const },
       { id: 'b', name: 'Oak Clinic', area: 'Pune', reason: 'Small team', fit: 'Medium' as const },
     ];
-    expect(filterProspects(rows, 'pune', 'All', ['a'])).toEqual([rows[1]]);
-    expect(filterProspects(rows, 'clinic', 'Shortlisted', ['a', 'foreign'])).toEqual([rows[0]]);
-    expect(filterProspects(rows, '', 'High fit', [])).toEqual([rows[0]]);
+    expect(filterProspects(rows, 'All', ['a'])).toEqual(rows);
+    expect(filterProspects(rows, 'Shortlisted', ['a', 'foreign'])).toEqual([rows[0]]);
+    expect(filterProspects(rows, 'High fit', [])).toEqual([rows[0]]);
   });
   it('keeps fresh preview intake to the brief until the founder requests more work', async () => {
     const output = [];

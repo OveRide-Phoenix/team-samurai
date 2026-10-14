@@ -43,7 +43,7 @@ export const launchPlan: Panel = {
     { id: 'review', title: 'Review what changed', owner: 'Founder', timing: 'Week 3', detail: 'Use actual bookings and customer feedback to revise the offer.' },
   ],
 };
-export const initialWorkspace: Workspace = {
+export const initialWorkspace: Workspace = { selectedArea: 'overview', drafts: {},
   executionMode: 'preview', activityLog: [],
   version: 1, theme: 'sky', pinned: [offer], completedTasks: [], panelOrder: [], shortlist: [], approvedOffers: [],
   messages: [
@@ -63,13 +63,27 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 // shortcut: deterministic fixtures exercise the UI; replace this transport with Kalyan's backend event stream.
-export const demoTransport: Transport = async function* (input, signal) {
-  const workflow = /^research our market/i.test(input) ? 'evidence' : chooseWorkflow(input);
+export const demoTransport: Transport = async function* (input, signal, area = 'overview') {
+  if (area !== 'overview') {
+    const target = /pricing|price|offer|strategy|position|delivery|roadmap|launch plan/i.test(input) ? 'strategy' : /prospect|outreach|sales|sell to/i.test(input) ? 'sales' : /verification|verify|conflict/i.test(input) ? 'verification' : /research|competitor|market/i.test(input) ? 'research' : area;
+    if (target !== area) {
+      const names = { overview: 'Company', research: 'Researcher', strategy: 'Strategist', verification: 'Verifier', sales: 'Sales' };
+      yield { type: 'message', text: 'This belongs with ' + names[target] + '. Switch there to continue.', handoff: target };
+      return;
+    }
+  }
+  let workflow = /^research our market/i.test(input) ? 'evidence' : chooseWorkflow(input);
+  if (area === 'research' || area === 'verification') workflow = 'evidence';
+  else if (area === 'sales') workflow = 'prospects';
+  if (workflow === 'help' && area !== 'overview') {
+    yield { type: 'message', text: 'Let’s stay with the goal for this team area. What would you like to investigate next?' };
+    return;
+  }
   if (workflow === 'help') {
     yield { type: 'message', text: 'This preview uses a dental receptionist business. Try “Find our first customers”, “Review our offer”, “Explore pricing”, “Validate assumptions”, or “Create a launch plan” to see its interactive views.' };
     return;
   }
-  const agent = workflow === 'prospects' || workflow === 'evidence' ? 'Researcher' : 'Strategist';
+  const agent = area === 'sales' ? 'Sales' : area === 'verification' ? 'Verifier' : workflow === 'prospects' || workflow === 'evidence' ? 'Researcher' : 'Strategist';
   yield { type: 'activity', agent, state: 'working', detail: workflow === 'prospects' ? 'Preparing the sample customer shortlist' : 'Preparing a sample business hypothesis' };
   await pause(1100, signal);
   yield { type: 'activity', agent, state: 'done', detail: 'Sample prepared' };
@@ -77,7 +91,7 @@ export const demoTransport: Transport = async function* (input, signal) {
   await pause(900, signal);
   yield { type: 'activity', agent: 'Verifier', state: 'done', detail: 'Structure checked · market claims remain unverified' };
   if (workflow === 'evidence') {
-    yield { type: 'message', text: 'These are the questions to test before committing to the business. This preview has not researched them.', panel: evidence };
+    yield { type: 'message', text: 'These are the questions to test before committing to the business. This preview has not researched them.', panel: area === 'verification' ? verificationPreview : evidence };
   } else if (workflow === 'launch-plan') {
     yield { type: 'message', text: 'Work towards one paying pilot. Track the steps here as you complete them.', panel: launchPlan };
   } else if (workflow === 'prospects') {
@@ -100,3 +114,14 @@ export async function* onboardingPreview(input: CompanyBrief, signal: AbortSigna
   if (signal.aborted) return;
   yield { type: 'message', text: 'Your starting point is ready. Choose when to begin research.', panel: previewBrief(input) };
 }
+
+
+export const verificationPreview: Panel = {
+  id: 'preview-verification', kind: 'evidence', title: 'Verification review',
+  note: 'Illustrative checks only. No real market evidence has been verified.',
+  claims: [
+    { id: 'check-sources', claim: 'Source support is still needed', status: 'needs-check', detail: 'The sample research has no verified source support.', sources: [] },
+    { id: 'check-price', claim: 'Pricing remains a hypothesis', status: 'hypothesis', detail: 'Willingness to pay needs customer evidence.', sources: [] },
+    { id: 'check-demand', claim: 'Demand has not been measured', status: 'needs-check', detail: 'A clinic interview or pilot is the next real check.', sources: [] },
+  ],
+};

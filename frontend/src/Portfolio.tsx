@@ -7,17 +7,26 @@ import { ArrowRight, ArrowUp, Building2 } from 'lucide-react';
 import { CompanyWorkspace } from './App';
 import { emptyWorkspace, restorePortfolio, type Portfolio, type Workspace } from './model';
 import { loadPortfolio, portfolioStorageKey, type BrowserScope } from './browserStorage';
-import { ModeToggle, SearchBar } from './ShellParts';
+import { ModeToggle } from './ShellParts';
 
 export function App({ scope }: { readonly scope: BrowserScope }) {
   const scopedStorageKey = portfolioStorageKey(scope);
   const [portfolio, setPortfolio] = useState<Portfolio>(() => {
-    try { return loadPortfolio(localStorage, scope); }
+    try {
+      const saved = loadPortfolio(localStorage, scope);
+      return new URLSearchParams(location.search).get('home') === '1' ? { ...saved, activeId: null } : saved;
+    }
     catch { return restorePortfolio(null, null); }
   });
   const [name, setName] = useState('');
   const [onboarding, setOnboarding] = useState(false);
   const [storageError, setStorageError] = useState(false);
+  useEffect(() => {
+    const url = new URL(location.href);
+    if (url.searchParams.get('home') !== '1') return;
+    url.searchParams.delete('home');
+    history.replaceState(history.state, '', url.pathname + url.search + url.hash);
+  }, []);
   useEffect(() => {
     document.documentElement.dataset.mode = portfolio.mode;
     document.documentElement.style.colorScheme = portfolio.mode;
@@ -40,7 +49,7 @@ export function App({ scope }: { readonly scope: BrowserScope }) {
   };
   return <MotionConfig reducedMotion="user">{company ? <CompanyWorkspace key={company.id} company={company} workspace={company.workspace} setWorkspace={setWorkspace} mode={portfolio.mode} toggleMode={toggleMode} onOpen={open} storageError={storageError} /> :
     <div className="workspace landing"><Atmosphere mode={portfolio.mode} /><div className="bottom-blur" aria-hidden="true" />
-      <header className="topbar"><span className="wordmark">Samurai</span><div className="topbar-actions"><SearchBar placeholder="Search companies" items={portfolio.companies.map(item => ({ id: item.id, title: item.name }))} onSelect={open} /><ModeToggle mode={portfolio.mode} onToggle={toggleMode} /></div></header>
+      <header className="topbar"><span className="wordmark">Samurai</span><div className="topbar-actions"><ModeToggle mode={portfolio.mode} onToggle={toggleMode} /></div></header>
       <main key={onboarding ? 'intake' : 'home'} className="landing-content"><div className="landing-main">{onboarding ? <Onboarding name={name.trim()} onCancel={() => setOnboarding(false)} onComplete={brief => create(name, { ...emptyWorkspace(), brief, executionMode: 'live' })} /> : <><h1>An idea is<br />just the beginning.</h1><p className="landing-description">Build a company worth believing in.</p>
         <form className="company-intake" onSubmit={event => { event.preventDefault(); if (name.trim() && portfolio.companies.length < 50) setOnboarding(true); }}>
           <input aria-label="Company name" placeholder="What will you call your company?" value={name} onChange={event => setName(event.target.value)} maxLength={80} className="intake-input" />

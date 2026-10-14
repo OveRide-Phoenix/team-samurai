@@ -21,10 +21,12 @@ export function validateCopilotBody(value) {
     if (Object.keys(value.params ?? {}).length || Object.keys(value.body ?? {}).length) throw new Error('Invalid discovery request.');
     return value;
   }
+  const props = value.body?.forwardedProps;
+  if (props != null && (typeof props !== 'object' || Array.isArray(props) || Object.keys(props).some(key => key !== 'team_area') || (Object.keys(props).length && !['overview', 'research', 'strategy', 'verification', 'sales'].includes(props.team_area)))) throw new Error('Invalid team area.');
   const body = value.body;
   if (value.method !== 'agent/run' || value.params?.agentId !== 'samurai' || Object.keys(value.params).some(key => key !== 'agentId') || !body || typeof body !== 'object' || Array.isArray(body)) throw new Error('CopilotKit method not allowed.');
   const allowed = ['threadId', 'runId', 'protocolVersion', 'parentRunId', 'state', 'messages', 'tools', 'context', 'forwardedProps', 'resume'];
-  if (Object.keys(body).some(key => !allowed.includes(key)) || typeof body.threadId !== 'string' || !safeId.test(body.threadId) || typeof body.runId !== 'string' || !safeId.test(body.runId) || Object.keys(body.state ?? {}).length || Object.keys(body.forwardedProps ?? {}).length || (body.tools?.length ?? 0) || (body.context?.length ?? 0) || (body.resume?.length ?? 0) || body.parentRunId) throw new Error('Client context overrides are forbidden.');
+  if (Object.keys(body).some(key => !allowed.includes(key)) || typeof body.threadId !== 'string' || !safeId.test(body.threadId) || typeof body.runId !== 'string' || !safeId.test(body.runId) || Object.keys(body.state ?? {}).length || (body.tools?.length ?? 0) || (body.context?.length ?? 0) || (body.resume?.length ?? 0) || body.parentRunId) throw new Error('Client context overrides are forbidden.');
   const message = body.messages?.[0];
   if (!Array.isArray(body.messages) || body.messages.length !== 1 || !message || message.role !== 'user' || typeof message.content !== 'string' || !message.content.trim() || message.content.length > 20000 || Object.keys(message).some(key => !['id', 'role', 'content'].includes(key))) throw new Error('Exactly one text turn is required.');
   return value;
