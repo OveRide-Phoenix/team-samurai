@@ -191,6 +191,7 @@ test('CopilotKit streams Agno with the verified founder JWT and no global thread
     const input = JSON.parse(options.body);
     assert.equal(input.messages.length, 1);
     assert.deepEqual(input.state, {});
+    assert.deepEqual(input.forwardedProps, { team_area: 'research' });
     const events = [
       { type: 'RUN_STARTED', threadId: input.threadId, runId: input.runId },
       { type: 'CUSTOM', name: 'samurai', value: { event: 'RunStarted', agent_id: 'samurai', session_id: input.threadId, run_id: input.runId } },
@@ -199,11 +200,21 @@ test('CopilotKit streams Agno with the verified founder JWT and no global thread
     ];
     return new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
   });
-  const body = { method: 'agent/run', params: { agentId: 'samurai' }, body: { threadId: 'company', runId: 'run', state: {}, tools: [], context: [], forwardedProps: {}, messages: [{ id: 'u', role: 'user', content: 'Read state' }] } };
+  const body = { method: 'agent/run', params: { agentId: 'samurai' }, body: { threadId: 'company', runId: 'run', state: {}, tools: [], context: [], forwardedProps: { team_area: 'research' }, messages: [{ id: 'u', role: 'user', content: 'Read state' }] } };
   const response = await app.request('/api/copilotkit', { method: 'POST', headers: { origin: 'https://samurai.example', 'content-type': 'application/json' }, body: JSON.stringify(body) });
   assert.equal(response.status, 200);
   const stream = await response.text();
   assert.ok(stream.includes('Hello founder'), stream);
   assert.ok(stream.includes('RUN_FINISHED'), stream);
   assert.equal(calls, 1);
+});
+
+
+test('CopilotKit accepts only a typed team choice while rejecting identity overrides', async () => {
+  const { validateCopilotBody } = await import('../server/copilotkit.mjs');
+  const body = { method: 'agent/run', params: { agentId: 'samurai' }, body: { threadId: 'company', runId: 'run', state: {}, messages: [{ id: 'u', role: 'user', content: 'Research competitors' }], forwardedProps: { team_area: 'research' } } };
+  assert.deepEqual(validateCopilotBody(body), body);
+  for (const forwardedProps of [{ team_area: 'other' }, { team_area: 'research', user_id: 'other' }, { company_id: 'foreign' }, [], 'research']) {
+    assert.throws(() => validateCopilotBody({ ...body, body: { ...body.body, forwardedProps } }));
+  }
 });

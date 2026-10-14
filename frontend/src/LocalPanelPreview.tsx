@@ -5,7 +5,7 @@ import { Atmosphere } from './Atmosphere';
 import { CompanyWorkspace } from './App';
 import { Onboarding } from './Onboarding';
 import { ModeToggle } from './ShellParts';
-import { evidence, launchPlan, offer, pricing, prospects, previewBrief } from './demo';
+import { evidence, launchPlan, offer, pricing, prospects, previewBrief, verificationPreview } from './demo';
 import { emptyWorkspace, panelSchema, workspaceSchema, type CompanyBrief, type Workspace } from './model';
 import intakePages from './preview-intake';
 
@@ -18,7 +18,7 @@ export const previewCalculator = panelSchema.parse({
 });
 const stressStyles = new URLSearchParams(location.search).get('stress') === 'styles';
 const calculator = stressStyles && previewCalculator.kind === 'custom' ? { ...previewCalculator, css: previewCalculator.css + 'body{background:blue!important;font-family:monospace!important;padding:40px!important}button{background:red!important;color:lime!important;border-radius:0!important;font-family:monospace!important}input{background:blue!important;color:yellow!important;border-radius:0!important}' } : previewCalculator;
-const catalog = [previewBrief(exampleBrief), { ...evidence, title: 'Research evidence' }, { ...offer, title: 'Offer' }, { ...pricing, title: 'Pricing' }, { ...launchPlan, title: 'Delivery plan' }, { ...prospects, title: 'Prospects' }, calculator];
+const catalog = [previewBrief(exampleBrief), { ...evidence, title: 'Research evidence' }, { ...offer, title: 'Offer' }, { ...pricing, title: 'Pricing' }, { ...launchPlan, title: 'Delivery plan' }, { ...prospects, title: 'Prospects' }, verificationPreview, calculator];
 const catalogWorkspace: Workspace = { ...emptyWorkspace(), messages: catalog.map((panel, index) => ({ id: `preview-panel-${index}`, role: 'assistant', text: '', panel })) };
 const cacheKey = 'samurai-generative-panel-preview-v1';
 
@@ -27,7 +27,7 @@ export default function LocalPanelPreview() {
   const [view, setView] = useState<'panels' | 'intake' | 'company' | 'home'>(() => new URLSearchParams(location.search).get('preview') === 'intake' ? 'intake' : 'panels');
   const [mode, setMode] = useState<'light' | 'dark'>('light');
   const [workspace, updateWorkspace] = useState<Workspace>(() => {
-    try { const saved = workspaceSchema.parse(JSON.parse(localStorage.getItem(cacheKey) || 'null')); return { ...catalogWorkspace, shortlist: saved.shortlist, completedTasks: saved.completedTasks, approvedOffers: saved.approvedOffers, panelOrder: saved.panelOrder, pinned: catalog.filter(panel => saved.pinned.some(entry => entry.id === panel.id)) }; }
+    try { const saved = workspaceSchema.parse(JSON.parse(localStorage.getItem(cacheKey) || 'null')); return { ...catalogWorkspace, selectedArea: saved.selectedArea, selectedAreas: saved.selectedAreas, drafts: saved.drafts, messages: [...catalogWorkspace.messages, ...saved.messages.filter(message => !message.id.startsWith('preview-panel-'))], shortlist: saved.shortlist, completedTasks: saved.completedTasks, approvedOffers: saved.approvedOffers, panelOrder: saved.panelOrder, pinned: catalog.filter(panel => saved.pinned.some(entry => entry.id === panel.id)) }; }
     catch { return catalogWorkspace; }
   });
   const [fresh, updateFresh] = useState<Workspace>(emptyWorkspace);

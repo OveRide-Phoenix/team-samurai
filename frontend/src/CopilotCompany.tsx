@@ -2,8 +2,9 @@ import { useEffect, useMemo, type ReactNode } from 'react';
 import { useAgent } from '@copilotkit/react-core/v2/headless';
 import { CopilotKitContext, CopilotKitCoreReact, useCopilotKit } from '@copilotkit/react-core/v2/context';
 import { createCopilotStart } from './copilotkit';
+import type { TeamArea } from './model';
 
-type Start = (input: string, signal: AbortSignal) => Promise<Response>;
+type Start = (input: string, signal: AbortSignal, area?: TeamArea) => Promise<Response>;
 type Props = { companyId: string; children: (start: Start | undefined, error?: string) => ReactNode };
 const headers = { 'X-Samurai-Client': '1' };
 const executingToolCallIds = new Set<string>();

@@ -29,8 +29,12 @@ export const panelSchema = z.discriminatedUnion('kind', [
   })).max(100) }),
 ]);
 export type Panel = z.infer<typeof panelSchema>;
+export const teamAreaSchema = z.enum(["overview", "research", "strategy", "verification", "sales"]);
+export type TeamArea = z.infer<typeof teamAreaSchema>;
+export const workflowAreaSchema = teamAreaSchema.exclude(["overview"]);
+export type WorkflowArea = z.infer<typeof workflowAreaSchema>;
 export const messageSchema = z.object({
-  id: z.string(), role: z.enum(['user', 'assistant']), text: z.string(), panel: panelSchema.optional(), backendRunId: z.string().optional(),
+  id: z.string(), role: z.enum(['user', 'assistant']), text: z.string(), panel: panelSchema.optional(), backendRunId: z.string().optional(), area: teamAreaSchema.optional(), handoff: teamAreaSchema.optional(), handoffPrerequisite: z.boolean().optional(),
 });
 export type Message = z.infer<typeof messageSchema>;
 export const agents = ['Researcher', 'Strategist', 'Verifier', 'Sales'] as const;
@@ -38,10 +42,10 @@ export type Agent = typeof agents[number];
 export const activitySchema = z.object({ type: z.literal('activity'), agent: z.enum(agents), state: z.enum(['working', 'done', 'waiting', 'stopped']), detail: z.string().max(2000) });
 export const eventSchema = z.discriminatedUnion('type', [
   activitySchema,
-  z.object({ type: z.literal('message'), text: z.string(), panel: panelSchema.optional() }),
+  z.object({ type: z.literal('message'), text: z.string(), panel: panelSchema.optional(), handoff: teamAreaSchema.optional(), handoffPrerequisite: z.boolean().optional() }),
 ]);
 export type WorkEvent = z.infer<typeof eventSchema>;
-export type Transport = (input: string, signal: AbortSignal) => AsyncIterable<WorkEvent>;
+export type Transport = (input: string, signal: AbortSignal, area?: TeamArea) => AsyncIterable<WorkEvent>;
 export const companyBriefSchema = z.object({
   idea: z.string().trim().min(8).max(1500),
   customer: z.string().trim().min(3).max(300),
@@ -51,11 +55,14 @@ export const companyBriefSchema = z.object({
   founderSkills: z.string().trim().min(3).max(500).optional(),
 });
 export type CompanyBrief = z.infer<typeof companyBriefSchema>;
-export const backendRunSchema = z.object({ runId: z.string().min(1), status: z.enum(['running', 'completed', 'cancelled', 'failed']), companyId: z.string().uuid().optional(), revision: z.number().int().min(0).optional() });
+export const backendRunSchema = z.object({ runId: z.string().min(1), status: z.enum(['running', 'completed', 'cancelled', 'failed']), companyId: z.string().uuid().optional(), revision: z.number().int().min(0).optional(), area: teamAreaSchema.optional() });
 export type BackendRun = z.infer<typeof backendRunSchema>;
 export const workspaceSchema = z.object({
   executionMode: z.enum(['preview', 'live']).default('preview'), backendRun: backendRunSchema.optional(),
   brief: companyBriefSchema.optional(),
+  selectedArea: teamAreaSchema.default("overview"),
+  selectedAreas: z.array(workflowAreaSchema).max(4).refine(items => new Set(items).size === items.length).optional(),
+  drafts: z.partialRecord(teamAreaSchema, z.string().max(4000)).default({}),
   activityLog: z.array(activitySchema).max(100).default([]),
   version: z.literal(1), messages: z.array(messageSchema).max(200), pinned: z.array(panelSchema).max(12),
   completedTasks: z.array(z.string()).max(400).default([]),
@@ -73,7 +80,7 @@ export const portfolioSchema = z.object({
   (value.activeId === null || value.companies.some(company => company.id === value.activeId)));
 export type Portfolio = z.infer<typeof portfolioSchema>;
 export function emptyWorkspace(): Workspace {
-  return { executionMode: 'preview', activityLog: [], version: 1, messages: [], pinned: [], completedTasks: [], panelOrder: [], shortlist: [], approvedOffers: [], theme: 'sky' };
+  return { selectedArea: 'overview', selectedAreas: [], drafts: {}, executionMode: 'preview', activityLog: [], version: 1, messages: [], pinned: [], completedTasks: [], panelOrder: [], shortlist: [], approvedOffers: [], theme: 'sky' };
 }
 export function restorePortfolio(saved: string | null, legacy: string | null): Portfolio {
   if (saved) {
@@ -133,7 +140,7 @@ export function recordBackendRun(workspace: Workspace, run: BackendRun): Workspa
 }
 export function applyBackendEvent(workspace: Workspace, runId: string, event: Extract<WorkEvent, { type: 'message' }>): Workspace {
   if (workspace.messages.some(message => message.backendRunId === runId && message.text === event.text && JSON.stringify(message.panel) === JSON.stringify(event.panel))) return workspace;
-  const message: Message = { id: crypto.randomUUID(), backendRunId: runId, role: 'assistant', text: event.text, ...(event.panel ? { panel: event.panel } : {}) };
+  const message: Message = { id: crypto.randomUUID(), backendRunId: runId, area: workspace.backendRun?.area || 'overview', ...(event.handoff ? { handoff: event.handoff, handoffPrerequisite: event.handoffPrerequisite } : {}), role: 'assistant', text: event.text, ...(event.panel ? { panel: event.panel } : {}) };
   return { ...workspace, messages: [...workspace.messages, message].slice(-200), pinned: event.panel ? workspace.pinned.map(panel => panel.id === event.panel?.id ? event.panel : panel) : workspace.pinned };
 }
 export function initialCompanyPrompt(brief: CompanyBrief): string {
@@ -144,11 +151,11 @@ export function toggleSavedSelection(ids: readonly string[], id: string, limit: 
   return ids.includes(id) ? ids.filter(item => item !== id) : [...ids, id].slice(-limit);
 }
 
-export function finishActivities(history: Workspace['activityLog'], status: BackendRun['status']): Workspace['activityLog'] {
+export function finishActivities(history: Workspace['activityLog'], status: BackendRun['status'], mode: 'live' | 'preview' = 'live'): Workspace['activityLog'] {
   if (status === 'running') return history;
   const latest = Object.values(Object.fromEntries(history.map(activity => [activity.agent, activity])));
   const pending = latest.filter(activity => activity.state === 'working');
   const state = status === 'cancelled' || status === 'failed' ? 'stopped' : 'waiting';
-  const detail = status === 'cancelled' ? 'The backend acknowledged cancellation.' : status === 'failed' ? 'The backend run failed.' : 'The run finished without a completion event for this step.';
+  const detail = mode === 'preview' ? status === 'cancelled' ? 'Preview stopped.' : status === 'failed' ? 'Preview failed.' : 'Preview finished.' : status === 'cancelled' ? 'The backend acknowledged cancellation.' : status === 'failed' ? 'The backend run failed.' : 'The run finished without a completion event for this step.';
   return [...history, ...pending.map(activity => ({ ...activity, state, detail } satisfies z.infer<typeof activitySchema>))].slice(-100);
 }

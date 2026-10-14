@@ -657,3 +657,74 @@ h1,h2,h3,p { margin: 0; }
 .panel-note-details > summary::-webkit-details-marker { display:none; }
 .panel-note-details > p { margin-top:8px; line-height:1.6; }
 @media(max-width:760px) { .panel-note-details > summary { min-height:44px; } }
+
+
+/* Team areas share one company and reveal only their own results. */
+.team-open { width:100%; text-align:left; border-radius:14px; padding:8px; }
+.team-open:hover { background:var(--surface); }
+.team-open-detail { display:block; font-size:11px; color:var(--muted-foreground); line-height:1.5; margin-top:5px; }
+.company-workspace.grouped-company { display:grid; grid-template-columns:minmax(0,1fr); grid-template-rows:88px auto minmax(0,1fr); column-gap:32px; padding-inline:32px; }
+.company-workspace.grouped-company.conversation-open { grid-template-columns:minmax(320px,.9fr) minmax(0,1.1fr); }
+.company-team-header { grid-column:1 / -1; grid-row:2; min-width:0; padding:12px 0 20px; }
+.company-team-header .home-heading { padding:0; margin-bottom:24px; }
+.team-navigation { display:flex; flex-direction:column; align-items:center; gap:8px; min-width:0; }
+.team-switch { position:relative; isolation:isolate; width:fit-content; max-width:100%; min-width:0; border-radius:32px; box-shadow:inset 0 1px var(--border),0 3px 16px var(--shadow); }
+.team-switch > :not(.liquid-backdrop) { position:relative; z-index:1; }
+.team-switch .liquid-backdrop::after { background:color-mix(in srgb,var(--glass-tint) 80%,transparent); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); }
+.team-tabs { display:flex; padding:5px; gap:4px; }
+.workflow-toggle { display:flex; align-items:center; justify-content:center; gap:9px; min-height:48px; padding:8px 17px 8px 10px; font-size:13px; border-radius:28px; color:var(--muted-foreground); transition:background .2s,box-shadow .2s,color .2s; }
+.workflow-toggle:hover { color:var(--foreground); background:var(--accent-soft); }
+.workflow-toggle[aria-pressed='true'] { color:var(--foreground); background:var(--glass); box-shadow:inset 0 0 0 1px var(--border),0 2px 8px var(--shadow); }
+.team-tab-icon { display:grid; place-items:center; width:30px; height:30px; border-radius:50%; background:var(--accent-soft); flex-shrink:0; }
+.workflow-toggle[aria-pressed='true'] .team-tab-icon { background:var(--primary); color:var(--background); }
+.team-mode { padding-inline:4px; flex-shrink:0; }
+@media (prefers-reduced-transparency:reduce), (forced-colors:active) { .team-switch { background:var(--card); } }
+.area-focus { padding:14px 5px 0; }
+.area-focus p { font-size:13px; color:var(--muted-foreground); }
+.company-workspace.grouped-company .home-pane { position:relative; grid-column:1 / -1; grid-row:3; top:auto; bottom:auto; left:auto; right:auto; width:auto; height:100%; min-height:0; display:block; padding:0 0 100px; overflow-y:auto; }
+.company-workspace.grouped-company .home-pane > .home-panels { position:relative; display:block; columns:auto; reading-flow:source-order; max-width:none; }
+.company-workspace.grouped-company .home-panel-item { position:absolute; top:0; left:0; min-width:0; margin:0; reading-order:var(--panel-order); }
+.company-workspace.grouped-company.conversation-open .home-pane { grid-column:1; }
+
+.company-workspace.grouped-company.conversation-open .main-pane { grid-column:2; grid-row:3; margin:0; height:100%; min-height:0; min-width:0; position:relative; border-left:1px solid var(--border); }
+.company-workspace.grouped-company.conversation-open .conversation-scroll { padding:24px 28px 170px; }
+.company-workspace.grouped-company.conversation-open .composer-dock { padding-inline:24px; }
+.company-workspace.grouped-company.conversation-open .conversation-intro { margin:0 0 26px; }
+.company-workspace.grouped-company.conversation-open .conversation-intro h2 { font-size:30px; letter-spacing:-1px; margin:0 0 14px; }
+.company-workspace.grouped-company.conversation-open .conversation-intro p { font-size:13px; line-height:1.6; color:var(--muted-foreground); }
+.team-start { margin-top:8px; margin-right:8px; min-height:44px; }
+.team-area-history { margin-top:20px; font-size:12px; color:var(--muted-foreground); }
+.team-area-history summary { cursor:pointer; min-height:32px; }
+.team-area-history p { line-height:1.6; padding-top:10px; }
+.team-handoff { margin-top:14px; }
+.company-workspace.grouped-company .company-footnote { margin-top:24px; }
+.company-workspace.grouped-company .company-empty { max-width:580px; padding-block:42px; }
+.company-workspace.grouped-company .main-pane[hidden] { display:none; }
+@media(max-width:1000px) and (min-width:761px) {
+ .company-workspace.grouped-company { padding-inline:20px; column-gap:20px; }
+ .company-workspace.grouped-company.conversation-open { grid-template-columns:minmax(300px,1fr) minmax(0,1fr); }
+ .workflow-toggle { padding-right:13px; }
+ .company-workspace.grouped-company.conversation-open .conversation-scroll { padding-inline:18px; }
+ .company-workspace.grouped-company.conversation-open .composer-dock { padding-inline:14px; }
+}
+@media(max-width:760px) {
+ .company-workspace.grouped-company,.company-workspace.grouped-company.conversation-open { grid-template-columns:minmax(0,1fr); grid-template-rows:80px auto minmax(0,1fr); padding-inline:14px; }
+ .company-team-header { padding:4px 0 18px; }
+ .company-team-header .home-heading { margin-bottom:18px; }
+ .company-team-header .company-name { font-size:28px; }
+ .team-switch { width:100%; border-radius:30px; }
+ .team-tabs { gap:2px; }
+ .workflow-toggle { flex:1; min-width:0; flex-direction:column; padding:8px 4px; font-size:11px; gap:5px; border-radius:25px; }
+ .team-tab-icon { width:28px; height:28px; }
+ .team-mode { font-size:10px; }
+ .area-focus { padding-top:8px; }
+ .area-focus p { font-size:12px; }
+
+ .company-workspace.grouped-company.conversation-open .main-pane { grid-column:1; border:0; }
+ .company-workspace.grouped-company.conversation-open .conversation-scroll { padding:18px 4px 148px; }
+ .company-workspace.grouped-company.conversation-open .composer-dock { padding:14px 0 16px; }
+ .company-workspace.grouped-company.conversation-open .conversation-intro h2 { font-size:26px; }
+ .company-workspace.grouped-company.conversation-open .home-pane { display:none; }
+}
+
+.company-workspace.grouped-company .home-panel-item[hidden] { display:none; }

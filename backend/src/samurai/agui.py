@@ -19,6 +19,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import ConfigDict, Field, model_validator
 
 from samurai.parent import create_parent_agent
+from samurai.team_areas import selected_area
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
@@ -40,12 +41,13 @@ class SamuraiRunInput(RunAgentInput):
 
     @model_validator(mode="after")
     def trusted_context(self) -> SamuraiRunInput:
-        if self.tools or self.context or self.state or self.forwarded_props:
+        if self.tools or self.context or self.state:
             raise ValueError("Client tools, identity and company state overrides are forbidden")
         if len(self.messages) != 1 or self.messages[0].role != "user":
             raise ValueError("Exactly one user turn is required")
         if not isinstance(self.messages[0].content, str) or not self.messages[0].content.strip():
             raise ValueError("Text input is required")
+        _ = selected_area(self.forwarded_props or {})
         if self.resume:
             raise ValueError("Client tool continuation is not supported")
         return self
@@ -95,6 +97,7 @@ class SamuraiAGUI(BaseInterface):
                 self.db,
                 self.settings,
                 model=self.model_factory() if self.model_factory is not None else None,
+                team_area=selected_area(run_input.forwarded_props or {}),
             )
             return StreamingResponse(
                 _events(agent, run_input, user_id),
@@ -118,6 +121,7 @@ async def _checkpoint_start(agent: Agent, run_input: SamuraiRunInput, user_id: s
         user_id=user_id,
         agent_id="samurai",
         status=RunStatus.running,
+        metadata={"team_area": selected_area(run_input.forwarded_props or {})},
     )
     session.upsert_run(pending)
     if session.session_data is None:
@@ -140,6 +144,7 @@ async def _events(agent: Agent, run_input: SamuraiRunInput, user_id: str) -> Asy
             user_id=user_id,
             stream=True,
             stream_events=True,
+            metadata={"team_area": selected_area(run_input.forwarded_props or {})},
         )
         async for chunk in response:
             if chunk.event == "RunStarted":

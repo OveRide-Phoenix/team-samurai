@@ -348,6 +348,7 @@ def test_parent_exposes_bounded_business_and_presentation_tools(tmp_path: pathli
         "read_company_state",
         "compose_panel",
         "create_custom_panel",
+        "suggest_team_area",
     }
     assert agent.skills is not None
     assert {tool.name for tool in agent.skills.get_tools()} == {
