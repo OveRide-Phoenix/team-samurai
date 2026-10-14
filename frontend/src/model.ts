@@ -22,8 +22,8 @@ export const panelSchema = z.discriminatedUnion('kind', [
   z.object({ ...basePanel, kind: z.literal('launch-plan'), tasks: z.array(z.object({
     id: z.string(), title: z.string(), owner: z.string(), timing: z.string(), detail: z.string(),
   })).max(400).refine(tasks => new Set(tasks.map(task => task.id)).size === tasks.length, 'Task IDs must be unique') }),
-  z.strictObject({ provenance: z.never().optional(), id: z.string().uuid(), kind: z.literal('declarative'), title: z.string().min(1).max(120), note: draftNote, blocks: z.array(panelBlockSchema).min(1).max(20) }).refine(panel => JSON.stringify(panel).length <= 100000, 'Panel exceeds size limit'),
-  z.strictObject({ provenance: z.never().optional(), id: z.string().uuid(), kind: z.literal('custom'), title: z.string().min(1).max(120), note: draftNote, html: z.string().min(1).max(60000), css: z.string().max(20000), javascript: z.string().max(20000) }),
+  z.strictObject({ provenance: z.record(z.string(), z.unknown()).optional().superRefine((value, context) => { if (value !== undefined) context.addIssue({ code: 'custom', message: 'Generated panels cannot carry backend provenance.' }); }), id: z.string().uuid(), kind: z.literal('declarative'), title: z.string().min(1).max(120), note: draftNote, blocks: z.array(panelBlockSchema).min(1).max(20) }).refine(panel => JSON.stringify(panel).length <= 100000, 'Panel exceeds size limit'),
+  z.strictObject({ provenance: z.record(z.string(), z.unknown()).optional().superRefine((value, context) => { if (value !== undefined) context.addIssue({ code: 'custom', message: 'Generated panels cannot carry backend provenance.' }); }), id: z.string().uuid(), kind: z.literal('custom'), title: z.string().min(1).max(120), note: draftNote, html: z.string().min(1).max(60000), css: z.string().max(20000), javascript: z.string().max(20000) }),
   z.object({ ...basePanel, kind: z.literal('pricing'), options: z.array(z.object({
     name: z.string(), price: z.string(), description: z.string(),
   })).max(100) }),

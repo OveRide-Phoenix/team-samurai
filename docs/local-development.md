@@ -83,6 +83,29 @@ task recovery:check
 Do not point this command at a shared, Reporting, or production database. It
 does not create, overwrite, or delete environment files or existing volumes.
 
+## Workspace files
+
+Authenticated workspace members use the private routes under
+`/agentos/samurai/workspaces/{workspace_id}/files`. Owners and editors can
+upload and delete; viewers can list and download ready files. Uploads accept
+one file plus an optional same-workspace `company_id`, with a 10 MiB limit and
+the allowlisted text, Markdown, CSV, JSON, and PDF types. Responses expose
+metadata and hashes without storage paths or public URLs.
+
+Local objects live below `STORAGE_ROOT` (default `.samurai-storage`). Deleting a
+file releases its logical workspace quota immediately, while unshared physical
+bytes remain for the seven-day retention window. Size local disk for that
+retention headroom. Owner cleanup is workspace-scoped; it does not expose the
+global maintenance functions or accept a client-supplied clock.
+
+For a provider-free loopback check, start the migrated backend with a temporary
+RS256 verification key, then run `backend/scripts/smoke_founder_platform.py`
+with the matching private signing key. The script creates synthetic owner,
+editor, viewer, and cross-workspace principals and verifies upload, list,
+download headers and bytes, denied mutation, oversized rejection, deletion,
+and empty scoped cleanup. Use only a disposable PostgreSQL schema and remove
+the temporary key, storage directory, schema, and server after the check.
+
 ## Frontend UI preview
 
 ```sh

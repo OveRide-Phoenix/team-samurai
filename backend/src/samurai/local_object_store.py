@@ -13,7 +13,7 @@ from uuid import uuid4
 from samurai.file_store_contracts import FileStoreError, FileStoreIssue, StoredObject
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterable
+    from collections.abc import Generator, Iterable, Iterator
 
 
 @final
@@ -75,13 +75,18 @@ class LocalObjectStore:
 
     def read(self, key: str) -> bytes:
         """Read one internal key without following a final symlink."""
+        return b"".join(self.chunks(key, chunk_size=1024 * 1024))
+
+    def chunks(self, key: str, *, chunk_size: int) -> Iterator[bytes]:
+        """Stream one internal key without following a final symlink."""
         with self._parent(key) as (parent, leaf):
             try:
                 descriptor = os.open(leaf, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
             except FileNotFoundError as error:
                 raise FileStoreError(FileStoreIssue.STORAGE_MISSING) from error
         with os.fdopen(descriptor, "rb") as stream:
-            return stream.read()
+            while chunk := stream.read(chunk_size):
+                yield chunk
 
     def delete(self, key: str) -> None:
         """Delete one internal key idempotently."""

@@ -39,6 +39,7 @@ from samurai.execution_state import (
     WorkOperation,
     WorkReceipt,
 )
+from samurai.file_api import file_router
 from samurai.intake import INTAKE_PAGES, IntakePage
 from samurai.parent import (
     PARENT_AGENT_ID,
@@ -556,6 +557,7 @@ def create_app(
     runtime_base = FastAPI(docs_url=None, redoc_url=None)
     if isinstance(runtime_db, SamuraiPostgresDb):
         runtime_base.include_router(workspace_router(runtime_db))
+        runtime_base.include_router(file_router(runtime_db, settings.storage_root))
     runtime_base.add_middleware(
         _DurableRunBoundary,
         enabled=settings.queue_enabled,

@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { createIapVerifier, productionConfig, RequestError, signAgentosToken } from './iapAuth.mjs';
+import { MultipartFileError, multipartFileBody } from './agentosProxy.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../dist/client');
 const safeId = /^[A-Za-z0-9_-]{1,200}$/;
@@ -37,6 +38,19 @@ function route(url, method) {
     if (!company[2] && ['GET', 'POST'].includes(method)) return { kind: method === 'GET' ? 'company_list' : 'company_create', path: `/agentos/samurai/workspaces/${company[1]}/companies` };
     if (company[2] && method === 'POST') return { kind: 'company_open', path: `/agentos/samurai/workspaces/${company[1]}/companies/${company[2]}/open` };
     throw new RequestError(404, 'Route not available.');
+  }
+  const file = /^\/api\/agentos\/samurai\/workspaces\/([0-9a-f-]{36})\/files(?:\/([0-9a-f-]{36})(\/download)?)?$/.exec(url.pathname);
+  if (file) {
+    if (!uuid.test(file[1]) || (file[2] && !uuid.test(file[2])) || url.search) throw new RequestError(404, 'Route not available.');
+    if (!file[2] && ['GET', 'POST'].includes(method)) return { kind: method === 'GET' ? 'file_list' : 'file_upload', path: `/agentos/samurai/workspaces/${file[1]}/files` };
+    if (file[2] && !file[3] && ['GET', 'DELETE'].includes(method)) return { kind: method === 'GET' ? 'file_metadata' : 'file_delete', path: `/agentos/samurai/workspaces/${file[1]}/files/${file[2]}` };
+    if (file[2] && file[3] && method === 'GET') return { kind: 'file_download', path: `/agentos/samurai/workspaces/${file[1]}/files/${file[2]}/download` };
+    throw new RequestError(404, 'Route not available.');
+  }
+  const cleanup = /^\/api\/agentos\/samurai\/workspaces\/([0-9a-f-]{36})\/files\/cleanup$/.exec(url.pathname);
+  if (cleanup) {
+    if (!uuid.test(cleanup[1]) || method !== 'POST' || url.search) throw new RequestError(404, 'Route not available.');
+    return { kind: 'file_cleanup', path: `/agentos/samurai/workspaces/${cleanup[1]}/files/cleanup` };
   }
   if (method === 'POST' && url.pathname === runPath && !url.search) return { kind: 'run', path: '/agentos/agents/samurai/runs' };
   const receipt = /^\/api\/agentos\/work-receipts\/([0-9a-f-]{36})$/.exec(url.pathname);
@@ -142,12 +156,14 @@ export function createProductionServer(config, { verifyIdentity = createIapVerif
         }
         const selected = route(url, req.method);
         if (selected.kind === 'connection') return json(res, 200, { backend: config.backend, configured: true, auth: 'jwt', storageNamespace: createHash('sha256').update(subject).digest('hex') });
-        if (Number(req.headers['content-length'] ?? 0) > bodyLimit) throw new RequestError(413, 'Request too large.');
+        const fileUpload = selected.kind === 'file_upload';
+        if (!fileUpload && Number(req.headers['content-length'] ?? 0) > bodyLimit) throw new RequestError(413, 'Request too large.');
         const directoryKinds = ['workspace_create', 'member_update', 'company_create', 'company_open'];
-        const body = selected.kind === 'run' ? await runBody(req) : selected.kind === 'resume' ? await resumeBody(req) : directoryKinds.includes(selected.kind) ? await directoryBody(req, selected.kind) : undefined;
-        if (!['run', 'resume', ...directoryKinds].includes(selected.kind) && (req.headers['transfer-encoding'] || Number(req.headers['content-length'] ?? 0) > 0)) throw new RequestError(400, 'Body not allowed.');
+        const body = selected.kind === 'run' ? await runBody(req) : selected.kind === 'resume' ? await resumeBody(req) : fileUpload ? multipartFileBody(req) : directoryKinds.includes(selected.kind) ? await directoryBody(req, selected.kind) : undefined;
+        if (!['run', 'resume', 'file_upload', ...directoryKinds].includes(selected.kind) && (req.headers['transfer-encoding'] || Number(req.headers['content-length'] ?? 0) > 0)) throw new RequestError(400, 'Body not allowed.');
         const upstreamHeaders = { authorization: `Bearer ${signAgentosToken(subject, config.key)}`, 'x-samurai-client': '1' };
         if (directoryKinds.includes(selected.kind)) upstreamHeaders['content-type'] = 'application/json';
+        if (fileUpload) upstreamHeaders['content-type'] = req.headers['content-type'];
         if (selected.kind === 'company_create') {
           const submissionId = req.headers['x-samurai-submission-id'];
           if (typeof submissionId !== 'string' || !uuid.test(submissionId)) throw new RequestError(400, 'Valid submission id required.');
@@ -167,12 +183,28 @@ export function createProductionServer(config, { verifyIdentity = createIapVerif
             upstreamHeaders['x-samurai-company-id'] = companyId;
           }
         }
-        const upstream = await fetchImpl(`${config.backend}${selected.path}`, { method: req.method, redirect: 'error', headers: upstreamHeaders, body, signal: AbortSignal.any([controller.signal, AbortSignal.timeout(3_600_000)]) });
+        const upstream = await fetchImpl(`${config.backend}${selected.path}`, { method: req.method, redirect: 'error', headers: upstreamHeaders, body, ...(fileUpload ? { duplex: 'half' } : {}), signal: AbortSignal.any([controller.signal, AbortSignal.timeout(3_600_000)]) });
         if (!upstream.ok) {
           await upstream.body?.cancel();
           return json(res, upstream.status >= 500 ? 503 : upstream.status, { detail: upstream.status >= 500 ? 'Samurai AgentOS is unavailable.' : 'AgentOS request denied.' });
         }
-        res.writeHead(upstream.status, { 'Content-Type': upstream.headers.get('content-type') ?? 'application/json', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' });
+        const headers = { 'Content-Type': upstream.headers.get('content-type') ?? 'application/json', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' };
+        if (selected.kind === 'file_download') {
+          const allowed = {
+            'content-type': /^(?:text\/(?:plain|markdown)|application\/(?:json|pdf))(?:; charset=utf-8)?$/i,
+            'content-disposition': /^attachment; filename="download"; filename\*=UTF-8''(?:[A-Za-z0-9!#$&+.^_`|~-]|%[0-9a-f]{2})+$/i,
+            'content-length': /^[0-9]+$/,
+            'x-content-sha256': /^[a-f0-9]{64}$/i,
+            'cache-control': /^(?:private, )?no-store$/,
+            'x-content-type-options': /^nosniff$/i,
+          };
+          for (const [name, pattern] of Object.entries(allowed)) {
+            const value = upstream.headers.get(name);
+            if (!value || !pattern.test(value)) { await upstream.body?.cancel(); throw new RequestError(502, 'Invalid file download response.'); }
+            headers[name] = value;
+          }
+        }
+        res.writeHead(upstream.status, headers);
         res.flushHeaders();
         if (!upstream.body) return res.end();
         return await pipeline(Readable.fromWeb(upstream.body), res);
@@ -181,7 +213,8 @@ export function createProductionServer(config, { verifyIdentity = createIapVerif
     } catch (error) { // HTTP boundary: keep upstream bodies, credentials and crypto errors out of responses/logs.
       if (res.destroyed) return;
       if (res.headersSent) return res.destroy();
-      json(res, error instanceof RequestError ? error.status : 502, { detail: error instanceof RequestError ? error.message : 'Samurai is unavailable.' });
+      const multipartError = error instanceof MultipartFileError ? error : error instanceof TypeError && error.cause instanceof MultipartFileError ? error.cause : undefined;
+      json(res, error instanceof RequestError ? error.status : multipartError?.status ?? 502, { detail: error instanceof RequestError ? error.message : multipartError?.message ?? 'Samurai is unavailable.' });
     }
   });
   server.requestTimeout = 30_000;

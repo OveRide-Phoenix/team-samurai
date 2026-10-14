@@ -17,12 +17,13 @@ import { TeamPanel, ModeToggle, type Activity } from './ShellParts';
 import {
   ArrowDown, ArrowRight, ArrowUp, Check, CheckCheck, CircleHelp,
   Compass, GripVertical, Home, Leaf, LoaderCircle, Maximize2, Minimize2, MessageCircle, Pin,
-  Moon, Sun, Plus, ShieldCheck, SlidersHorizontal, Square, Users, X,
+  Download, FileText, Moon, Sun, Plus, ShieldCheck, SlidersHorizontal, Square, Trash2, Upload, Users, X,
 } from 'lucide-react';
 import { GenerativePanelBody } from './GenerativePanelBody';
 import { demoTransport, onboardingPreview } from './demo';
 import { presentMessages, createAgentosTransport, readAgentosRun, cancelAgentosRun, type AgentosRun } from './agentos';
 import { finishActivities, hasActiveBackendRun, toggleSavedSelection, applyBackendEvent, recordBackendRun, initialCompanyPrompt, eventSchema, panelSchema, latestPanels, orderedPanels, movePanel, type TeamArea, type WorkflowArea, type Agent, type Message, type Panel, type Workspace, type Portfolio, type Transport, type WorkEvent }  from './model';
+import { deleteWorkspaceFile, downloadWorkspaceFile, listWorkspaceFiles, uploadWorkspaceFile, type WorkspaceFile } from './files';
 
 type WorkspaceContextValue = {
   workspace: Workspace;
@@ -100,6 +101,50 @@ type CompanyProps = {
   initialView?: 'chat' | 'company';
   mode: 'light' | 'dark'; toggleMode: () => void; onOpen: (id: string | null) => void; storageError: boolean; readOnly?: boolean;
 };
+function FilePanel({ workspaceId, companyId, readOnly }: { workspaceId?: string; companyId?: string; readOnly: boolean }) {
+  const [files, setFiles] = useState<WorkspaceFile[]>([]);
+  const [status, setStatus] = useState('');
+  const [pending, setPending] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const refresh = async () => {
+    if (!workspaceId) return;
+    setLoaded(false); setStatus('');
+    try { setFiles(await listWorkspaceFiles(workspaceId)); setLoaded(true); }
+    catch { setFiles([]); setStatus('Files could not be loaded.'); setLoaded(true); }
+  };
+  useEffect(() => { void refresh(); }, [workspaceId]);
+  if (!workspaceId) return null;
+  const upload = async (file: File | undefined) => {
+    if (!file || readOnly || pending) return;
+    setPending(true); setStatus('Uploading file…');
+    try { const saved = await uploadWorkspaceFile(workspaceId, file, companyId); setFiles(current => [saved, ...current]); setStatus(`${saved.display_name} is ${saved.state}.`); }
+    catch { setStatus('File upload failed.'); }
+    finally { setPending(false); }
+  };
+  const download = async (file: WorkspaceFile) => {
+    setPending(true); setStatus(`Downloading ${file.display_name}…`);
+    try {
+      const response = await downloadWorkspaceFile(workspaceId, file.file_id);
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement('a'); link.href = url; link.download = file.display_name; link.click(); URL.revokeObjectURL(url);
+      setStatus(`${file.display_name} downloaded.`);
+    } catch { setStatus('File download failed.'); }
+    finally { setPending(false); }
+  };
+  const remove = async (file: WorkspaceFile) => {
+    if (readOnly || pending) return;
+    setPending(true); setStatus(`Deleting ${file.display_name}…`);
+    try { await deleteWorkspaceFile(workspaceId, file.file_id); setFiles(current => current.filter(item => item.file_id !== file.file_id)); setStatus(`${file.display_name} deleted.`); }
+    catch { setStatus('File deletion failed.'); }
+    finally { setPending(false); }
+  };
+  return <section className="business-panel file-panel" aria-label="Workspace files">
+    <div className="panel-heading"><div className="panel-title"><span className="panel-icon"><FileText size={16} /></span><h3>Workspace files</h3></div>{!readOnly && <label className="soft-button file-upload"><Upload size={14} />Upload company file<input type="file" onChange={event => { void upload(event.currentTarget.files?.[0]); event.currentTarget.value = ''; }} disabled={pending} /></label>}</div>
+    {readOnly && <p className="panel-note">Viewer access can download ready files.</p>}
+    {status && <p className="file-status" role="status">{status}</p>}
+    {!loaded ? <p className="empty-note">Loading files…</p> : status === 'Files could not be loaded.' ? null : files.length === 0 ? <p className="empty-note">No files have been uploaded.</p> : <ul className="file-list">{files.map(file => <li key={file.file_id}><div><strong>{file.display_name}</strong><span>{file.state} · {file.byte_size.toLocaleString()} bytes · {file.content_sha256.slice(0, 12)}</span></div><div className="file-actions">{file.state === 'ready' && <button className="icon-button" onClick={() => void download(file)} disabled={pending} aria-label={`Download ${file.display_name}`}><Download size={15} /></button>}<button className="icon-button" onClick={() => void remove(file)} disabled={readOnly || pending} aria-label={`Delete ${file.display_name}`}><Trash2 size={15} /></button></div></li>)}</ul>}
+  </section>;
+}
 const CopilotCompany = lazy(() => import('./CopilotCompany'));
 export function CompanyWorkspace(props: CompanyProps) {
   return props.workspace.executionMode === 'live' ? <Suspense fallback={<CompanyWorkspaceContent {...props} />}><CopilotCompany companyId={props.company.id}>{(start, error) => <CompanyWorkspaceContent {...props} copilotStart={start} connectionError={error} />}</CopilotCompany></Suspense> : <CompanyWorkspaceContent {...props} />;
@@ -217,10 +262,11 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
     if (completionRef.current) { await completionRef.current; return; }
     const saved = backendRunRef.current;
     if (live && saved?.runId && hasActiveBackendRun(saved)) {
+      const runId = saved.runId;
       setRunError('');
-      const stopping = cancelAgentosRun(company.id, saved.runId, messagesRef.current).then(recovered => {
+      const stopping = cancelAgentosRun(company.id, runId, messagesRef.current).then(recovered => {
         recordRun(recovered.run);
-        for (const event of recovered.events) if (event.type === 'message') setWorkspace(current => applyBackendEvent(current, saved.runId, event));
+        for (const event of recovered.events) if (event.type === 'message') setWorkspace(current => applyBackendEvent(current, runId, event));
         if (recovered.run.status === 'cancelled') append({ id: crypto.randomUUID(), role: 'assistant', text: 'The backend confirmed cancellation of the saved run.' });
         if (recovered.run.status === 'failed') setRunError('The saved backend run failed. You can send a new request.');
         setRunning(false);
@@ -234,11 +280,12 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
   const runtime = useExternalStoreRuntime({ messages: view === 'company' ? areaMessages.map(message => ({ ...message, panel: undefined })) : areaMessages, convertMessage, isRunning: isRunning || (live && !copilotStart && !connectionError), onNew, onCancel });
   useEffect(() => {
     const saved = backendRunRef.current;
-    if (!live || !saved) return;
+    if (!live || !saved?.runId) return;
+    const runId = saved.runId;
     const controller = new AbortController();
     const timer = setTimeout(() => {
       setRunning(true);
-      void readAgentosRun(company.id, saved.runId, controller.signal, messagesRef.current).then(recovered => {
+      void readAgentosRun(company.id, runId, controller.signal, messagesRef.current).then(recovered => {
         if (controller.signal.aborted) return;
         // Check authoritative company binding before applying any recovered artifact.
         recordRun(recovered.run);
@@ -247,7 +294,7 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
           setActivities(Object.fromEntries(finishActivities(history, recovered.run.status).map(activity => [activity.agent, activity])));
           setWorkspace(current => ({ ...current, activityLog: finishActivities(history, recovered.run.status) }));
         }
-        for (const event of recovered.events) if (event.type === 'message') setWorkspace(current => applyBackendEvent(current, saved.runId, event));
+        for (const event of recovered.events) if (event.type === 'message') setWorkspace(current => applyBackendEvent(current, runId, event));
         setRunning(hasActiveBackendRun(recovered.run));
         if (hasActiveBackendRun(recovered.run)) setRunError('The saved backend run is still running. Stop it or reopen this company later to check its saved result.');
         if (recovered.run.status === 'failed') setRunError('The saved backend run failed. You can send a new request.');
@@ -360,6 +407,7 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
         </div>}
         {view === 'chat' && <TeamPanel activities={activities} history={workspace.activityLog} executionMode={workspace.executionMode} onSelect={selectArea} />}
         {view === 'chat' && <div className="pinned-label"><span>Pinned</span><button className="icon-button" onClick={() => setDialog('panels')} aria-label="Add a business panel"><Plus size={17} /></button></div>}
+        {view === 'company' && <FilePanel key={`${company.workspaceId ?? ''}:${company.companyId ?? ''}`} workspaceId={company.workspaceId} companyId={company.companyId} readOnly={readOnly} />}
         <div ref={panelLayout.container} className="home-panels" style={view === 'company' ? { height: panelLayout.height } : undefined}>{renderedPanels.map(panel => { const index = visiblePanels.findIndex(item => item.id === panel.id); const sameGroup = (other?: Panel) => Boolean(other && (!selectedAreas.length || areaForPanel(other, workspace) === areaForPanel(panel, workspace))); const slot = panelLayout.positions[panel.id]; const order = panelLayout.displayedIds.indexOf(panel.id); return <motion.div data-panel-id={panel.id} style={{ order, ...{ '--panel-order': order } }} hidden={view === 'company' && !displayedPanelIds.has(panel.id)} inert={view === 'company' && !visiblePanelIds.has(panel.id)} aria-hidden={view === 'company' && !visiblePanelIds.has(panel.id)} animate={view === 'company' && slot ? { x: slot.x, y: slot.y, width: slot.width || '100%' } : { x: 0, y: 0, width: 'auto' }} transition={panelLayout.enteringIds.has(panel.id) ? { duration: 0 } : panelTransition} className="home-panel-item" id={`home-panel-${panel.id}`} key={panel.id} onDragOver={event => { if (view === 'company' && editingOrder) event.preventDefault(); }} onDrop={event => { if (view !== 'company' || !editingOrder) return; event.preventDefault(); reorder(event.dataTransfer.getData('text/plain'), panel.id); }}>
           {view === 'company' && editingOrder && visiblePanelIds.has(panel.id) && <div className="panel-reorder"><button className="icon-button drag-handle" draggable onDragStart={event => { event.dataTransfer.setData('text/plain', panel.id); event.dataTransfer.effectAllowed = 'move'; }} aria-label={`Drag ${panel.title} to reorder`}><GripVertical size={15} /></button><span /><button className="icon-button" disabled={!sameGroup(visiblePanels[index - 1])} aria-label={`Move ${panel.title} earlier`} onClick={() => reorder(panel.id, visiblePanels[index - 1].id)}><ArrowUp size={14} /></button><button className="icon-button" disabled={!sameGroup(visiblePanels[index + 1])} aria-label={`Move ${panel.title} later`} onClick={() => reorder(panel.id, visiblePanels[index + 1].id)}><ArrowDown size={14} /></button></div>}
           <div className="panel-reveal"><BusinessPanel panel={currentPanel(panel)} compact={view === 'chat'} expandable={view === 'chat'} expanded={expandedPanel?.id === panel.id} /></div></motion.div>; })}</div>

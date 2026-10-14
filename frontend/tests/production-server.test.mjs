@@ -33,6 +33,45 @@ test('forwards only strict workspace directory requests', async t => {
   assert.deepEqual(calls.map(([url, options]) => [url, options.method, options.body]), [['https://backend.example/agentos/samurai/workspaces', 'POST', JSON.stringify({ display_name: 'Founders' })]]);
 });
 
+test('streams allowlisted workspace file downloads and preserves backend denials', async t => {
+  const workspaceId = '00000000-0000-4000-8000-000000000001';
+  const fileId = '00000000-0000-4000-8000-000000000003';
+  const app = await fixture(t, async url => {
+    if (String(url).endsWith('/download')) return new Response('bounded file', { headers: {
+      'content-type': 'text/markdown; charset=utf-8', 'content-disposition': "attachment; filename=\"download\"; filename*=UTF-8''brief.md",
+      'content-length': '12', 'x-content-sha256': 'a'.repeat(64), 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff',
+    } });
+    return Response.json([]);
+  });
+  const download = await app.request(`/api/agentos/samurai/workspaces/${workspaceId}/files/${fileId}/download`);
+  assert.equal(download.status, 200);
+  assert.equal(download.headers.get('content-disposition'), "attachment; filename=\"download\"; filename*=UTF-8''brief.md");
+  assert.equal(download.headers.get('x-content-sha256'), 'a'.repeat(64));
+
+  const denied = await fixture(t, async () => new Response('{}', { status: 404 }));
+  assert.equal((await denied.request(`/api/agentos/samurai/workspaces/${workspaceId}/files/${fileId}/download`)).status, 404);
+});
+
+test('returns controlled upload errors from streamed multipart validation', async t => {
+  const workspaceId = '00000000-0000-4000-8000-000000000001';
+  const app = await fixture(t, async (_url, options) => {
+    for await (const _chunk of options.body) {}
+    return Response.json({});
+  });
+  const unknown = new FormData();
+  unknown.set('file', new File(['bounded'], 'brief.md', { type: 'text/markdown' }));
+  unknown.set('user_id', 'forged');
+  const invalid = await app.request(`/api/agentos/samurai/workspaces/${workspaceId}/files`, { method: 'POST', headers: { origin: 'https://samurai.example' }, body: unknown });
+  assert.equal(invalid.status, 400);
+
+  const boundary = 'samurai-task9';
+  const prefix = Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="large.txt"\r\nContent-Type: text/plain\r\n\r\n`);
+  const suffix = Buffer.from(`\r\n--${boundary}--\r\n`);
+  const oversized = new ReadableStream({ start(controller) { controller.enqueue(Buffer.concat([prefix, Buffer.alloc(10 * 1024 * 1024 + 1), suffix])); controller.close(); } });
+  const tooLarge = await app.request(`/api/agentos/samurai/workspaces/${workspaceId}/files`, { method: 'POST', headers: { origin: 'https://samurai.example', 'content-type': `multipart/form-data; boundary=${boundary}` }, body: oversized, duplex: 'half' });
+  assert.equal(tooLarge.status, 413);
+});
+
 test('requires a submission ID for company reservations and maps it to the upstream idempotency key', async t => {
   const calls = [];
   const app = await fixture(t, async (url, options) => { calls.push([url, options]); return Response.json({}); });

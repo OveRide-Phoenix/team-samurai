@@ -9,7 +9,7 @@ import { companySnapshotEvents } from './agentos';
 import { continueCompanyView, emptyCompanyView, restorePortfolio, type CompanyBrief, type CompanyView, type Message, type Portfolio, type WorkEvent } from './model';
 import { loadPortfolio, persistPortfolio, portfolioStorageKey, type BrowserScope } from './browserStorage';
 import { createLatestRequestGuard, createOneAtATimeGate, createWorkspace, createWorkspaceCompany, firstWritableWorkspace, listWorkspaceCompanies, listWorkspaces, openWorkspaceCompany, shouldLoadWorkspaceDirectory, type DirectoryCompany, type WorkspaceDirectory } from './workspaces';
-import { ModeToggle, SearchBar } from './ShellParts';
+import { ModeToggle } from './ShellParts';
 
 type Reservation = { readonly workspace: WorkspaceDirectory; readonly company: DirectoryCompany };
 type CompanyCreationRetry = { readonly workspace: WorkspaceDirectory; readonly submissionId: string };
@@ -149,7 +149,7 @@ export function App({ scope }: { readonly scope: BrowserScope }) {
   const persistCompanyView = (update: CompanyView | ((current: CompanyView) => CompanyView)) => updateCompanyView(update, true);
   return <MotionConfig reducedMotion="user">{company ? <CompanyWorkspace key={company.id} company={company} workspace={company.workspace} setWorkspace={setCompanyView} persistWorkspace={persistCompanyView} mode={portfolio.mode} toggleMode={toggleMode} onOpen={open} storageError={storageError} readOnly={company.role === 'viewer'} /> :
     <div className="workspace landing"><Atmosphere mode={portfolio.mode} /><div className="bottom-blur" aria-hidden="true" />
-      <header className="topbar"><span className="wordmark">Samurai</span><div className="topbar-actions"><SearchBar placeholder="Search companies" items={portfolio.companies.map(item => ({ id: item.id, title: item.name }))} onSelect={open} /><ModeToggle mode={portfolio.mode} onToggle={toggleMode} /></div></header>
+      <header className="topbar"><span className="wordmark">Samurai</span><div className="topbar-actions"><ModeToggle mode={portfolio.mode} onToggle={toggleMode} /></div></header>
       <main key={reservation ? 'intake' : 'home'} className="landing-content"><div className="landing-main">{reservation ? <Onboarding name={name.trim()} onCancel={() => setReservation(null)} onComplete={brief => create(brief, reservation)} /> : <><h1>An idea is<br />just the beginning.</h1><p className="landing-description">Build a company worth believing in.</p>
         <form className="company-intake" onSubmit={event => { event.preventDefault(); void startCompany(); }}>
           <input aria-label="Company name" placeholder="What will you call your company?" value={name} onChange={event => { setName(event.target.value); setCompanyCreationRetry(null); }} maxLength={80} className="intake-input" />

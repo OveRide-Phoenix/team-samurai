@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 
 from samurai.quota import WorkspaceQuota
+from samurai.workspace_membership import WorkspaceMembership
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import Connection, Engine
@@ -61,8 +62,15 @@ class FileStoreMaintenance:
         self._schema: str = schema
         self._objects: ObjectStore = objects
         self._quota = WorkspaceQuota(schema)
+        self._membership = WorkspaceMembership(engine, schema)
 
-    def cleanup_quarantine(self, *, now: int | None = None) -> int:
+    def cleanup_quarantine(
+        self,
+        *,
+        workspace_id: UUID | None = None,
+        actor_id: str | None = None,
+        now: int | None = None,
+    ) -> int:
         """Reject quarantines older than one hour and release their quota."""
         timestamp = int(time.time()) if now is None else now
         with self._engine.connect() as connection:
@@ -72,15 +80,21 @@ class FileStoreMaintenance:
                     self._sql(
                         """SELECT file_id, workspace_id, content_sha256
                         FROM "{schema}".samurai_files
-                        WHERE state = 'quarantined' AND updated_at <= :cutoff"""
+                        WHERE state = 'quarantined' AND updated_at <= :cutoff
+                        AND (CAST(:workspace_id AS uuid) IS NULL
+                        OR workspace_id = CAST(:workspace_id AS uuid))"""
                     ),
-                    {"cutoff": timestamp - QUARANTINE_SECONDS},
+                    {
+                        "cutoff": timestamp - QUARANTINE_SECONDS,
+                        "workspace_id": workspace_id,
+                    },
                 ).mappings()
             ]
         cleaned = 0
         for candidate in candidates:
             with self._engine.begin() as connection:
                 self._quota.lock(connection, candidate.workspace_id)
+                self._require_scoped_owner(connection, workspace_id, actor_id)
                 ready_key = self._ready_key(candidate.workspace_id, candidate.content_sha256)
                 self._lock_object(connection, ready_key)
                 raw_row = (
@@ -111,7 +125,13 @@ class FileStoreMaintenance:
                 cleaned += 1
         return cleaned
 
-    def purge_deleted(self, *, now: int | None = None) -> tuple[int, int]:
+    def purge_deleted(
+        self,
+        *,
+        workspace_id: UUID | None = None,
+        actor_id: str | None = None,
+        now: int | None = None,
+    ) -> tuple[int, int]:
         """Purge unshared bytes after seven days and receipts after thirty."""
         timestamp = int(time.time()) if now is None else now
         purged = 0
@@ -123,14 +143,17 @@ class FileStoreMaintenance:
                     self._sql(
                         """SELECT receipt_id, workspace_id
                         FROM "{schema}".samurai_file_deletion_receipts
-                        WHERE purge_after <= :now"""
+                        WHERE purge_after <= :now
+                        AND (CAST(:workspace_id AS uuid) IS NULL
+                        OR workspace_id = CAST(:workspace_id AS uuid))"""
                     ),
-                    {"now": timestamp},
+                    {"now": timestamp, "workspace_id": workspace_id},
                 ).mappings()
             ]
         for candidate in candidates:
             with self._engine.begin() as connection:
                 self._quota.lock(connection, candidate.workspace_id)
+                self._require_scoped_owner(connection, workspace_id, actor_id)
                 raw_receipt = (
                     connection.execute(
                         self._sql(
@@ -180,7 +203,13 @@ class FileStoreMaintenance:
                     expired += 1
         return purged, expired
 
-    def reconcile_orphans(self, *, now: int | None = None) -> tuple[int, int]:
+    def reconcile_orphans(  # noqa: C901 - one transaction-safe pass covers repair and removal.
+        self,
+        *,
+        workspace_id: UUID | None = None,
+        actor_id: str | None = None,
+        now: int | None = None,
+    ) -> tuple[int, int]:
         """Repair validated promotions and remove aged unreferenced quarantines."""
         timestamp = int(time.time()) if now is None else now
         repaired = 0
@@ -191,13 +220,19 @@ class FileStoreMaintenance:
                     self._sql(
                         """SELECT file_id, workspace_id, content_sha256
                         FROM "{schema}".samurai_files
-                        WHERE state = 'quarantined'"""
-                    )
+                        WHERE state = 'quarantined'
+                        AND (CAST(:workspace_id AS uuid) IS NULL
+                        OR workspace_id = CAST(:workspace_id AS uuid))"""
+                    ),
+                    {"workspace_id": workspace_id},
                 ).mappings()
             ]
         for candidate in candidates:
             ready_key = self._ready_key(candidate.workspace_id, candidate.content_sha256)
             with self._engine.begin() as connection:
+                if workspace_id is not None:
+                    self._quota.lock(connection, workspace_id)
+                self._require_scoped_owner(connection, workspace_id, actor_id)
                 self._lock_object(connection, ready_key)
                 byte_size = connection.execute(
                     self._sql(
@@ -228,11 +263,16 @@ class FileStoreMaintenance:
         for key in self._objects.keys():  # noqa: SIM118 - protocol exposes a tuple, not a mapping.
             if not key.startswith(("quarantine/", "ready/")):
                 continue
+            if workspace_id is not None and not key.startswith(f"ready/{workspace_id}/"):
+                continue
             if key.startswith("quarantine/") and (
                 self._objects.modified_at(key) > timestamp - QUARANTINE_SECONDS
             ):
                 continue
             with self._engine.begin() as connection:
+                if workspace_id is not None:
+                    self._quota.lock(connection, workspace_id)
+                self._require_scoped_owner(connection, workspace_id, actor_id)
                 self._lock_object(connection, key)
                 current = connection.execute(
                     self._sql(
@@ -240,9 +280,11 @@ class FileStoreMaintenance:
                         LEFT JOIN "{schema}".samurai_file_deletion_receipts r
                         ON r.file_id = f.file_id
                         WHERE f.storage_key = :key AND (f.state IN ('quarantined', 'ready')
-                        OR (f.state = 'deleted' AND r.purge_after > :now)) LIMIT 1"""
+                        OR (f.state = 'deleted' AND r.purge_after > :now))
+                        AND (CAST(:workspace_id AS uuid) IS NULL
+                        OR f.workspace_id = CAST(:workspace_id AS uuid)) LIMIT 1"""
                     ),
-                    {"key": key, "now": timestamp},
+                    {"key": key, "now": timestamp, "workspace_id": workspace_id},
                 ).scalar_one_or_none()
                 if current is None:
                     self._objects.delete(key)
@@ -255,6 +297,19 @@ class FileStoreMaintenance:
 
     def _sql(self, source: str) -> TextClause:
         return text(source.format(schema=self._schema))
+
+    def _require_scoped_owner(
+        self,
+        connection: Connection,
+        workspace_id: UUID | None,
+        actor_id: str | None,
+    ) -> None:
+        if workspace_id is None and actor_id is None:
+            return
+        if workspace_id is None or actor_id is None:
+            message = "workspace and actor scope must be supplied together"
+            raise ValueError(message)
+        self._membership.require_owner(connection, workspace_id, actor_id)
 
     @staticmethod
     def _lock_object(connection: Connection, key: str) -> None:

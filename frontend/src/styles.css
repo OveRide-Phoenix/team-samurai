@@ -378,6 +378,16 @@ h1,h2,h3,p { margin: 0; }
 .drag-handle { cursor: grab; }
 .drag-handle:active { cursor: grabbing; }
 .business-panel,.team-panel,.action-card { box-shadow: inset 0 1px var(--border), 0 5px 18px var(--shadow); }
+.file-upload { cursor: pointer; }
+.file-upload input { position: absolute; inline-size: 1px; block-size: 1px; opacity: 0; pointer-events: none; }
+.file-status { margin: 0 0 10px; font-size: 11px; color: var(--secondary-text); }
+.file-list { display: flex; flex-direction: column; }
+.file-list li { display: flex; align-items: center; gap: 10px; padding: 11px 0; border-top: 1px solid var(--border); }
+.file-list li:first-child { border-top: 0; }
+.file-list strong,.file-list span { display: block; overflow-wrap: anywhere; }
+.file-list strong { font-size: 12px; font-weight: 600; }
+.file-list span { margin-top: 3px; font-size: 10px; color: var(--secondary-text); }
+.file-actions { display: flex; gap: 3px; margin-left: auto; }
 
 .workspace-menu { z-index: 60; min-width: 205px; padding: 6px; border: 1px solid var(--border); border-radius: 16px; background: var(--card); color: var(--foreground); box-shadow: 0 8px 28px var(--shadow); }
 .workspace-menu-item { display: flex; align-items: center; gap: 10px; padding: 11px 12px; border-radius: 10px; font-size: 14px; cursor: pointer; outline: none; }
