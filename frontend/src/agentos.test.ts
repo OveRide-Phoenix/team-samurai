@@ -43,7 +43,7 @@ describe('AgentOS transport wire boundary', () => {
   it('hydrates matching canonical summary and strategy/product artifacts without a run', () => {
     const strategy = { ...result.artifacts[0], artifact_id: '00000000-0000-4000-8000-000000000005', artifact_type: 'strategy', producer: 'strategist', claims: [], sources: [], payload: { artifact_type: 'strategy', ideal_customer_profile: 'Independent clinics', positioning: 'Reduce missed calls', offer: 'Receptionist trial', pricing_assumptions: [] } };
     const plan = { ...result.artifacts[0], artifact_id: '00000000-0000-4000-8000-000000000006', artifact_type: 'product_plan', producer: 'product_manager', claims: [], sources: [], payload: { artifact_type: 'product_plan', minimum_viable_offering: ['Call routing'], delivery_requirements: ['Founder approves trial'], user_stories: [], roadmap: ['Collect feedback'] } };
-    const snapshot = { summary: { company_id: company, revision: 1, artifact_count: 2, status: 'active', brief: null, sources: [], evidence_conflicts: [], verification_findings: [], next_decision: null }, artifacts: [strategy, plan] };
+    const snapshot = { summary: { company_id: company, revision: 1, artifact_count: 2, status: 'active', brief: null, sources: [], evidence_conflicts: [], verification_findings: [], next_decision: null, artifacts: [strategy] }, artifacts: [strategy, plan] };
     const events = companySnapshotEvents(snapshot, company);
     const panels = events.flatMap(event => event.type === 'message' && event.panel ? [event.panel] : []);
     expect(panels.map(panel => panel.kind)).toEqual(['evidence', 'offer', 'launch-plan']);

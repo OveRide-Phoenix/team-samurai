@@ -41,8 +41,8 @@ const summarySchema = z.strictObject({
   company_id: uuid.nullable(), revision: z.number().int().min(0), artifact_count: z.number().int().min(0), status: z.enum(['active', 'not_started']),
   brief: brief.nullable().default(null), sources: z.array(source).max(100).default([]), evidence_conflicts: strings.default([]),
   verification_findings: z.array(z.strictObject({ code: text, message: text, severity: z.enum(['info', 'warning', 'error']) })).max(100).default([]),
-  next_decision: text.nullable().default(null),
-});
+  next_decision: text.nullable().default(null), artifacts: z.array(artifact).max(20).default([]),
+}).refine(value => value.artifacts.every(item => item.company_id === value.company_id && item.revision <= value.revision));
 export const companyResultSchema = z.union([resultSchema, summarySchema]);
 type WorkflowResult = z.infer<typeof companyResultSchema>;
 export const companySnapshotSchema = z.strictObject({ summary: summarySchema, artifacts: z.array(artifact).max(100) }).refine(value => value.summary.company_id !== null && value.artifacts.every(item => item.company_id === value.summary.company_id && item.revision <= value.summary.revision));
@@ -90,7 +90,7 @@ function workflow(value: unknown): WorkflowResult | undefined {
 function resultEvents(result: WorkflowResult | CompanySnapshot, seen: Set<string>): WorkEvent[] {
   const events: WorkEvent[] = [];
   const summary = 'summary' in result ? result.summary : 'artifact_count' in result ? result : undefined;
-  const artifacts = 'summary' in result ? result.artifacts : 'artifact_count' in result ? [] : result.artifacts;
+  const artifacts = result.artifacts;
   if (summary) {
     const key = `summary:${summary.company_id}:${summary.revision}`;
     if (seen.has(key)) return events;

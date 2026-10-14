@@ -219,7 +219,7 @@ export function agentosProxy(root, fetchImpl = fetch) {
       }
       if (fileKind === 'file_download' && upstream.ok) {
         const allowed = {
-          'content-type': /^(?:text\/(?:plain|markdown)|application\/(?:json|pdf))(?:; charset=utf-8)?$/i,
+          'content-type': /^(?:text\/(?:plain|markdown|csv)|application\/(?:json|pdf))(?:; charset=utf-8)?$/i,
           'content-disposition': /^attachment; filename="download"; filename\*=UTF-8''(?:[A-Za-z0-9!#$&+.^_`|~-]|%[0-9a-f]{2})+$/i,
           'content-length': /^[0-9]+$/,
           'x-content-sha256': /^[a-f0-9]{64}$/i,

@@ -46,7 +46,7 @@ describe('actual local AgentOS proxy', () => {
         return Response.json({ file_id: '00000000-0000-4000-8000-000000000003' });
       }
       if (String(url).endsWith('/download')) return new Response('bounded file', { headers: {
-        'content-type': 'text/markdown; charset=utf-8', 'content-disposition': "attachment; filename=\"download\"; filename*=UTF-8''brief.md",
+        'content-type': 'text/csv; charset=utf-8', 'content-disposition': "attachment; filename=\"download\"; filename*=UTF-8''table.csv",
         'content-length': '12', 'x-content-sha256': 'a'.repeat(64), 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff',
       } });
       return Response.json([]);
@@ -61,7 +61,7 @@ describe('actual local AgentOS proxy', () => {
     expect((await request(`/api/agentos/samurai/workspaces/${workspaceId}/files`, { method: 'POST', body: form })).status).toBe(200);
     const download = await request(`/api/agentos/samurai/workspaces/${workspaceId}/files/00000000-0000-4000-8000-000000000003/download`);
     expect(download.status).toBe(200);
-    expect(download.headers.get('content-disposition')).toBe("attachment; filename=\"download\"; filename*=UTF-8''brief.md");
+    expect(download.headers.get('content-disposition')).toBe("attachment; filename=\"download\"; filename*=UTF-8''table.csv");
     expect(upstream.mock.calls.map(call => call[0])).toEqual([
       `http://127.0.0.1:8000/agentos/samurai/workspaces/${workspaceId}/files`,
       `http://127.0.0.1:8000/agentos/samurai/workspaces/${workspaceId}/files`,

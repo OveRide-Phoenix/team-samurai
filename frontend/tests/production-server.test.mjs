@@ -38,14 +38,14 @@ test('streams allowlisted workspace file downloads and preserves backend denials
   const fileId = '00000000-0000-4000-8000-000000000003';
   const app = await fixture(t, async url => {
     if (String(url).endsWith('/download')) return new Response('bounded file', { headers: {
-      'content-type': 'text/markdown; charset=utf-8', 'content-disposition': "attachment; filename=\"download\"; filename*=UTF-8''brief.md",
+      'content-type': 'text/csv; charset=utf-8', 'content-disposition': "attachment; filename=\"download\"; filename*=UTF-8''table.csv",
       'content-length': '12', 'x-content-sha256': 'a'.repeat(64), 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff',
     } });
     return Response.json([]);
   });
   const download = await app.request(`/api/agentos/samurai/workspaces/${workspaceId}/files/${fileId}/download`);
   assert.equal(download.status, 200);
-  assert.equal(download.headers.get('content-disposition'), "attachment; filename=\"download\"; filename*=UTF-8''brief.md");
+  assert.equal(download.headers.get('content-disposition'), "attachment; filename=\"download\"; filename*=UTF-8''table.csv");
   assert.equal(download.headers.get('x-content-sha256'), 'a'.repeat(64));
 
   const denied = await fixture(t, async () => new Response('{}', { status: 404 }));
