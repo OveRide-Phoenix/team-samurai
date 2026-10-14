@@ -13,11 +13,11 @@ import * as Dialog from '@radix-ui/react-dialog';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { TeamNavigation } from './TeamNavigation';
 import { areaForPanel, conversationArea, messagesForArea, panelsForAreas, selectedWorkflowAreas, toggleWorkflowArea, teamAreas } from './teamAreas';
-import { TeamPanel, SearchBar, ModeToggle, type Activity } from './ShellParts';
+import { TeamPanel, ModeToggle, type Activity } from './ShellParts';
 import {
   ArrowDown, ArrowRight, ArrowUp, Check, CheckCheck, CircleHelp,
   Compass, GripVertical, Home, Leaf, LoaderCircle, Maximize2, Minimize2, MessageCircle, Pin,
-  Moon, Sun, Plus, Search, ShieldCheck, SlidersHorizontal, Square, Users, X,
+  Moon, Sun, Plus, ShieldCheck, SlidersHorizontal, Square, Users, X,
 } from 'lucide-react';
 import { GenerativePanelBody } from './GenerativePanelBody';
 import { demoTransport, onboardingPreview } from './demo';
@@ -329,11 +329,7 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, initialView
       <header className="topbar">
         <div className="topbar-brand"><button className="home-button" onClick={() => onOpen(null)} aria-label="All companies"><Home size={19} /></button><span className="wordmark">Samurai</span></div>
         <Tabs className="view-switch" value={view} onValueChange={value => { setView(value as 'chat' | 'company'); setConversationOpen(false); }}><LiquidBackdrop /><TabsList aria-label="Workspace view"><TabsTrigger value="chat">Chat</TabsTrigger><TabsTrigger value="company">Company</TabsTrigger></TabsList></Tabs>
-        <div className="topbar-actions"><SearchBar items={chatMessages.map(message => ({ id: message.id, title: message.panel?.title || message.text, detail: message.text }))} onSelect={id => {
-          const message = chatMessages.find(item => item.id === id);
-          if (message?.panel) openPanel(message.panel);
-          else { setView('chat'); requestAnimationFrame(() => document.querySelector(`[data-message-id="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })); }
-        }} /><ModeToggle mode={mode} onToggle={toggleMode} /><DropdownMenu.Root><DropdownMenu.Trigger asChild><button className="account-button" aria-label="Workspace settings"><SlidersHorizontal size={17} /></button></DropdownMenu.Trigger><DropdownMenu.Portal><DropdownMenu.Content className="workspace-menu" align="end" sideOffset={8} collisionPadding={14}>
+        <div className="topbar-actions"><ModeToggle mode={mode} onToggle={toggleMode} /><DropdownMenu.Root><DropdownMenu.Trigger asChild><button className="account-button" aria-label="Workspace settings"><SlidersHorizontal size={17} /></button></DropdownMenu.Trigger><DropdownMenu.Portal><DropdownMenu.Content className="workspace-menu" align="end" sideOffset={8} collisionPadding={14}>
           <DropdownMenu.Item className="workspace-menu-item" disabled={!(view === 'company' ? visiblePanels : dashboardPanels).length} onSelect={() => { setView('company'); setEditingOrder(!editingOrder); }}><GripVertical size={16} />{editingOrder ? 'Done editing' : 'Edit card order'}</DropdownMenu.Item>
           <DropdownMenu.Item className="workspace-menu-item" onSelect={toggleMode}>{mode === 'light' ? <Moon size={16} /> : <Sun size={16} />}Switch to {mode === 'light' ? 'dark' : 'light'} mode</DropdownMenu.Item>
         </DropdownMenu.Content></DropdownMenu.Portal></DropdownMenu.Root></div>
@@ -357,7 +353,6 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, initialView
           {view === 'company' && editingOrder && visiblePanelIds.has(panel.id) && <div className="panel-reorder"><button className="icon-button drag-handle" draggable onDragStart={event => { event.dataTransfer.setData('text/plain', panel.id); event.dataTransfer.effectAllowed = 'move'; }} aria-label={`Drag ${panel.title} to reorder`}><GripVertical size={15} /></button><span /><button className="icon-button" disabled={!sameGroup(visiblePanels[index - 1])} aria-label={`Move ${panel.title} earlier`} onClick={() => reorder(panel.id, visiblePanels[index - 1].id)}><ArrowUp size={14} /></button><button className="icon-button" disabled={!sameGroup(visiblePanels[index + 1])} aria-label={`Move ${panel.title} later`} onClick={() => reorder(panel.id, visiblePanels[index + 1].id)}><ArrowDown size={14} /></button></div>}
           <div className="panel-reveal"><BusinessPanel panel={currentPanel(panel)} compact={view === 'chat'} expandable={view === 'chat'} expanded={expandedPanel?.id === panel.id} /></div></motion.div>; })}</div>
         {(view === 'company' ? visiblePanels : workspace.pinned).length === 0 && !expandedPanel && <div className="company-empty"><Compass size={24} /><h3>{focused ? 'No ' + team.name.toLowerCase() + ' results yet.' : 'Your company brief starts here.'}</h3>{view === 'company' && <button className="soft-button" onClick={() => discuss(team.prompt)}>{focused ? 'Talk with ' + team.name : 'Start a conversation'}<ArrowRight size={15} /></button>}</div>}
-        {view === 'chat' && <button className="create-panel" onClick={() => setDialog('panels')}><Plus size={15} />Add a panel<ArrowRight size={14} /></button>}
         {focused && <button className="soft-button team-start" disabled={isRunning} onClick={() => ask(team.prompt)}>{area === 'research' ? 'Research market' : area === 'strategy' ? 'Shape offer' : area === 'verification' ? 'Review existing checks' : 'Qualify prospects'}<ArrowRight size={15} /></button>}
         {focused && area === 'strategy' && visiblePanels.some(panel => panel.kind === 'offer') && <button className="soft-button team-start" disabled={isRunning} onClick={() => ask('Prepare only our delivery plan using stage=plan from the existing research and strategy.')}>Plan delivery<ArrowRight size={15} /></button>}
         {focused && area === 'verification' && panels.some(panel => panel.kind === 'launch-plan') && <button className="soft-button team-start" disabled={isRunning} onClick={() => ask('Verify our existing company artifacts using stage=verify. Do not rerun the upstream stages.')}>Run verification<ArrowRight size={15} /></button>}

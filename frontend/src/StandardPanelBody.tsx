@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowRight, Check, CheckCheck, ChevronDown, ExternalLink, MapPin, Plus, Search, Sparkles, Target, Users, Wallet } from 'lucide-react';
+import { ArrowRight, Check, CheckCheck, ChevronDown, ExternalLink, MapPin, Plus, Sparkles, Target, Users, Wallet } from 'lucide-react';
 import type { Panel } from './model';
 
 type StandardPanel = Exclude<Panel, { kind: 'custom' | 'declarative' }>;
@@ -57,17 +57,14 @@ function PricingPanel({ panel, onDiscuss }: Props & { panel: Extract<Panel, { ki
     {option && <div className="pricing-exploration"><details key={selected} className="panel-details pricing-detail"><summary>{option.name} details</summary><p>{option.description || 'Test willingness to pay and delivery cost before committing to this price.'}</p></details><Discussion label="Test price" prompt={`Help me test the ${option.name} pricing hypothesis: ${option.price}. Preserve uncertainty and do not charge, publish, or make commitments.`} onDiscuss={onDiscuss} /></div>}
   </div>;
 }
-export function filterProspects(rows: Extract<Panel, { kind: 'prospects' }>['rows'], query: string, filter: string, shortlisted: readonly string[]) {
-  const term = query.trim().toLowerCase();
-  return rows.filter(row => `${row.name} ${row.area} ${row.reason}`.toLowerCase().includes(term) && (filter === 'All' || (filter === 'High fit' ? row.fit === 'High' : shortlisted.includes(row.id))));
+export function filterProspects(rows: Extract<Panel, { kind: 'prospects' }>['rows'], filter: string, shortlisted: readonly string[]) {
+  return rows.filter(row => filter === 'All' || (filter === 'High fit' ? row.fit === 'High' : shortlisted.includes(row.id)));
 }
 function ProspectPanel({ panel, shortlisted, onShortlist, compact }: Props & { panel: Extract<Panel, { kind: 'prospects' }> }) {
   const [filter, setFilter] = useState('All');
-  const [query, setQuery] = useState('');
-  const rows = filterProspects(panel.rows, query, filter, shortlisted);
+  const rows = filterProspects(panel.rows, filter, shortlisted);
   const saved = panel.rows.filter(row => shortlisted.includes(row.id)).length;
   return <div className="interactive-prospects"><div className="prospect-counts"><strong>{panel.rows.length}<span>to explore</span></strong><strong>{saved}<span>shortlisted</span></strong></div>
-    <label className="panel-search"><Search size={15} /><input className="samurai-field" aria-label="Search prospects" placeholder="Search name or market" value={query} onChange={event => setQuery(event.target.value)} /></label>
     <Choices label="Filter prospects" values={['All', 'High fit', 'Shortlisted']} selected={filter} onSelect={setFilter} />
     <div className="prospect-list">{rows.map(row => {
       const identity = <><strong>{row.name}</strong><span className="prospect-meta"><MapPin size={11} />{row.area}<span className="fit-label">{row.fit} fit</span></span></>;

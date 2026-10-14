@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { z } from 'zod-v3';
 import { A2UIProvider, A2UIRenderer, createCatalog, useA2UI, useA2UIError } from '@copilotkit/a2ui-renderer';
 import type { Panel } from './model';
@@ -9,7 +9,7 @@ const definitions = {
   Text: { props: z.object({ text: z.string() }), description: 'Plain text' },
   Metric: { props: z.object({ label: z.string(), value: z.string(), detail: z.string() }), description: 'Metric with its basis' },
   List: { props: z.object({ title: z.string(), items: z.array(z.string()) }), description: 'Titled list' },
-  Table: { props: z.object({ columns: z.array(z.string()), rows: z.array(z.array(z.string())) }), description: 'Searchable business table' },
+  Table: { props: z.object({ columns: z.array(z.string()), rows: z.array(z.array(z.string())) }), description: 'Business table' },
 };
 const catalogId = 'samurai://business/v1';
 const catalog = createCatalog(definitions, {
@@ -21,8 +21,7 @@ const catalog = createCatalog(definitions, {
 }, { catalogId });
 
 function BusinessTable({ columns, rows }: { columns: string[]; rows: string[][] }) {
-  const [query, setQuery] = useState('');
-  return <div className="declarative-table"><div className="declarative-table-toolbar"><span>{rows.filter(row => row.some(cell => cell.toLowerCase().includes(query.toLowerCase()))).length} rows</span><input className="panel-table-search" aria-label="Search table" placeholder="Search rows" value={query} onChange={event => setQuery(event.target.value)} /></div><div className="panel-table-scroll"><table><thead><tr>{columns.map((column, index) => <th scope="col" key={index}>{column}</th>)}</tr></thead><tbody>{rows.filter(row => row.some(cell => cell.toLowerCase().includes(query.toLowerCase()))).map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody></table></div></div>;
+  return <div className="declarative-table"><div className="declarative-table-toolbar"><span>{rows.length} rows</span></div><div className="panel-table-scroll"><table><thead><tr>{columns.map((column, index) => <th scope="col" key={index}>{column}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody></table></div></div>;
 }
 
 export function declarativeMessages(panel: ComposedPanel): Record<string, unknown>[] {

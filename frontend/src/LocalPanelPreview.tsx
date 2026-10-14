@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { MotionConfig } from 'motion/react';
-import { ArrowRight } from 'lucide-react';
 import { Atmosphere } from './Atmosphere';
 import { CompanyWorkspace } from './App';
 import { Onboarding } from './Onboarding';
@@ -24,7 +23,7 @@ const cacheKey = 'samurai-generative-panel-preview-v1';
 
 // Loaded only from the development entry point; production identity and company storage are untouched.
 export default function LocalPanelPreview() {
-  const [view, setView] = useState<'panels' | 'intake' | 'company' | 'home'>(() => new URLSearchParams(location.search).get('preview') === 'intake' ? 'intake' : 'panels');
+  const [view, setView] = useState<'panels' | 'intake' | 'company'>(() => new URLSearchParams(location.search).get('preview') === 'intake' ? 'intake' : 'panels');
   const [mode, setMode] = useState<'light' | 'dark'>('light');
   const [workspace, updateWorkspace] = useState<Workspace>(() => {
     try { const saved = workspaceSchema.parse(JSON.parse(localStorage.getItem(cacheKey) || 'null')); return { ...catalogWorkspace, selectedArea: saved.selectedArea, selectedAreas: saved.selectedAreas, drafts: saved.drafts, messages: [...catalogWorkspace.messages, ...saved.messages.filter(message => !message.id.startsWith('preview-panel-'))], shortlist: saved.shortlist, completedTasks: saved.completedTasks, approvedOffers: saved.approvedOffers, panelOrder: saved.panelOrder, pinned: catalog.filter(panel => saved.pinned.some(entry => entry.id === panel.id)) }; }
@@ -38,6 +37,6 @@ export default function LocalPanelPreview() {
   useEffect(() => { try { localStorage.setItem(cacheKey, JSON.stringify(workspace)); } catch { /* The preview still works without persistence. */ } }, [workspace]);
   const toggleMode = () => setMode(current => current === 'light' ? 'dark' : 'light');
   const selected = view === 'company' ? fresh : workspace;
-  if (view === 'panels' || view === 'company') return <MotionConfig reducedMotion="user"><CompanyWorkspace key={view} company={{ id: `local-preview-${view}`, name: view === 'panels' ? 'Your company · UI preview' : 'Your new company · UI preview', workspace: selected }} workspace={selected} setWorkspace={view === 'company' ? updateFresh : updateWorkspace} mode={mode} toggleMode={toggleMode} onOpen={() => setView('home')} initialView={view === 'panels' ? 'company' : 'chat'} storageError={false} /></MotionConfig>;
-  return <MotionConfig reducedMotion="user"><div className="workspace landing"><Atmosphere mode={mode} /><header className="topbar"><span className="wordmark">Samurai</span><ModeToggle mode={mode} onToggle={toggleMode} /></header><main className="landing-content"><div className="landing-main">{view === 'intake' ? <Onboarding name="Your new company" previewPages={intakePages} onCancel={() => setView('home')} onComplete={brief => { updateFresh({ ...emptyWorkspace(), brief }); setView('company'); }} /> : <><h1>Your company,<br />taking shape.</h1><p className="landing-description">Explore the interactive UI with illustrative data.</p><div className="preview-entry-choices"><button className="primary-button" onClick={() => setView('panels')}>Explore all panels<ArrowRight size={16} /></button><button className="soft-button" onClick={() => setView('intake')}>Start fresh<ArrowRight size={16} /></button></div></>}</div></main></div></MotionConfig>;
+  if (view === 'panels' || view === 'company') return <MotionConfig reducedMotion="user"><CompanyWorkspace key={view} company={{ id: `local-preview-${view}`, name: view === 'panels' ? 'Your company · UI preview' : 'Your new company · UI preview', workspace: selected }} workspace={selected} setWorkspace={view === 'company' ? updateFresh : updateWorkspace} mode={mode} toggleMode={toggleMode} onOpen={() => location.assign('/?home=1')} initialView={view === 'panels' ? 'company' : 'chat'} storageError={false} /></MotionConfig>;
+  return <MotionConfig reducedMotion="user"><div className="workspace landing"><Atmosphere mode={mode} /><header className="topbar"><span className="wordmark">Samurai</span><ModeToggle mode={mode} onToggle={toggleMode} /></header><main className="landing-content"><div className="landing-main"><Onboarding name="Your new company" previewPages={intakePages} onCancel={() => location.assign('/?home=1')} onComplete={brief => { updateFresh({ ...emptyWorkspace(), brief }); setView('company'); }} /></div></main></div></MotionConfig>;
 }

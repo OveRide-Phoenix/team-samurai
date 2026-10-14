@@ -18,13 +18,13 @@ Open http://127.0.0.1:4173. The former Next.js `/api/health` scaffold has been r
 - Hark-inspired atmospheric workspace, frosted Home panels, floating navigation, and top blur.
 - assistant-ui conversation runtime, message primitives, composer, cancellation, and custom tool rendering.
 - Interactive prospect filtering and shortlisting, offer review, pricing views, and pinning to Home.
-- Company view, local search (Cmd/Ctrl+K), light/dark modes, and accessible Radix dialogs.
+- Company view, light/dark modes, and accessible Radix dialogs.
 - Fresh landing and empty-company states, with an always-present preview team.
 - Multiple companies with isolated conversations, pinned panels, shortlists, and draft reviews.
 - Browser-local persistence; local preview retains the original dental-preview migration. Production caches use a SHA-256 namespace for the verified Google user before React mounts, without importing the legacy shared cache. Refresh after switching Google accounts; already-open tabs retain their loaded state until reload.
-- Inline search focused by Cmd/Ctrl+K, and subtle reduced-motion-aware transitions.
+- Subtle reduced-motion-aware transitions.
 - Be UI is used selectively for the sliding tab indicator; the core controls keep Samurai styling.
-- `liquid-glass-react` adds actual backdrop refraction to the navigation, search and composer without filtering their content. Safari and Firefox support is partial; local verification used Chromium.
+- `liquid-glass-react` adds actual backdrop refraction to the navigation and composer without filtering their content. Safari and Firefox support is partial; local verification used Chromium.
 - Responsive mobile layout and reduced-motion support.
 
 ## Backend handoff
@@ -48,7 +48,7 @@ The build emits `dist/client/` plus Sites packaging. The Cloud Run container ser
 
 React, Vite, TypeScript, Tailwind CSS, assistant-ui, Radix UI, Lucide, Zod, and Vitest use permissive open-source licenses. Inter is distributed under the SIL Open Font License. No assistant-cloud account or paid UI service is required. Package versions are recorded in `package-lock.json`.
 
-Panels expand inside Home. Use Company or the expand control at the top of the left pane to open the full-width dashboard; Chat with Samurai returns to the retained conversation draft and scroll position. Search opens panels inline, with the full dashboard used on mobile. Settings use a themed dropdown; panel creation choices use a dialog.
+Panels expand inside Home. Use Company or the expand control at the top of the left pane to open the full-width dashboard; Chat with Samurai returns to the retained conversation draft and scroll position. Settings use a themed dropdown; panel creation choices use a dialog.
 
 Generative UI catalog: offer, prospects, pricing, evidence review, and launch plan. Use Add a panel → Evidence review or Launch plan, or ask “Show sample validation evidence” / “Show sample launch plan”. Preview streams demonstrate template components; live streams render validated backend artifacts. Launch task checkmarks persist per company.
 

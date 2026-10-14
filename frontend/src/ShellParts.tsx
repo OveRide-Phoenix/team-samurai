@@ -1,6 +1,3 @@
-import { useEffect, useRef, useState } from 'react';
-import { LiquidBackdrop } from './LiquidBackdrop';
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Check, Compass, LoaderCircle, Moon, Clock3, Search, ShieldCheck, Sun, Users } from 'lucide-react';
 import { agents, type Agent, type WorkEvent, type TeamArea } from './model';
 import { teamAreas } from './teamAreas';
@@ -28,30 +25,4 @@ export function ModeToggle({ mode, onToggle }: { mode: 'light' | 'dark'; onToggl
   return <button className="mode-toggle" onClick={onToggle} aria-label={`Switch to ${mode === 'light' ? 'dark' : 'light'} mode`} title={`${mode === 'light' ? 'Dark' : 'Light'} mode`}>
     {mode === 'light' ? <Moon size={18} /> : <Sun size={18} />}
   </button>;
-}
-export type SearchItem = { id: string; title: string; detail?: string };
-export function SearchBar({ items, onSelect, placeholder = 'Search company' }: { items: SearchItem[]; onSelect: (id: string) => void; placeholder?: string }) {
-  const [query, setQuery] = useState('');
-  const [focused, setFocused] = useState(false);
-  const input = useRef<HTMLInputElement>(null);
-  const reduce = useReducedMotion();
-  useEffect(() => {
-    const shortcut = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
-        event.preventDefault(); input.current?.focus();
-      }
-    };
-    window.addEventListener('keydown', shortcut);
-    return () => window.removeEventListener('keydown', shortcut);
-  }, []);
-  const matches = items.filter(item => query.trim() && `${item.title} ${item.detail || ''}`.toLowerCase().includes(query.trim().toLowerCase()));
-  return <div className={`inline-search ${focused ? 'search-focused' : ''}`} onFocus={() => setFocused(true)} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false); }}>
-    <label className="search-input-field"><LiquidBackdrop /><Search size={16} /><input ref={input} aria-label={placeholder} placeholder="Search" value={query} onChange={event => setQuery(event.target.value)} className="search-input" onKeyDown={event => {
-      if (event.key === 'Escape') { setQuery(''); setFocused(false); input.current?.blur(); }
-      if (event.key === 'ArrowDown') { event.preventDefault(); event.currentTarget.closest('.inline-search')?.querySelector<HTMLButtonElement>('.search-match')?.focus(); }
-    }} /><kbd>⌘K</kbd></label>
-    <AnimatePresence>{focused && query.trim() && <motion.div className="inline-search-results" role="region" aria-label="Search results" initial={{ opacity: 0, y: reduce ? 0 : -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: reduce ? 0 : .18 }}>
-      {matches.length ? matches.map(item => <button className="search-match" key={item.id} onClick={() => { onSelect(item.id); setQuery(''); setFocused(false); input.current?.blur(); }}>{item.title}</button>) : <p>No matches.</p>}
-    </motion.div>}</AnimatePresence>
-  </div>;
 }
