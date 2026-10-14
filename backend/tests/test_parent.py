@@ -335,7 +335,7 @@ async def _run_agent(agent: Agent, message: str, session_id: str) -> RunOutput:
     return await run(message, user_id="founder", session_id=session_id, stream=False)
 
 
-def test_parent_exposes_only_four_bounded_business_tools(tmp_path: pathlib.Path) -> None:
+def test_parent_exposes_bounded_business_and_presentation_tools(tmp_path: pathlib.Path) -> None:
     agent = create_parent_agent(
         SqliteDb(db_file=str(tmp_path / "parent.db")),
         Settings.model_validate({}),
@@ -350,6 +350,9 @@ def test_parent_exposes_only_four_bounded_business_tools(tmp_path: pathlib.Path)
         "create_launch_drafts",
         "analyze_metrics",
         "read_company_state",
+        "compose_panel",
+        "create_custom_panel",
+        "suggest_team_area",
     }
     assert agent.skills is not None
     assert {tool.name for tool in agent.skills.get_tools()} == {

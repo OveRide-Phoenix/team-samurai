@@ -1,4 +1,4 @@
-import type { CompanyView, Panel, Transport } from './model';
+import type { Panel, Transport, Workspace } from './model';
 import { chooseWorkflow, companyBriefSchema, type CompanyBrief, type WorkEvent } from './model';
 
 export const offer: Panel = {
@@ -43,7 +43,7 @@ export const launchPlan: Panel = {
     { id: 'review', title: 'Review what changed', owner: 'Founder', timing: 'Week 3', detail: 'Use actual bookings and customer feedback to revise the offer.' },
   ],
 };
-export const initialWorkspace: CompanyView = {
+export const initialWorkspace: Workspace = { selectedArea: 'overview', drafts: {},
   executionMode: 'preview', activityLog: [],
   version: 1, theme: 'sky', pinned: [offer], completedTasks: [], panelOrder: [], shortlist: [], approvedOffers: [],
   messages: [
@@ -63,13 +63,27 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 // shortcut: deterministic fixtures exercise the UI; replace this transport with Kalyan's backend event stream.
-export const demoTransport: Transport = async function* (input, signal) {
-  const workflow = chooseWorkflow(input);
+export const demoTransport: Transport = async function* (input, signal, area = 'overview') {
+  if (area !== 'overview') {
+    const target = /pricing|price|offer|strategy|position|delivery|roadmap|launch plan/i.test(input) ? 'strategy' : /prospect|outreach|sales|sell to/i.test(input) ? 'sales' : /verification|verify|conflict/i.test(input) ? 'verification' : /research|competitor|market/i.test(input) ? 'research' : area;
+    if (target !== area) {
+      const names = { overview: 'Company', research: 'Researcher', strategy: 'Strategist', verification: 'Verifier', sales: 'Sales' };
+      yield { type: 'message', text: 'This belongs with ' + names[target] + '. Switch there to continue.', handoff: target };
+      return;
+    }
+  }
+  let workflow = /^research our market/i.test(input) ? 'evidence' : chooseWorkflow(input);
+  if (area === 'research' || area === 'verification') workflow = 'evidence';
+  else if (area === 'sales') workflow = 'prospects';
+  if (workflow === 'help' && area !== 'overview') {
+    yield { type: 'message', text: 'Let’s stay with the goal for this team area. What would you like to investigate next?' };
+    return;
+  }
   if (workflow === 'help') {
     yield { type: 'message', text: 'This preview uses a dental receptionist business. Try “Find our first customers”, “Review our offer”, “Explore pricing”, “Validate assumptions”, or “Create a launch plan” to see its interactive views.' };
     return;
   }
-  const agent = workflow === 'prospects' || workflow === 'evidence' ? 'Researcher' : 'Strategist';
+  const agent = area === 'sales' ? 'Sales' : area === 'verification' ? 'Verifier' : workflow === 'prospects' || workflow === 'evidence' ? 'Researcher' : 'Strategist';
   yield { type: 'activity', agent, state: 'working', detail: workflow === 'prospects' ? 'Preparing the sample customer shortlist' : 'Preparing a sample business hypothesis' };
   await pause(1100, signal);
   yield { type: 'activity', agent, state: 'done', detail: 'Sample prepared' };
@@ -77,7 +91,7 @@ export const demoTransport: Transport = async function* (input, signal) {
   await pause(900, signal);
   yield { type: 'activity', agent: 'Verifier', state: 'done', detail: 'Structure checked · market claims remain unverified' };
   if (workflow === 'evidence') {
-    yield { type: 'message', text: 'These are the questions to test before committing to the business. This preview has not researched them.', panel: evidence };
+    yield { type: 'message', text: 'These are the questions to test before committing to the business. This preview has not researched them.', panel: area === 'verification' ? verificationPreview : evidence };
   } else if (workflow === 'launch-plan') {
     yield { type: 'message', text: 'Work towards one paying pilot. Track the steps here as you complete them.', panel: launchPlan };
   } else if (workflow === 'prospects') {
@@ -89,26 +103,25 @@ export const demoTransport: Transport = async function* (input, signal) {
   }
 };
 
-// shortcut: preview orchestration uses the saved brief without claiming live research; replace with backend runs.
-export async function* onboardingPreview(input: CompanyBrief, signal: AbortSignal): AsyncIterable<WorkEvent> {
+export function previewBrief(input: CompanyBrief): Extract<Panel, { kind: 'evidence' }> {
   const brief = companyBriefSchema.parse(input);
-  for (const [agent, detail] of [
-    ['Researcher', 'Reviewing your idea and target customers · preview'],
-    ['Strategist', 'Organising your budget and first milestone · preview'],
-    ['Sales', 'Preparing customer-discovery steps · preview'],
-    ['Verifier', 'Checking that required brief fields are complete · preview'],
-  ] as const) {
-    if (signal.aborted) return;
-    yield { type: 'activity', agent, state: 'working', detail };
-    await pause(1000, signal);
-    yield { type: 'activity', agent, state: 'done', detail: 'Preview step complete' };
-  }
-  yield { type: 'message', text: 'Your brief is saved. Here is a starting checklist to refine together. No market research or outreach has run.', panel: {
-    id: 'intake-launch-v1', kind: 'launch-plan', title: 'Your starting plan', note: 'Generated from your brief with preview templates · not validated research', tasks: [
-      { id: 'customer-discovery', title: 'Speak to your first customers', owner: 'Founder', timing: 'First', detail: `Talk to ${brief.customer} in ${brief.location}. Test the problem before committing to the solution.` },
-      { id: 'offer-test', title: 'Test one clear offer', owner: 'Founder', timing: 'Next', detail: `Explore an offer around: ${brief.idea}. Ask for concrete evidence of demand.` },
-      { id: 'budget-check', title: 'Check delivery against your budget', owner: 'Founder', timing: 'Before a pilot', detail: `Starting budget: ${brief.budget}. Verify costs and delivery requirements before spending.` },
-      { id: 'first-milestone', title: 'Measure your first milestone', owner: 'Founder', timing: 'Within 30 days', detail: brief.goal },
-    ],
-  } };
+  const fields = [['Idea', brief.idea], ['First customers', brief.customer], ['Market', brief.location], ['Budget', brief.budget], ['Founder skills', brief.founderSkills], ['First milestone', brief.goal]];
+  return { id: 'preview-company-brief', kind: 'evidence', title: 'Company brief', note: '', claims: fields.flatMap(([label, value], index) => value ? [{ id: `brief-${index}`, claim: `${label}: ${value}`, status: 'hypothesis', detail: 'Founder supplied context, not market evidence', sources: [] }] : []) };
 }
+
+// Preview follows the same brief-first boundary without making a provider call.
+export async function* onboardingPreview(input: CompanyBrief, signal: AbortSignal): AsyncIterable<WorkEvent> {
+  if (signal.aborted) return;
+  yield { type: 'message', text: 'Your starting point is ready. Choose when to begin research.', panel: previewBrief(input) };
+}
+
+
+export const verificationPreview: Panel = {
+  id: 'preview-verification', kind: 'evidence', title: 'Verification review',
+  note: 'Illustrative checks only. No real market evidence has been verified.',
+  claims: [
+    { id: 'check-sources', claim: 'Source support is still needed', status: 'needs-check', detail: 'The sample research has no verified source support.', sources: [] },
+    { id: 'check-price', claim: 'Pricing remains a hypothesis', status: 'hypothesis', detail: 'Willingness to pay needs customer evidence.', sources: [] },
+    { id: 'check-demand', claim: 'Demand has not been measured', status: 'needs-check', detail: 'A clinic interview or pilot is the next real check.', sources: [] },
+  ],
+};

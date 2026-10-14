@@ -247,3 +247,64 @@ test('reuses cached rotating IAP public keys', async () => {
   await Promise.all([identity(assertion()), identity(assertion({ sub: 'user-b' }))]);
   assert.equal(requests, 1);
 });
+
+
+test('CopilotKit discovery keeps IAP identity and private AgentOS tokens server-side', async t => {
+  const app = await fixture(t, () => assert.fail('discovery invoked the backend'));
+  const response = await app.request('/api/copilotkit', { method: 'POST', headers: { origin: 'https://samurai.example', 'content-type': 'application/json' }, body: JSON.stringify({ method: 'info' }) });
+  assert.equal(response.status, 200);
+  const info = await response.json();
+  assert.ok(info.agents.samurai);
+  assert.ok(!JSON.stringify(info).includes('Bearer'));
+  assert.equal(response.headers.get('content-security-policy'), "frame-src 'none'; object-src 'none'");
+});
+
+for (const [name, value] of Object.entries({
+  connect: { method: 'agent/connect', params: { agentId: 'samurai' } },
+  otherAgent: { method: 'agent/run', params: { agentId: 'other' }, body: {} },
+  missingIds: { method: 'agent/run', params: { agentId: 'samurai' }, body: { messages: [{ id: 'u', role: 'user', content: 'Read state' }] } },
+  state: { method: 'agent/run', params: { agentId: 'samurai' }, body: { threadId: 'company', runId: 'run', state: { company_id: 'foreign' }, messages: [{ id: 'u', role: 'user', content: 'Read state' }] } },
+})) test(`CopilotKit refuses ${name} without upstream access`, async t => {
+  const app = await fixture(t, () => assert.fail('upstream reached'));
+  const response = await app.request('/api/copilotkit', { method: 'POST', headers: { origin: 'https://samurai.example', 'content-type': 'application/json' }, body: JSON.stringify(value) });
+  assert.equal(response.status, 400);
+});
+
+test('CopilotKit streams Agno with the verified founder JWT and no global thread history', async t => {
+  let calls = 0;
+  const app = await fixture(t, async (url, options) => {
+    calls += 1;
+    assert.equal(url, 'https://backend.example/agentos/agents/samurai/agui');
+    const claims = JSON.parse(Buffer.from(new Headers(options.headers).get('authorization').split('.')[1], 'base64url'));
+    assert.equal(claims.sub, 'iap:user-a');
+    assert.deepEqual(claims.scopes, ['agents:samurai:read', 'agents:samurai:run']);
+    const input = JSON.parse(options.body);
+    assert.equal(input.messages.length, 1);
+    assert.deepEqual(input.state, {});
+    assert.deepEqual(input.forwardedProps, { team_area: 'research' });
+    const events = [
+      { type: 'RUN_STARTED', threadId: input.threadId, runId: input.runId },
+      { type: 'CUSTOM', name: 'samurai', value: { event: 'RunStarted', agent_id: 'samurai', session_id: input.threadId, run_id: input.runId } },
+      { type: 'CUSTOM', name: 'samurai', value: { event: 'RunCompleted', agent_id: 'samurai', session_id: input.threadId, run_id: input.runId, content: 'Hello founder' } },
+      { type: 'RUN_FINISHED', threadId: input.threadId, runId: input.runId },
+    ];
+    return new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
+  });
+  const body = { method: 'agent/run', params: { agentId: 'samurai' }, body: { threadId: 'company', runId: 'run', state: {}, tools: [], context: [], forwardedProps: { team_area: 'research' }, messages: [{ id: 'u', role: 'user', content: 'Read state' }] } };
+  const response = await app.request('/api/copilotkit', { method: 'POST', headers: { origin: 'https://samurai.example', 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  assert.equal(response.status, 200);
+  const stream = await response.text();
+  assert.ok(stream.includes('Hello founder'), stream);
+  assert.ok(stream.includes('RUN_FINISHED'), stream);
+  assert.equal(calls, 1);
+});
+
+
+test('CopilotKit accepts only a typed team choice while rejecting identity overrides', async () => {
+  const { validateCopilotBody } = await import('../server/copilotkit.mjs');
+  const body = { method: 'agent/run', params: { agentId: 'samurai' }, body: { threadId: 'company', runId: 'run', state: {}, messages: [{ id: 'u', role: 'user', content: 'Research competitors' }], forwardedProps: { team_area: 'research' } } };
+  assert.deepEqual(validateCopilotBody(body), body);
+  for (const forwardedProps of [{ team_area: 'other' }, { team_area: 'research', user_id: 'other' }, { company_id: 'foreign' }, [], 'research']) {
+    assert.throws(() => validateCopilotBody({ ...body, body: { ...body.body, forwardedProps } }));
+  }
+});

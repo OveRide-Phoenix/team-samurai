@@ -59,6 +59,7 @@ from samurai.company_workflow import (
 )
 from samurai.config import Settings, create_model
 from samurai.contracts import (
+    ArtifactEnvelope,
     CompanyBrief,
     CompanyState,
     Contract,
@@ -87,6 +88,8 @@ from samurai.launch_workflows import (
     create_launch_workflows,
     run_launch_drafts,
 )
+from samurai.panels import presentation_tools
+from samurai.team_areas import TeamArea, journey_handoff, suggest_team_area, team_instructions
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
@@ -148,6 +151,7 @@ class CompanyStateSummary(Contract):
     evidence_conflicts: tuple[str, ...] = ()
     verification_findings: tuple[VerificationFinding, ...] = ()
     next_decision: str | None = None
+    artifacts: tuple[ArtifactEnvelope, ...] = ()
 
     @override
     def __str__(self) -> str:
@@ -381,10 +385,12 @@ class SamuraiParentAgent(Agent):
         skills: Skills,
         instructions: list[str],
         executable: bool,
+        team_area: TeamArea,
     ) -> None:
         self.samurai_db = db
         self.samurai_settings = settings
         self.samurai_model_factory = model_factory
+        self.samurai_team_area: TeamArea = team_area
 
         def reject_registry_execution() -> None:
             raise InputCheckError(REGISTRY_EXECUTION_ERROR)
@@ -421,6 +427,7 @@ class SamuraiParentAgent(Agent):
             self.samurai_db,
             self.samurai_settings,
             model_factory=self.samurai_model_factory,
+            team_area=self.samurai_team_area,
         )
 
 
@@ -658,9 +665,7 @@ def _require_canonical_run_access(db: BaseDb, run_context: RunContext) -> None:
 def _child_state(db: BaseDb, run_context: RunContext) -> tuple[str, CompanyState | None]:
     user_id, parent_session_id, child_id = _trusted_identity(run_context)
     canonical_enabled = False
-    if isinstance(db, SamuraiPostgresDb) and db.table_exists(
-        "samurai_company_actor_bindings"
-    ):
+    if isinstance(db, SamuraiPostgresDb) and db.table_exists("samurai_company_actor_bindings"):
         canonical_enabled = True
         access = CompanyStore(db.db_engine, schema=db.db_schema).read_for_actor(
             user_id,
@@ -1146,13 +1151,14 @@ def _require_work_operation(
         raise InputCheckError(message)
 
 
-def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded tool surface.
+def create_parent_agent(  # noqa: C901, PLR0913, PLR0915 - bounded tool surface.
     db: BaseDb,
     settings: Settings,
     *,
     model: Model | None = None,
     model_factory: Callable[[], Model] | None = None,
     executable: bool = True,
+    team_area: TeamArea = "overview",
 ) -> SamuraiParentAgent:
     """Create a fresh ordinary Samurai Agent and its bounded native tools."""
     if model_factory is None:
@@ -1203,6 +1209,10 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
 
         """
         child_id, state = _child_state(db, run_context)
+        handoff = journey_handoff(team_area, stage, state)
+        if handoff:
+            yield handoff
+            return
         requested = _JourneyWorkArguments(
             idea=idea,
             target_customer=target_customer,
@@ -1294,8 +1304,12 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
         run_context: RunContext,
         kind: LaunchKind = LaunchKind.ALL,
         action: LaunchAction = LaunchAction.DRAFT,
-    ) -> WorkflowResult:
+    ) -> WorkflowResult | str:
         """Create reviewable launch drafts without external action capability."""
+        if team_area not in {"overview", "sales"} or (
+            team_area == "sales" and kind is not LaunchKind.SALES
+        ):
+            return suggest_team_area("sales" if kind is LaunchKind.SALES else "overview")
         requested = _LaunchWorkArguments(kind=kind, action=action)
         if get_worker_ownership(run_context.run_id) is not None:
             _, state = _child_state(db, run_context)
@@ -1330,8 +1344,10 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
     async def analyze_metrics(
         run_context: RunContext,
         measurements: tuple[_FounderMetricToolInput, ...] = (),
-    ) -> WorkflowResult:
+    ) -> WorkflowResult | str:
         """Analyze eligible founder metrics without changing their provenance."""
+        if team_area != "overview":
+            return suggest_team_area("overview")
         try:
             requested = _MetricsWorkArguments(
                 measurements=tuple(
@@ -1409,6 +1425,7 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
             evidence_conflicts=conflicts,
             verification_findings=findings,
             next_decision=next_decision,
+            artifacts=tuple({item.artifact_type: item for item in state.artifacts}.values()),
         )
 
     capabilities = ", ".join(
@@ -1418,8 +1435,8 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
         Function(
             name=tool.__name__,
             entrypoint=tool,
-            stop_after_tool_call=True,
-            show_result=True,
+            stop_after_tool_call=team_area == "overview" or tool is not read_company_state,
+            show_result=team_area == "overview" or tool is not read_company_state,
         )
         for tool in (
             run_company_journey,
@@ -1452,11 +1469,22 @@ def create_parent_agent(  # noqa: C901, PLR0915 - closures define the bounded to
         settings,
         build_model,
         model=active_model,
-        tools=tools,
+        tools=[
+            *tools,
+            *presentation_tools(),
+            Function(
+                name="suggest_team_area",
+                entrypoint=suggest_team_area,
+                stop_after_tool_call=True,
+                show_result=True,
+            ),
+        ],
         skills=skills,
         instructions=[
             (Path(__file__).parent / "prompts" / "main.md").read_text(encoding="utf-8"),
             f"Capability catalogue: {capabilities}",
+            team_instructions(team_area),
         ],
         executable=executable,
+        team_area=team_area,
     )

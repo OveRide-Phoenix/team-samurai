@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { sandboxPolicy, serveCopilot } from './copilotkit.mjs';
 import { parseEnv } from 'node:util';
 import { URL } from 'node:url';
 import { Readable } from 'node:stream';
@@ -60,7 +61,9 @@ async function directoryBody(req, kind) {
 
 export function agentosProxy(root, fetchImpl = fetch) {
   return async (req, res, next) => {
-    if (!req.url?.startsWith('/api/agentos/')) return next();
+    res.setHeader('Content-Security-Policy', sandboxPolicy);
+    const copilot = req.url === '/api/copilotkit' && req.method === 'POST';
+    if (!copilot && !req.url?.startsWith('/api/agentos/')) return next();
     if (req.headers['x-samurai-client'] !== '1' || req.headers.authorization) return reject(res, 403, 'invalid local client');
     const host = String(req.headers.host ?? '').split(':')[0];
     const origin = req.headers.origin;
@@ -73,6 +76,12 @@ export function agentosProxy(root, fetchImpl = fetch) {
       return res.end(JSON.stringify({ backend: BACKEND, configured, auth: 'jwt' }));
     }
     if (!configured) return reject(res, 503, 'Samurai AgentOS is not configured.');
+    if (copilot) {
+      const controller = new AbortController();
+      res.once('close', () => { if (!res.writableFinished) controller.abort(); });
+      try { return await serveCopilot(req, res, { backend: BACKEND, token, origin: `http://${req.headers.host}`, signal: controller.signal, fetchImpl }); }
+      catch { if (!res.headersSent) return reject(res, 502, 'Samurai AgentOS is unavailable.'); return res.destroy(); }
+    }
     const isIntake = url.pathname === '/api/agentos/intake' && req.method === 'GET' && !url.search;
     const directoryKind = !url.search && WORKSPACES.test(url.pathname) ? (req.method === 'GET' ? 'workspace_list' : req.method === 'POST' ? 'workspace_create' : undefined)
       : !url.search && MEMBERS.test(url.pathname) ? (req.method === 'PUT' ? 'member_update' : req.method === 'DELETE' ? 'member_delete' : undefined)

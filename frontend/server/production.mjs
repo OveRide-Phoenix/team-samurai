@@ -1,3 +1,4 @@
+import { sandboxPolicy, serveCopilot } from './copilotkit.mjs';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { readFile, realpath, stat } from 'node:fs/promises';
@@ -125,6 +126,7 @@ async function staticFile(req, res, directory) {
 export function createProductionServer(config, { verifyIdentity = createIapVerifier(config.audience), fetchImpl = fetch, staticDirectory = root } = {}) {
   const server = createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', sandboxPolicy);
     res.setHeader('Referrer-Policy', 'same-origin');
     const controller = new AbortController();
     res.once('close', () => { if (!res.writableFinished) controller.abort(); });
@@ -135,6 +137,9 @@ export function createProductionServer(config, { verifyIdentity = createIapVerif
       const subject = await verifyIdentity(req.headers['x-goog-iap-jwt-assertion']);
       if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
         if (req.headers['x-samurai-client'] !== '1' || (req.headers.origin && req.headers.origin !== config.origin) || (req.method !== 'GET' && req.headers.origin !== config.origin)) throw new RequestError(403, 'Invalid client origin.');
+        if (url.pathname === '/api/copilotkit' && req.method === 'POST' && !url.search) {
+          return await serveCopilot(req, res, { backend: config.backend, token: signAgentosToken(subject, config.key), origin: config.origin, signal: controller.signal, fetchImpl });
+        }
         const selected = route(url, req.method);
         if (selected.kind === 'connection') return json(res, 200, { backend: config.backend, configured: true, auth: 'jwt', storageNamespace: createHash('sha256').update(subject).digest('hex') });
         if (Number(req.headers['content-length'] ?? 0) > bodyLimit) throw new RequestError(413, 'Request too large.');

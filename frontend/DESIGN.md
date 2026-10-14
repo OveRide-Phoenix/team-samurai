@@ -41,3 +41,36 @@ No raw artifact JSON, wire-status chat labels or repeated evidence badges in the
 Collapsed Details retains all validated findings, source excerpts, conflicts and plan steps. Bounded native payloads may contain up to 500 draft/evidence entries, 400 plan steps and 100 sources per finding. Show only the first three findings/steps and two source links initially; keep overflow readable through Details. Mobile dashboard Team scrolls with cards so it cannot cover results.
 
 Mobile result disclosures retain native indicators and at least 44px tap height. Source-support excerpts identify their finding inside Details.
+
+## Interactive business panels — 13 October 2026
+
+Known views use purpose-built interactive layouts, not paragraphs of artifact fields: Brief Overview/Inputs with customer/market context and a milestone; evidence review counts, filters and source disclosures; offer/inclusions and saved review; selectable pricing hypotheses and a discussion draft; a real checklist progress ring; filterable prospects with a saved shortlist. Discussion controls fill the existing composer without submitting a run. Preserve company-scoped callbacks, uncertainty and source lineage.
+
+Shared controls live in `src/panel-controls.css`, used by the host and the custom-view shell. Custom components get a transparent, content-sized frame and a first important CSS layer that protects theme tokens, typography and control styling from generated CSS. Inline style attributes are rejected by the frame CSP. A size-only message accepts only the exact opaque iframe window and bounded integer height; it cannot invoke host functions. The previous fixed tinted calculator block is removed.
+
+Local development exposes labelled sample previews at `?preview=panels` and `?preview=intake`; production excludes that loader. They make no backend or provider calls.
+
+Default panels keep copy concise: idle team roles show names/icons with descriptions on expansion; pricing explanations, prospect reasons, owners and notes sit behind disclosures. Brief labels and actions are short. Preserve primary values, evidence status, scenario labels and every saved action. No information is discarded to make the view lighter.
+
+
+## Team areas — 13 October 2026
+
+Company has a centered liquid-glass workflow filter bar with independently toggled Researcher, Strategist, Verifier and Sales buttons. There is no Overview button. With nothing selected, show all current panels including the brief and uncategorized company outputs; multiple selections show the union of those workflows; Researcher holds research evidence; Strategist holds the offer, pricing and delivery plan; Verifier holds verification reviews; Sales holds prospects and sales drafts. Show only the latest native result of each artifact/component type while retaining older lineage and conversations. Custom/composed views remain with their creation area.
+
+Each selected role starts with a full-width dashboard and the original floating bottom chat bar. Opening the bar reveals panels on the left and its focused conversation on the right; closing restores the dashboard. Mobile opens the conversation in the content area and the close control returns to panels. Keep the conversation mounted and retain drafts and scroll position. The centered workflow filter uses actual backdrop refraction, a restrained tint and clear icon circles. Selected filters stay visibly pressed; mobile shows all four choices without horizontal clipping. Keep area drafts, selected area, saved actions and old workspace data. Main Chat remains the company-wide conversation. A suggested handoff opens the other area with the original request as a draft; it never submits automatically. Preserve cancellation and single-run behavior when navigating during work. Do not redesign intake in this pass; company creation remains brief-first.
+
+Scope requests through the exact typed team_area navigation choice in CopilotKit forwardedProps. Backend tool/stage guards enforce execution scope and prerequisites; topic redirection uses the bounded handoff tool and scope instructions. Keep identity/state/tools/dependency overrides rejected and JWT scopes unchanged. Backend model access is verified separately from the labelled local preview.
+
+Opening or closing the floating chat bar slides panel positions with a gentle spring; do not blur or replay grain for this motion. Other page/view reveals retain their existing timing. One workflow focuses its conversation; zero or multiple selected workflows use the general Samurai conversation and existing general backend scope. Clearing filters fades the chat back to general context. Keep typed single-area transport validation, run cancellation, keyboard focus and reduced motion. Persist filter selections and migrate the previous single choice without discarding saved work.
+
+Workflow filtering keeps existing dashboard cards mounted. Hide excluded cards and reveal the same instances so choices, disclosures and sandbox input values survive toggles. Only newly revealed cards fade in; never replay a reveal for cards already visible. Keep the chat-open spring separate and preserve accessible card ordering.
+
+Workflow selections retain click order; a newly selected or reselected workflow appends its cards after the existing groups. Use measured masonry positions in Company: place each card in the shortest column, so new cards fill gaps without rebalancing the existing cards. Use CSS order without moving mounted card DOM or sandbox frames. With filters active, manual card ordering stays inside its workflow group; clearing filters restores the saved company-wide order. Newly revealed cards use the same 850 ms ease-in-out blur/fade/lift frames as page reveals, scoped to the card interior so the chat-open spring remains independent.
+
+Removing a workflow reverses the same 850 ms page reveal before its cards leave the layout. Keep outgoing cards mounted and in their slots until completion, with interaction disabled. Rapid reselection reverses the in-progress fade without losing card state. Remaining cards then move smoothly to fill the gap; reduced motion removes immediately.
+
+Home retains the original portfolio layout: the centered idea heading, floating company-name field and saved company tiles. The local panel preview Home button and intake cancel return to the normal portfolio Home; do not replace Home with an isolated demo-entry screen when refining the Company dashboard. Preview workspaces stay in their separate cache.
+
+Do not show search controls anywhere in the product UI: Home, workspace headers, prospect cards or generated tables. Remove the Cmd/Ctrl+K search shortcut. Keep workflow filters, prospect fit/shortlist filters and panel actions.
+
+The Chat sidebar uses the plus control beside Pinned to add panels. Do not repeat an Add a panel button at the bottom of the sidebar; keep the existing composer and Company-header controls.

@@ -8,7 +8,7 @@ Software generation is a supporting capability when the company needs it. The pr
 
 Product direction, UI principles, and competition requirements are documented in [AGENTS.md](AGENTS.md). Samurai brand assets are available in [assets/samurai-logo](assets/samurai-logo).
 
-The repository has the React/Vite founder UI in [frontend/](frontend/), local PostgreSQL in Podman, environment templates, and locked dependencies. The UI has onboarding, chat, generative panels, and a company dashboard. New companies connect to local AgentOS through the authenticated Vite proxy; existing and demo companies retain labelled Preview mode. Production frontend uses a Node server behind team-only Google IAP; Google sign-in, live brief creation and reload are verified. See [deployment and CI/CD](docs/gcp-deployment.md). When a Gemini model is configured, the current parent-agent source registers one ordinary AgentOS agent, **Samurai**, as the conversational entry point. It has four bounded tools: run or continue the company journey, create launch drafts, analyze provenance-labelled metrics, and read current company state. The nine specialist roles remain internal workflow executors.
+The repository has the React/Vite founder UI in [frontend/](frontend/), local PostgreSQL in Podman, environment templates, and locked dependencies. The UI has onboarding, chat, generative panels, and a company dashboard. New companies connect to local AgentOS through the authenticated Vite proxy; existing and demo companies retain labelled Preview mode. Production frontend uses a Node server behind team-only Google IAP; Google sign-in, live brief creation and reload are verified. See [deployment and CI/CD](docs/gcp-deployment.md). When a Gemini model is configured, the current parent-agent source registers one ordinary AgentOS agent, **Samurai**, as the conversational entry point. It has four bounded business tools: run or continue the company journey, create launch drafts, analyze provenance-labelled metrics, and read current company state. The nine specialist roles remain internal workflow executors.
 
 ## Current readiness status
 
@@ -16,7 +16,7 @@ The [architecture](docs/architecture.md) separates the locally verified durable 
 
 The source defines the core journey as intake → brief check → grounded research → evidence check → strategy → product plan → verification. It retains typed, revisioned artifacts with founder statements, assumptions, source references, claims, and verification findings. Builder, Marketer, and Sales produce reviewable drafts only; Analyst requires eligible metrics and labels founder-supplied metrics as conditional. No current tool can publish, send, spend, contact prospects, run ads, or deploy.
 
-Intake, Strategist, Product Manager, and Verifier preload the validated local skill text and expose no runtime function tools. Researcher has native Gemini Search only. Builder, Marketer, Sales, and Analyst use only local read-only skill functions; the parent exposes only bounded local skill inspection alongside its four business tools. Child workflows have a seven-model-timeout deadline (420 seconds with the default 60-second timeout), cancellation drains child runs, model requests are capped at the configured tool-call budget plus one, and child failures become sanitized typed errors.
+Intake, Strategist, Product Manager, and Verifier preload the validated local skill text and expose no runtime function tools. Researcher has native Gemini Search only. Builder, Marketer, Sales, and Analyst use only local read-only skill functions; the parent exposes bounded local skill inspection alongside its four business tools and two draft-presentation tools. Child workflows have a seven-model-timeout deadline (420 seconds with the default 60-second timeout), cancellation drains child runs, model requests are capped at the configured tool-call budget plus one, and child failures become sanitized typed errors.
 
 Local onboarding validation at `d6d05fb` passed `task check`: 141 backend tests, Ruff, formatting, basedpyright, and the frontend check, type generation, and build. Separately, parent acceptance at `9002382` verified a real JWT server probe on port 8000 (unauthenticated 401, root 404, authorized configuration 200), owner-only run reads, and sanitized terminal errors. The authenticated API primary completed the five-artifact core journey to revision 5 with three unique grounded sources and nine propagated references; source-backed claims remain unverified and verification honestly returns `needs_rework`. The founder-supplied metrics path then completed at revision 6 with all seven required fields and a conditional `based_on_founder_supplied_metrics` result.
 
@@ -71,7 +71,7 @@ This is the target responsibility map, implemented incrementally with React and 
 
 ```mermaid
 flowchart TD
-    Founder["Founder: Build my business"] --> Workspace["React: conversation, panels, evidence, approvals"]
+    Founder["Founder: Build my business"] --> Workspace["React + CopilotKit: conversation, panels, evidence, approvals"]
     Workspace --> Boundary["AgentOS API: identity and action authorization"]
     Boundary --> Orchestrator["Agno Workflow: explicit stages and shared company context"]
     Orchestrator --> Research["Research: Researcher"]
@@ -161,3 +161,11 @@ Backend checks: `uv run ruff check src tests`, `uv run basedpyright`, and `uv ru
 [GitHub Actions checks](.github/workflows/checks.yml) run these gates on pushes and pull requests once published. They do not require cloud credentials. The separate [deployment workflow](.github/workflows/deploy.yml) runs the same checks for its commit, then deploys backend and frontend images on pushes to `main` or manual dispatch from `main` using Google Workload Identity Federation. IAM/WIF and key bootstrap, live frontend sign-in/brief/reload, and automatic/manual deployments are verified; see [the deployment guide](docs/gcp-deployment.md).
 
 For the competition, demonstrate a focused end-to-end journey with meaningful Gemini use, visible verification, and clear user value; the full agent vision is not a claim that every role is already implemented.
+
+## CopilotKit and generative panels
+
+CopilotKit 1.79.0 is integrated locally through AG-UI and the existing Agno backend. The same Node frontend server hosts the open-source runtime; no CopilotKit Cloud/Enterprise account or extra agent service is used. New live companies use its headless transport while retaining Samurai's assistant-ui chat, actions, company persistence, native cancellation and saved-run recovery.
+
+The entry form yields a declarative Company brief. Research/evidence, offer/pricing and delivery-plan panels follow the existing founder-approved stages. The A2UI catalog also covers prospect lists and reuses the same business components in chat, Home and the dashboard. Additional views compose typed text, metrics, lists and tables. Founder-requested custom HTML/CSS/JS runs in an isolated frame with embedded Inter, theme tokens, blocked host access and blocked network/navigation. Generated panels remain drafts; their definitions persist, while custom frame input values are temporary.
+
+This is a source/local integration. The currently deployed Cloud Run revisions have not been updated for these new endpoints. Validation uses deterministic models rather than paid Gemini calls; see [the generative UI contract](docs/generative-ui.md).
