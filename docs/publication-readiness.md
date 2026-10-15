@@ -4,7 +4,77 @@
 application, release, artifact, upload, message, deployment, or history change
 was made by this audit. The application remains team-only behind IAP.
 
-## Audited snapshot and coverage
+## October 15, 2026 snapshot and coverage
+
+This is the current bounded refresh. It is still a preparation audit: no
+repository visibility, IAM, application, release, artifact, upload, message,
+deployment, login, provider, or account change was made.
+
+The fresh remote `main` is `da76f0c6b74b83a60f285441324ef44e695c94f4`; the
+local candidate is `318e6780e22d60ca5277838b65c0ed5d11b7da2a`. The fresh mirror
+advertised 25 refs and zero tag refs, contained 91 reachable commits, and
+`git fsck --full --no-reflogs` exited 0. The candidate worktree was clean at
+the start of the audit.
+
+The bundled Gitleaks 8.30.1 binary (SHA-256
+`f414bc2fb952be6c9072b75cb411e3368614ef4b16d48dbd9ad238034afd2302`) was
+active: its synthetic fixture exited 1 with one `private-key` finding. The
+remote-history scan exited 1 with one reviewed `generic-api-key` false positive
+for the `portfolioKey` local-storage key. Candidate-only history exited 1 with
+three reviewed object-store false positives, and the candidate-tree scan exited
+1 with those three plus the same local-storage false positive. No proven
+credential was found, so this snapshot establishes no credential-rotation
+requirement; it does not approve publication.
+
+The tracked PPTX extraction scan exited 0 with zero findings. The PDF raw and
+printable-byte scans also exited 0 with zero findings. The bundled runtime's
+`pypdf 6.10.0` extracted semantic text from all 7 pages (3,450 characters),
+and the same-pinned scan plus secret-marker and deployment-identifier checks
+returned 0. The candidate public-tree review found deployment and account
+identifiers requiring a deliberate disclosure or removal decision.
+
+The bounded GitHub API reads succeeded: releases returned zero rows/assets and
+Actions artifacts returned zero rows/count. `gh auth status --hostname
+github.com` separately exited 1 for an invalid stored profile; that does not
+negate the successful bounded reads. Git LFS inventory is **UNAVAILABLE**
+because `git-lfs` was not installed. Visibility, evaluator identities/IAM,
+and signed-out public-link checks were not attempted, and no authorization was
+supplied.
+
+### October 15 reproducible evidence
+
+Evidence paths below are relative to the ignored evidence directory in the
+task audit worktree (`samurai-publication-audit`).
+
+| Scenario | Invocation | Binary observable | Captured artifact |
+| --- | --- | --- | --- |
+| Remote snapshot and object audit | Fresh remote mirror; `git for-each-ref`; `git fsck --full --no-reflogs` | 25 refs, 0 tags, 91 reachable commits; fsck exit 0 | `.omo/evidence/readiness/task-13-snapshot-refresh/snapshot-audit.md` |
+| Scanner activation and source scans | Bundled Gitleaks `dir`/`git` invocations with redaction and an empty ignore path | Fixture exit 1/1 finding; remote exit 1/1 reviewed false positive; candidate history exit 1/3; candidate tree exit 1/4 | `.omo/evidence/readiness/task-13-snapshot-refresh/snapshot-audit.md` |
+| Tracked deck artifact scan | `unzip` PPTX extraction; bundled `pypdf 6.10.0` PDF extraction; same-pinned scans and marker checks | PPTX exit 0/0 findings; PDF semantic text from 7 pages; scans and checks exit 0 | `.omo/evidence/readiness/task-13-snapshot-refresh/snapshot-audit.md` |
+| Release and Actions metadata | `gh api --paginate 'repos/OveRide-Phoenix/team-samurai/releases?per_page=100'`; `gh api --paginate 'repos/OveRide-Phoenix/team-samurai/actions/artifacts?per_page=100'` | Exit 0; 0 releases/assets and 0 artifacts/count | `.omo/evidence/readiness/task-13-snapshot-refresh/snapshot-audit.md` |
+| Stored CLI profile boundary | `gh auth status --hostname github.com` | Exit 1; invalid stored profile; does not negate the successful API reads | `.omo/evidence/readiness/task-13-snapshot-refresh/snapshot-audit.md` |
+| Git LFS inventory boundary | `command -v git-lfs`; `git lfs version`; exported-tree `.gitattributes` search | `git-lfs` unavailable; inventory not performed | `.omo/evidence/readiness/task-13-snapshot-refresh/snapshot-audit.md` |
+| Disposable audit cleanup | Targeted removal of the four task-owned temporary directories | All four absent; candidate worktree clean; retained evidence ignored | `.omo/evidence/readiness/task-13-snapshot-refresh/cleanup.txt` |
+
+The snapshot is sanitized: raw scanner reports, command logs, private-key
+fixture bytes, and raw metadata logs were removed. No application runtime or
+provider call was opened. A later commit, ref change, release/artifact,
+binary-artifact change, credential discovery, or publication/IAM action
+invalidates the relevant coverage and requires a fresh bounded review.
+
+### Current decisions requiring explicit approval
+
+- Repository visibility, exact public materials, and release owner; the
+  official competition requirements call for a public repository.
+- Evaluator identities or group, approved access window, removal owner, and
+  confirmation method for the IAP-protected application.
+- Publication of the repository, deck, video, and prototype URLs, followed by
+  signed-out link checks and submission.
+
+The October 15 bounded release and Actions metadata reads succeeded, so the
+historical read-only GitHub credential input below is not a current blocker.
+
+## Historical audit — 12 October 2026
 
 The audit used a disposable mirror fetched from the configured remote on 12
 October 2026. The candidate commit was
@@ -38,7 +108,7 @@ identifiers are not credentials, but a public repository should replace them
 with scoped placeholders or move operational detail to a restricted runbook
 before any visibility change. This document deliberately does not repeat them.
 
-## Coverage still blocked
+## Historical coverage still blocked — 12 October 2026
 
 | Surface | Result | Consequence |
 | --- | --- | --- |
@@ -60,9 +130,9 @@ repository may be published or that an evaluator can access the application.
    from public-facing operational documentation. Keep actual secrets out of
    source and do not rewrite history unless a verified exposed credential and a
    separate destructive authorization require it.
-3. Choose and approve the repository visibility, exact public materials, and
-   release owner. Do not infer that a source-code repository must be public for
-   the competition.
+3. The official competition requirements call for a public repository. Choose
+   and explicitly approve the repository visibility, exact public materials,
+   and release owner before making that visibility change.
 4. Keep the application IAP-protected. Grant only organizer/user-supplied
    evaluator identities or an approved Google group access to the frontend IAP
    resource, set a documented end date, then remove that grant on schedule.
@@ -73,7 +143,7 @@ repository may be published or that an evaluator can access the application.
    out and provide evaluator sign-in instructions. This does not require or
    claim a second-account live isolation test.
 
-## Required evaluator inputs
+## Historical required evaluator inputs — 12 October 2026
 
 - Evaluator email addresses or an organizer-managed Google group.
 - Approved access start/end time, removal owner, and confirmation method.
