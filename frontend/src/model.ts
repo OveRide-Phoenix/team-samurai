@@ -1,6 +1,15 @@
 import { z } from 'zod';
 
-const basePanel = { id: z.string(), title: z.string(), note: z.string(), provenance: z.record(z.string(), z.unknown()).optional() };
+const frameworkAttribution = z.strictObject({
+  id: z.enum(['founder_truth', 'offer_diagnostic']), version: z.string().regex(/^\d+\.\d+\.\d+$/), attribution: z.string().min(1).max(20_000),
+  source_repository: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/), source_revision: z.string().regex(/^[0-9a-f]{40}$/),
+  source_url: z.string().url().refine(url => /^https:\/\/github\.com\//.test(url)),
+}).refine(value => value.source_url.replace(/\/$/, '') === `https://github.com/${value.source_repository}/tree/${value.source_revision}`);
+const founderPanelContext = z.strictObject({
+  next_decision: z.string().min(1).max(20_000).nullable().default(null), evidence_gaps: z.array(z.string().min(1).max(20_000)).max(100).default([]),
+  framework: frameworkAttribution.optional(),
+});
+const basePanel = { id: z.string(), title: z.string(), note: z.string(), provenance: z.record(z.string(), z.unknown()).optional(), founder_context: founderPanelContext.optional() };
 const shortText = z.string().min(1).max(4000);
 export const panelBlockSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('text'), text: shortText }),
@@ -10,21 +19,21 @@ export const panelBlockSchema = z.discriminatedUnion('kind', [
 ]);
 const draftNote = z.literal('Generated view · Working assumptions, not verified business results');
 export const panelSchema = z.discriminatedUnion('kind', [
-  z.object({ ...basePanel, kind: z.literal('prospects'), rows: z.array(z.object({
+  z.strictObject({ ...basePanel, kind: z.literal('prospects'), rows: z.array(z.strictObject({
     id: z.string(), name: z.string(), area: z.string(), reason: z.string(), fit: z.enum(['High', 'Medium']),
   })).max(100) }),
-  z.object({ ...basePanel, kind: z.literal('offer'), customer: z.string(), promise: z.string(),
+  z.strictObject({ ...basePanel, kind: z.literal('offer'), customer: z.string(), promise: z.string(),
     price: z.string(), includes: z.array(z.string()).max(20) }),
-  z.object({ ...basePanel, kind: z.literal('evidence'), claims: z.array(z.object({
+  z.strictObject({ ...basePanel, kind: z.literal('evidence'), claims: z.array(z.strictObject({
     id: z.string(), claim: z.string(), status: z.enum(['hypothesis', 'needs-check', 'supported']),
     detail: z.string(), sources: z.array(z.object({ title: z.string(), url: z.string().url().refine(url => /^https?:\/\//.test(url)) })).max(100),
   }).refine(claim => claim.status !== 'supported' || claim.sources.length > 0, 'Supported claims need sources')).max(500) }),
-  z.object({ ...basePanel, kind: z.literal('launch-plan'), tasks: z.array(z.object({
+  z.strictObject({ ...basePanel, kind: z.literal('launch-plan'), tasks: z.array(z.strictObject({
     id: z.string(), title: z.string(), owner: z.string(), timing: z.string(), detail: z.string(),
   })).max(400).refine(tasks => new Set(tasks.map(task => task.id)).size === tasks.length, 'Task IDs must be unique') }),
   z.strictObject({ provenance: z.record(z.string(), z.unknown()).optional().superRefine((value, context) => { if (value !== undefined) context.addIssue({ code: 'custom', message: 'Generated panels cannot carry backend provenance.' }); }), id: z.string().uuid(), kind: z.literal('declarative'), title: z.string().min(1).max(120), note: draftNote, blocks: z.array(panelBlockSchema).min(1).max(20) }).refine(panel => JSON.stringify(panel).length <= 100000, 'Panel exceeds size limit'),
   z.strictObject({ provenance: z.record(z.string(), z.unknown()).optional().superRefine((value, context) => { if (value !== undefined) context.addIssue({ code: 'custom', message: 'Generated panels cannot carry backend provenance.' }); }), id: z.string().uuid(), kind: z.literal('custom'), title: z.string().min(1).max(120), note: draftNote, html: z.string().min(1).max(60000), css: z.string().max(20000), javascript: z.string().max(20000) }),
-  z.object({ ...basePanel, kind: z.literal('pricing'), options: z.array(z.object({
+  z.strictObject({ ...basePanel, kind: z.literal('pricing'), options: z.array(z.strictObject({
     name: z.string(), price: z.string(), description: z.string(),
   })).max(100) }),
 ]);

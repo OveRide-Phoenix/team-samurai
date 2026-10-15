@@ -611,6 +611,17 @@ h1,h2,h3,p { margin: 0; }
 
 /* Keep explanations available without repeating them in every card. */
 .pricing-detail { margin-top:0; }
+.founder-context { display:grid; gap:12px; margin-top:18px; padding-top:16px; border-top:1px solid var(--border); }
+.founder-context p { margin:5px 0 0; font-size:12px; line-height:1.55; }
+.founder-next-decision,.founder-evidence-gaps { display:grid; gap:4px; }
+.founder-next-decision strong { font-size:14px; font-weight:550; line-height:1.45; }
+.founder-evidence-gaps { color:var(--muted-foreground); }
+.founder-evidence-gaps .panel-details { margin-top:2px; }
+.founder-evidence-gaps ul { margin:8px 0 0; padding-left:18px; }
+.founder-evidence-gaps li + li { margin-top:5px; }
+.founder-attribution { color:var(--muted-foreground); }
+.founder-attribution a { display:inline-flex; margin-top:8px; color:var(--foreground); font-size:12px; }
+.founder-preview-update { position:fixed; right:20px; bottom:20px; z-index:30; }
 .prospect-reason summary { justify-content:space-between; align-items:flex-start; }
 .prospect-reason summary > div { min-width:0; }
 .prospect-reason summary > svg { flex-shrink:0; margin-top:4px; }

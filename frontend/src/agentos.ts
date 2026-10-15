@@ -107,6 +107,26 @@ const summarySchema = z.strictObject({
   && new Set(value.frameworks.map(item => item.id)).size === value.frameworks.length);
 export const companyResultSchema = z.union([resultSchema, summarySchema]);
 type WorkflowResult = z.infer<typeof companyResultSchema>;
+type FrameworkMetadata = z.infer<typeof frameworkMetadata>;
+type FounderTruth = z.infer<typeof founderTruth>;
+type StandardPanel = Exclude<Panel, { kind: 'custom' | 'declarative' }>;
+
+function founderContext(truth: FounderTruth, framework?: FrameworkMetadata): NonNullable<StandardPanel['founder_context']> {
+  return {
+    next_decision: truth.next_decision,
+    evidence_gaps: truth.evidence_gaps,
+    ...(framework ? { framework: { id: framework.id, version: framework.version, attribution: framework.attribution, source_repository: framework.source_repository, source_revision: framework.source_revision, source_url: framework.source_url } } : {}),
+  };
+}
+
+function truthClaims(id: string, truth: FounderTruth): Extract<Panel, { kind: 'evidence' }>['claims'] {
+  return [
+    ...truth.known.map((item, index) => ({ id: `${id}-known-${index}`, claim: `Known: ${item.text}`, status: 'hypothesis' as const, detail: item.basis === 'founder_context' ? 'Founder context, not market evidence' : 'Retained evidence reference; review source support', sources: [] })),
+    ...truth.believed.map((item, index) => ({ id: `${id}-believed-${index}`, claim: `Believed: ${item}`, status: 'hypothesis' as const, detail: 'Founder belief, not market evidence', sources: [] })),
+    ...truth.hoped.map((item, index) => ({ id: `${id}-hoped-${index}`, claim: `Hoped: ${item}`, status: 'hypothesis' as const, detail: 'Founder hope, not market evidence', sources: [] })),
+    ...(truth.bottleneck ? [{ id: `${id}-bottleneck`, claim: `Current bottleneck: ${truth.bottleneck}`, status: 'needs-check' as const, detail: 'Founder assessment; review before acting', sources: [] }] : []),
+  ];
+}
 export const companySnapshotSchema = z.strictObject({ summary: summarySchema, artifacts: z.array(artifact).max(100) }).refine(value => value.summary.company_id !== null && value.artifacts.every(item => item.company_id === value.summary.company_id && item.revision <= value.summary.revision));
 type CompanySnapshot = z.infer<typeof companySnapshotSchema>;
 
@@ -172,7 +192,8 @@ function resultEvents(result: WorkflowResult | CompanySnapshot, seen: Set<string
     claims.push(...summary.evidence_conflicts.map((claim, index) => ({ id: `${id}-conflict-${index}`, claim, status: 'needs-check' as const, detail: 'warning: evidence_conflict', sources: [] })));
     claims.push(...summary.verification_findings.map((finding, index) => ({ id: `${id}-finding-${index}`, claim: finding.message, status: 'needs-check' as const, detail: `${finding.severity}: ${finding.code}`, sources: [] })));
     if (summary.sources.length) claims.push({ id: `${id}-sources`, claim: 'Retained research references', status: 'needs-check', detail: 'Source attachment does not independently verify a finding.', sources: summary.sources.map(entry => ({ title: entry.title, url: entry.url })) });
-    events.push({ type: 'message', text: summary.next_decision ? `Next decision: ${summary.next_decision}` : '', panel: panelSchema.parse({ id, kind: 'evidence', title: 'Company context', note: '', claims, provenance: summary }) });
+    if (summary.founder_truth) claims.push(...truthClaims(id, summary.founder_truth));
+    events.push({ type: 'message', text: '', panel: panelSchema.parse({ id, kind: 'evidence', title: 'Company context', note: '', claims, ...(summary.founder_truth ? { founder_context: founderContext(summary.founder_truth) } : {}), provenance: summary }) });
   }
   for (const item of artifacts) {
     const key = `${item.artifact_id}:${item.revision}`;
@@ -186,10 +207,13 @@ function resultEvents(result: WorkflowResult | CompanySnapshot, seen: Set<string
     if (data.artifact_type === 'intake') {
       const brief = data.brief;
       const fields = [['Idea', brief.idea], ['First customers', brief.target_customer], ['Market', brief.geography], ['Budget', brief.budget], ['Founder skills', brief.founder_skills], ['First milestone', brief.goal], ['Supplied context', brief.supplied_context.join('; ')], ['Assumptions', brief.assumptions.join('; ')], ['Open questions', brief.open_questions.join('; ')], ['Proposed next actions', brief.next_actions.join('; ')]] as const;
-      panels.push({ id, kind: 'evidence', title: 'Company brief', note: '', claims: fields.flatMap(([label, value], index) => value ? [{ id: `${id}-brief-${index}`, claim: `${label}: ${value}`, status: 'needs-check' as const, detail: 'Founder supplied context, not market evidence', sources: [] }] : []) });
+      const framework = data.frameworks?.[0];
+      panels.push({ id, kind: 'evidence', title: 'Company brief', note: '', claims: [...fields.flatMap(([label, value], index) => value ? [{ id: `${id}-brief-${index}`, claim: `${label}: ${value}`, status: 'needs-check' as const, detail: 'Founder supplied context, not market evidence', sources: [] }] : []), ...(data.founder_truth ? truthClaims(id, data.founder_truth) : [])], ...(data.founder_truth ? { founder_context: founderContext(data.founder_truth, framework) } : {}) });
     } else if (data.artifact_type === 'strategy') {
-      panels.push({ id, kind: 'offer', title: 'Business offer', note, customer: data.ideal_customer_profile, promise: data.offer, price: data.pricing_assumptions[0] || 'No pricing assumption supplied', includes: [data.positioning] });
-      if (data.pricing_assumptions.length) panels.push({ id: `${id}-pricing`, kind: 'pricing', title: 'Pricing assumptions', note, options: data.pricing_assumptions.map((price, index) => ({ name: `Assumption ${index + 1}`, price, description: '' })) });
+      const diagnostic = data.offer_diagnostic;
+      const diagnosticContext = diagnostic ? { next_decision: null, evidence_gaps: [...diagnostic.evidence_needed, `Purchasing power assumption: ${diagnostic.purchasing_power_assumption.text}`], framework: { id: diagnostic.framework.id, version: diagnostic.framework.version, attribution: diagnostic.framework.attribution, source_repository: diagnostic.framework.source_repository, source_revision: diagnostic.framework.source_revision, source_url: diagnostic.framework.source_url } } : undefined;
+      panels.push({ id, kind: 'offer', title: 'Business offer', note, customer: data.ideal_customer_profile, promise: data.offer, price: data.pricing_assumptions[0] || 'No pricing assumption supplied', includes: [data.positioning], ...(diagnosticContext ? { founder_context: diagnosticContext } : {}) });
+      if (data.pricing_assumptions.length) panels.push({ id: `${id}-pricing`, kind: 'pricing', title: 'Pricing assumptions', note, options: data.pricing_assumptions.map((price, index) => ({ name: `Assumption ${index + 1}`, price, description: '' })), ...(diagnosticContext ? { founder_context: { ...diagnosticContext, framework: undefined } } : {}) });
     } else if (data.artifact_type === 'product_plan') {
       panels.push({ id, kind: 'launch-plan', title: 'Minimum offering and delivery plan', note, tasks: [...data.minimum_viable_offering, ...data.delivery_requirements, ...data.user_stories, ...data.roadmap].map((title, index) => ({ id: `${id}-${index}`, title, owner: item.producer, timing: 'Not scheduled', detail: item.status })) });
     } else if (data.artifact_type === 'research' || data.artifact_type === 'verification') {

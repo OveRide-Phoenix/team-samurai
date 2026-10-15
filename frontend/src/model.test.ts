@@ -28,6 +28,8 @@ describe('backend-facing UI contract', () => {
   });
   it('rejects executable or malformed panel types and invalid activity states', () => {
     expect(panelSchema.safeParse({ kind: 'script', code: 'alert(1)' }).success).toBe(false);
+    expect(panelSchema.safeParse({ ...offer, component: 'FounderTruth' }).success).toBe(false);
+    expect(panelSchema.safeParse({ ...offer, founder_context: { next_decision: null, evidence_gaps: [], framework: { id: 'founder_truth', version: '1.0.0', attribution: 'Adapted', source_repository: 'example/repo', source_revision: '0'.repeat(40), source_url: 'javascript:alert(1)' } } }).success).toBe(false);
     expect(panelSchema.safeParse({ ...prospects, rows: [{ name: 'Missing fields' }] }).success).toBe(false);
     expect(eventSchema.safeParse({ type: 'activity', agent: 'Researcher', state: 'unknown', detail: '' }).success).toBe(false);
   });

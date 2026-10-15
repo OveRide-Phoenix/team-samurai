@@ -8,7 +8,7 @@ import { resolveBrowserScope } from "./browserStorage";
 async function start() {
   const root = document.getElementById("root");
   try {
-    if (import.meta.env.DEV && ['panels', 'intake'].includes(new URLSearchParams(location.search).get('preview'))) {
+    if (import.meta.env.DEV && ['panels', 'intake', 'founder'].includes(new URLSearchParams(location.search).get('preview'))) {
       const { default: LocalPanelPreview } = await import('./LocalPanelPreview');
       createRoot(root).render(<React.StrictMode><LocalPanelPreview /></React.StrictMode>);
       return;

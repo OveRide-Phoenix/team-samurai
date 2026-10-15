@@ -26,4 +26,18 @@ describe('readable evidence details', () => {
     expect(html).toContain('More sources');
     for (const source of sources) expect(html).toContain(`href="${source.url}"`);
   });
+
+  it('renders founder decisions and gaps separately from framework attribution', () => {
+    const revision = '0'.repeat(40);
+    const html = render({ id: 'offer', kind: 'offer', title: 'Offer', note: '', customer: 'Clinics', promise: 'Fewer missed calls', price: '₹4999', includes: [], founder_context: {
+      next_decision: 'Interview five clinic owners', evidence_gaps: ['No willingness-to-pay interviews', 'No delivery-cost estimate'],
+      framework: { id: 'offer_diagnostic', version: '1.0.0', attribution: 'Adapted from the reviewed offer diagnostic.', source_repository: 'example/repo', source_revision: revision, source_url: `https://github.com/example/repo/tree/${revision}` },
+    } });
+    expect(html).toContain('Next decision');
+    expect(html).toContain('Interview five clinic owners');
+    expect(html).toContain('Evidence still needed');
+    expect(html).toContain('No willingness-to-pay interviews');
+    expect(html).toContain('Framework attribution');
+    expect(html).not.toContain('Supported');
+  });
 });
