@@ -522,10 +522,12 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
   - Pattern:  `backend/src/samurai/parent.py:1340` - state summary context seam
   - Test:     `backend/tests/test_company_workflow.py:419` - accepted staged lineage
 
+  Accepted locally at `1a0fc18d0d8d90b7b75fa36094e032aba11aee6e`, integrated by `258383d89104850c9fb85d634d3d29e6dba55a83`. Five exact-SHA reviews, runtime audit, fresh provider-free workflow replay, and cleanup are recorded in the Task 11 evidence directory of `samurai-founder-truth`. This is not cloud or live-provider acceptance.
+
   Acceptance criteria (agent-executable only):
-  - [ ] Legacy serialized Intake artifacts load with empty/default founder truth; new artifacts round-trip exact framework provenance and one next decision.
-  - [ ] A founder correction supersedes belief/hope without altering prior artifact bytes; unsupported “known” text is downgraded or blocks with a finding.
-  - [ ] Deterministic eval cases cover missing context, contradictions, injected skill instructions, and stale revision.
+  - [x] Legacy serialized Intake artifacts load with empty/default founder truth; new artifacts round-trip exact framework provenance and one next decision.
+  - [x] A founder correction supersedes belief/hope without altering prior artifact bytes; unsupported “known” text is downgraded or blocks with a finding.
+  - [x] Deterministic eval cases cover missing context, contradictions, injected skill instructions, and stale revision.
 
   QA scenarios (MANDATORY - task incomplete without these):
   ```
