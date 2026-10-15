@@ -543,6 +543,59 @@ def test_founder_truth_missing_context_and_stale_revision_fail_closed(
     assert CompanyState.model_validate(state["company"]).current_revision == 1
 
 
+@pytest.mark.parametrize(
+    ("has_bottleneck", "has_decision"),
+    [(True, True), (True, False), (False, True), (False, False)],
+)
+def test_founder_truth_completeness_controls_model_action_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    has_bottleneck: bool,
+    has_decision: bool,
+) -> None:
+    catalog, models = _catalog()
+    intake = IntakeArtifact.model_validate(models[Role.INTAKE].content)
+    model_action = "Model-authored action from an Intake diagnosis"
+    models[Role.INTAKE].content = intake.model_copy(
+        update={
+            "brief": intake.brief.model_copy(update={"next_actions": [model_action]}),
+            "founder_truth": intake.founder_truth.model_copy(
+                update={
+                    "bottleneck": (intake.founder_truth.bottleneck if has_bottleneck else None),
+                    "next_decision": (intake.founder_truth.next_decision if has_decision else None),
+                }
+            ),
+        }
+    )
+
+    def catalog_factory(_settings: Settings) -> Mapping[Role, ConfiguredRole]:
+        return catalog
+
+    monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
+    workflow = create_company_workflow(
+        SqliteDb(db_file=str(tmp_path / "incomplete-truth.db")), _settings(), stage="brief"
+    )
+    state: dict[str, JsonValue] = {}
+
+    result = WorkflowResult.model_validate(
+        anyio.run(partial(_run_workflow, workflow, _complete_request(), state)).content
+    )
+    intake_result = IntakeArtifact.model_validate(result.artifacts[0].payload)
+    summary = WorkspaceDirectory._public_snapshot(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        CompanyState.model_validate(state["company"])
+    ).summary
+
+    assert result.outcome == "needs_input"
+    complete = has_bottleneck and has_decision
+    assert (intake_result.founder_truth.bottleneck is not None) is has_bottleneck
+    assert (intake_result.founder_truth.next_decision is not None) is complete
+    assert intake_result.brief.next_actions == ([model_action] if complete else [])
+    assert summary.next_decision == intake_result.founder_truth.next_decision
+    assert result.artifacts[0].status == ("complete" if complete else "needs_input")
+    assert models[Role.RESEARCHER].calls == 0
+
+
 async def _complete_research(
     _agent: ResearchAgent, _brief: CompanyBrief, *, max_sources: int = 5
 ) -> ResearchResult:

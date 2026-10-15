@@ -315,6 +315,12 @@ def _verified_founder_truth(
             )
         )
     )
+    if unsupported:
+        next_decision = EVIDENCE_DECISION
+    elif proposed.bottleneck is None:
+        next_decision = None
+    else:
+        next_decision = proposed.next_decision
     return (
         FounderTruth.model_validate(
             {
@@ -323,7 +329,7 @@ def _verified_founder_truth(
                 "believed": believed,
                 "evidence_gaps": gaps,
                 "bottleneck": None if unsupported else proposed.bottleneck,
-                "next_decision": EVIDENCE_DECISION if unsupported else proposed.next_decision,
+                "next_decision": next_decision,
             }
         ),
         unsupported,
