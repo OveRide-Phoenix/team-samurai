@@ -19,6 +19,7 @@ from samurai.company_store_contracts import (
     WorkspaceRole,
 )
 from samurai.contracts import CompanyState, IntakeArtifact, ResearchArtifact
+from samurai.frameworks import load_framework_catalog
 from samurai.parent import CompanyStateSummary
 from samurai.workspace_directory_contracts import (
     BindingRow,
@@ -177,6 +178,7 @@ class WorkspaceDirectory:
 
     @staticmethod
     def _public_snapshot(state: CompanyState) -> CompanySnapshot:
+        framework_metadata = load_framework_catalog().metadata
         brief = next(
             (
                 artifact.payload.brief
@@ -209,6 +211,7 @@ class WorkspaceDirectory:
                 evidence_conflicts=conflicts,
                 verification_findings=findings,
                 next_decision=next_decision,
+                frameworks=framework_metadata,
             ),
             artifacts=state.artifacts,
         )
