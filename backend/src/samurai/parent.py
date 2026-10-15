@@ -80,6 +80,7 @@ from samurai.execution_state import (
     WorkIntentError,
     WorkOperation,
 )
+from samurai.frameworks import FrameworkMetadata, load_framework_catalog
 from samurai.launch_workflows import (
     LaunchAction,
     LaunchDraftRequest,
@@ -152,6 +153,7 @@ class CompanyStateSummary(Contract):
     verification_findings: tuple[VerificationFinding, ...] = ()
     next_decision: str | None = None
     artifacts: tuple[ArtifactEnvelope, ...] = ()
+    frameworks: tuple[FrameworkMetadata, ...] = ()
 
     @override
     def __str__(self) -> str:
@@ -1161,6 +1163,7 @@ def create_parent_agent(  # noqa: C901, PLR0913, PLR0915 - bounded tool surface.
     team_area: TeamArea = "overview",
 ) -> SamuraiParentAgent:
     """Create a fresh ordinary Samurai Agent and its bounded native tools."""
+    framework_metadata = load_framework_catalog().metadata
     if model_factory is None:
         if model is None:
 
@@ -1393,6 +1396,7 @@ def create_parent_agent(  # noqa: C901, PLR0913, PLR0915 - bounded tool surface.
                 revision=0,
                 artifact_count=0,
                 status="not_started",
+                frameworks=framework_metadata,
             )
         brief = next(
             (
@@ -1426,6 +1430,7 @@ def create_parent_agent(  # noqa: C901, PLR0913, PLR0915 - bounded tool surface.
             verification_findings=findings,
             next_decision=next_decision,
             artifacts=tuple({item.artifact_type: item for item in state.artifacts}.values()),
+            frameworks=framework_metadata,
         )
 
     capabilities = ", ".join(

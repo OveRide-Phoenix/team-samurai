@@ -29,6 +29,7 @@ from samurai.contracts import (
     VerificationArtifact,
     VerificationFinding,
     accept_artifact,
+    create_company_state,
 )
 from samurai.execution_state import SamuraiPostgresDb
 from samurai.schema import FounderPlatformMigrator
@@ -94,6 +95,25 @@ def _headers(private_key: rsa.RSAPrivateKey, subject: str) -> dict[str, str]:
 
 def _company_headers(headers: dict[str, str]) -> dict[str, str]:
     return {**headers, "Idempotency-Key": str(uuid4())}
+
+
+def test_public_snapshot_includes_sanitized_framework_metadata() -> None:
+    state = create_company_state(
+        "snapshot-session",
+        created_at=datetime(2026, 10, 15, tzinfo=UTC),
+    )
+
+    snapshot = WorkspaceDirectory._public_snapshot(  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+        state
+    )
+
+    assert tuple(item.id for item in snapshot.summary.frameworks) == (
+        "founder_truth",
+        "offer_diagnostic",
+    )
+    assert all(
+        "resource" not in item.model_dump(mode="json") for item in snapshot.summary.frameworks
+    )
 
 
 def test_members_share_workspace_without_sharing_actor_sessions(
@@ -765,6 +785,13 @@ def test_open_projects_populated_company_as_truthful_read_summary(
     assert view.snapshot.summary.revision == 2
     assert view.snapshot.summary.artifact_count == 2
     assert view.snapshot.summary.status == "active"
+    assert tuple(item.id for item in view.snapshot.summary.frameworks) == (
+        "founder_truth",
+        "offer_diagnostic",
+    )
+    assert all(
+        "resource" not in item.model_dump(mode="json") for item in view.snapshot.summary.frameworks
+    )
     assert view.snapshot.summary.verification_findings[-1].code == f"{outcome}-state"
     assert len(view.snapshot.artifacts) == 2
     verification_snapshot = view.snapshot.artifacts[-1]

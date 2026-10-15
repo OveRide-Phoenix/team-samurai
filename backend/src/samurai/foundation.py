@@ -4,10 +4,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Final, Literal
 
 from agno.agent import Agent
-from agno.skills import LocalSkills, Skills
 from agno.workflow import Step, StepInput, StepOutput, Workflow, WorkflowAgent
 from pydantic import BaseModel, ConfigDict
 
+from samurai.agents import (
+    BUSINESS_SKILL_NAMES,
+    COMPANY_INTAKE_SKILL_NAME,
+    create_reviewed_skills,
+    preloaded_skill_instructions,
+)
 from samurai.config import Settings, create_model
 from samurai.contracts import CompanyBrief
 
@@ -60,13 +65,17 @@ def verify_brief(step_input: StepInput) -> StepOutput:
 
 def create_foundation(db: BaseDb, settings: Settings) -> Workflow:
     """Expose one conversational workflow, with skills owned by its brief step."""
-    skills = Skills(loaders=[LocalSkills(str(RESOURCES / "skills"))])
+    skills = create_reviewed_skills(*BUSINESS_SKILL_NAMES, COMPANY_INTAKE_SKILL_NAME)
     brief_agent = Agent(
         id="company-brief",
         name="Company Brief",
         model=create_model(settings),
-        skills=skills,
-        instructions=(RESOURCES / "prompts" / "brief.md").read_text(encoding="utf-8"),
+        instructions="\n\n".join(
+            (
+                (RESOURCES / "prompts" / "brief.md").read_text(encoding="utf-8"),
+                preloaded_skill_instructions(skills),
+            )
+        ),
         output_schema=CompanyBrief,
         tool_call_limit=settings.agent_tool_call_limit,
         telemetry=False,
