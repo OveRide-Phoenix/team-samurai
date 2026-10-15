@@ -839,13 +839,12 @@ class _Journey:
         accepted = tuple(artifact for artifact in upstream if artifact is not None)
         research = ResearchArtifact.model_validate(accepted[1].payload)
         intake_truth = IntakeArtifact.model_validate(accepted[0].payload).founder_truth
-        supported_text = " ".join(claim.text for claim in accepted[1].claims)
         numbers: set[str] = {
             token
             for assumption in accepted[2].assumptions
             for token in _numeric_tokens(assumption.text)
         }
-        unsupported = tuple(sorted(token for token in numbers if token not in supported_text))
+        unsupported = tuple(sorted(numbers))
         outcome = "needs_rework" if unsupported or research.conflicts else proposal.outcome
         findings: list[VerificationFinding] = []
         if research.conflicts:

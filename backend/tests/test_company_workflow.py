@@ -777,6 +777,74 @@ def test_generated_offer_content_is_assumption_backed_and_unverified(
     )
 
 
+@pytest.mark.parametrize("numeric_claim_status", ["unverified", "supported"])
+def test_generated_offer_number_is_not_verified_by_research_number(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    numeric_claim_status: Literal["unverified", "supported"],
+) -> None:
+    # Given a generated price and an unrelated research claim containing the same number.
+    catalog, models = _catalog(pricing_assumptions=())
+    legacy_offer = "Pilot for INR 9000"
+    models[Role.STRATEGIST].content = models[Role.STRATEGIST].content.model_copy(
+        update={"offer": legacy_offer}
+    )
+    base_research = _research_result()
+    numeric_source_id = uuid4()
+    numeric_text = "An unrelated market estimate is INR 9000."
+    numeric_source = SourceReference(
+        source_id=numeric_source_id,
+        url=HttpUrl("https://example.com/unrelated-pricing-note"),
+        title="Unrelated pricing note",
+        retrieved_at=base_research.sources[0].retrieved_at,
+        search_query="unrelated pricing note",
+        excerpt=numeric_text,
+    )
+    numeric_claim = SourcedClaim(
+        claim_id=uuid4(),
+        text=numeric_text,
+        source_ids=(numeric_source_id,),
+        support_status="mapped",
+        support_segments=(numeric_text,),
+        verification_status=numeric_claim_status,
+    )
+    research = replace(
+        base_research,
+        sources=(*base_research.sources, numeric_source),
+        claims=(*base_research.claims, numeric_claim),
+    )
+
+    def catalog_factory(_settings: Settings) -> Mapping[Role, ConfiguredRole]:
+        return catalog
+
+    async def research_factory(
+        _agent: ResearchAgent, _brief: CompanyBrief, *, max_sources: int = 5
+    ) -> ResearchResult:
+        assert max_sources == 5
+        return research
+
+    monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
+    monkeypatch.setattr("samurai.company_workflow.run_research", research_factory)
+    workflow = create_company_workflow(
+        SqliteDb(db_file=str(tmp_path / f"generated-offer-{numeric_claim_status}.db")),
+        _settings(),
+    )
+
+    # When final verification sees the generated assumption and that research claim.
+    result = WorkflowResult.model_validate(
+        anyio.run(partial(_run_workflow, workflow, _complete_request(), {})).content
+    )
+
+    # Then number overlap alone cannot verify the generated price.
+    assert result.outcome == "needs_rework"
+    unsupported = next(
+        finding
+        for finding in result.artifacts[-1].verification_findings
+        if finding.code == "unsupported_numeric_claim"
+    )
+    assert "9000" in unsupported.message
+
+
 def test_clarification_continuation_preserves_idea_without_duplicate_research(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
