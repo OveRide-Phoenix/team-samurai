@@ -222,3 +222,6 @@ Task 3 is independently verified and committed. Task 6 may integrate its release
 
 ### Execution dependency refinement: local setup
 Task 9 may implement non-overlapping Podman/CI/env-example setup against task 6 confirmed configuration fields while runtime and frontend acceptance proceed. Final task 9 acceptance still depends on tasks 6 and 7; no deployment is authorized by this refinement.
+
+### Execution dependency refinement: competition draft
+Task 14 may prepare a clearly labelled editable local-proof draft deck and PDF from accepted local evidence while Task 11 is explicitly deferred. This is preparation only. Final deck/video/submission acceptance still requires Task 11 and official template/portal checks; no cloud, publication, access or submission action is authorized.
