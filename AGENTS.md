@@ -167,7 +167,7 @@ The prototype must use Gemini or Gemma, or a listed agentic platform, and be dep
 - **Functional prototype:** a working Google Cloud AI solution deployed through Cloud Run, GCP, or Firebase, with its capabilities and benefits demonstrated.
 - **Documentation:** a public YouTube, Vimeo, or Google Drive link to a working-product video no longer than three minutes. The submission instructions also say 3–4 minutes, but the form says "up to 3 minutes" and the FAQ says "under 3 minutes"; use the stricter limit.
 - **Category specification:** the chosen category is Future of Work & Enterprise Productivity. The public themes page contains conflicting category text; confirm the signed-in form still offers the exact selection before submission.
-- **Submission form:** the public package needs a deployed prototype, public repository, deck, and video. The locally recorded 1,024-character limit and 18 October 2026 deadline are not publicly verified in the current requirements record; confirm them, the actual form fields, and every link through an authorized account before submission.
+- **Submission form:** the public package needs a deployed prototype, public repository, deck, and video. As of 15 October 2026, the official public timeline verifies 18 October 2026 as the prototype-submission deadline ([timeline](https://aibuildercup.com/)); confirm the exact cutoff time and timezone, 1,024-character limit, actual form fields, account-specific team status, and every link through the authorized portal before submission.
 
 ## Official FAQ requirements
 
@@ -176,7 +176,7 @@ The prototype must use Gemini or Gemma, or a listed agentic platform, and be dep
 - A build team must have 2–4 members. Solo registration is allowed only while forming or joining a team; solo competition is not.
 - Every member must be age 21+, based in JAPAC, and be a working professional, entrepreneur, or startup member. Students are not eligible; one student disqualifies the full team.
 - A participant may be in only one team. Cross-country JAPAC teams are allowed; members outside JAPAC are not.
-- Team changes are allowed only while registration is open. The official FAQ and main timeline currently state 11 October 2026 as the closure date; recheck it before making a team change.
+- The official [FAQ](https://aibuildercup.com/Faqs.html) and [timeline](https://aibuildercup.com/) list registration closing on 11 October 2026 and team formation closing on 14 October 2026; confirm the authorized portal's account-specific team status before making a team change.
 - Only two members of a shortlisted team may attend the Singapore finale.
 - Event-specific registration or waitlist issues: `support+aibuildercup@hack2skill.com`.
 
