@@ -62,6 +62,7 @@ QUESTIONS = {
     "goal": "What outcome and timeframe define success?",
 }
 UNRESOLVED_RESEARCH = "retained research conflicts and factual claims remain unresolved."
+EVIDENCE_DECISION = "What retained evidence supports the claimed known facts?"
 JOURNEY_TYPES = (
     ArtifactType.INTAKE,
     ArtifactType.RESEARCH,
@@ -321,6 +322,8 @@ def _verified_founder_truth(
                 "known": known,
                 "believed": believed,
                 "evidence_gaps": gaps,
+                "bottleneck": None if unsupported else proposed.bottleneck,
+                "next_decision": EVIDENCE_DECISION if unsupported else proposed.next_decision,
             }
         ),
         unsupported,
@@ -432,7 +435,7 @@ class _Journey:
         brief = brief.model_copy(
             update={
                 "open_questions": [QUESTIONS[name] for name in missing],
-                "next_actions": proposed.brief.next_actions,
+                "next_actions": [] if unsupported_known else proposed.brief.next_actions,
             }
         )
         findings = [
@@ -512,7 +515,7 @@ class _Journey:
                         finding.code == "unsupported_known_claim"
                         for finding in intake.verification_findings
                     ),
-                    "What retained evidence supports the claimed known facts?",
+                    EVIDENCE_DECISION,
                 ),
             )
             if not present
