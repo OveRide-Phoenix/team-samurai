@@ -46,6 +46,7 @@ from samurai.contracts import (
     Assumption,
     CompanyBrief,
     CompanyState,
+    FounderTruth,
     IntakeArtifact,
     Role,
     SourcedClaim,
@@ -428,7 +429,10 @@ def _accepted_company_state(parent_session_id: str) -> CompanyState:
                 assumptions=["Clinics will pay for missed-call recovery"],
                 open_questions=["Which clinic segment converts fastest?"],
                 next_actions=["Interview five clinic owners"],
-            )
+            ),
+            founder_truth=FounderTruth(
+                next_decision="Which clinic segment converts fastest?",
+            ),
         ),
         sources=(source,),
         claims=(

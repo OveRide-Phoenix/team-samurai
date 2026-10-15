@@ -39,7 +39,7 @@ from samurai.execution_state import (
     WorkIntentInput,
     WorkIntentIssue,
     WorkOperation,
-    _terminal_acceptance,
+    _terminal_acceptance,  # pyright: ignore[reportPrivateUsage]
 )
 from samurai.workflow_state import WorkflowContextError, WorkflowContextIssue, save_company_state
 
