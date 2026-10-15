@@ -742,6 +742,41 @@ def test_complete_company_journey_persists_verified_ordered_lineage(
     assert CompanyState.model_validate(session_state["company"]).current_revision == 5
 
 
+def test_generated_offer_content_is_assumption_backed_and_unverified(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given no model pricing assumptions and a generated price in the legacy offer.
+    legacy_offer = "Pilot for INR 9000"
+    catalog, models = _catalog(pricing_assumptions=())
+    models[Role.STRATEGIST].content = models[Role.STRATEGIST].content.model_copy(
+        update={"offer": legacy_offer}
+    )
+
+    def catalog_factory(_settings: Settings) -> Mapping[Role, ConfiguredRole]:
+        return catalog
+
+    monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
+    monkeypatch.setattr("samurai.company_workflow.run_research", _complete_research)
+    workflow = create_company_workflow(
+        SqliteDb(db_file=str(tmp_path / "generated-offer-price.db")), _settings()
+    )
+
+    # When the provider-free journey accepts the supported research and generated offers.
+    result = WorkflowResult.model_validate(
+        anyio.run(partial(_run_workflow, workflow, _complete_request(), {})).content
+    )
+
+    # Then the offer remains draft-only, is an explicit assumption, and requires rework.
+    strategy = result.artifacts[2]
+    assert result.outcome == "needs_rework"
+    assert strategy.status == "draft_only"
+    assert legacy_offer in {assumption.text for assumption in strategy.assumptions}
+    assert any(
+        finding.code == "unsupported_numeric_claim"
+        for finding in result.artifacts[-1].verification_findings
+    )
+
+
 def test_clarification_continuation_preserves_idea_without_duplicate_research(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

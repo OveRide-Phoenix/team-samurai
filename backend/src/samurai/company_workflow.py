@@ -756,7 +756,11 @@ class _Journey:
                 assumptions=(
                     *tuple(
                         Assumption(assumption_id=uuid4(), text=text)
-                        for text in payload.pricing_assumptions
+                        for text in (
+                            *payload.pricing_assumptions,
+                            payload.offer,
+                            diagnostic.draft_offer,
+                        )
                     ),
                     diagnostic.purchasing_power_assumption,
                 ),
@@ -835,12 +839,11 @@ class _Journey:
         accepted = tuple(artifact for artifact in upstream if artifact is not None)
         research = ResearchArtifact.model_validate(accepted[1].payload)
         intake_truth = IntakeArtifact.model_validate(accepted[0].payload).founder_truth
-        strategy = StrategyArtifact.model_validate(accepted[2].payload)
         supported_text = " ".join(claim.text for claim in accepted[1].claims)
         numbers: set[str] = {
             token
-            for assumption in strategy.pricing_assumptions
-            for token in _numeric_tokens(assumption)
+            for assumption in accepted[2].assumptions
+            for token in _numeric_tokens(assumption.text)
         }
         unsupported = tuple(sorted(token for token in numbers if token not in supported_text))
         outcome = "needs_rework" if unsupported or research.conflicts else proposal.outcome
