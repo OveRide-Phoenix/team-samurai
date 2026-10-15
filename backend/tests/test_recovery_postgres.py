@@ -23,6 +23,7 @@ from samurai.contracts import (
     CompanyBrief,
     CompanyState,
     IntakeArtifact,
+    ResearchArtifact,
     Role,
     VerificationFinding,
     accept_artifact,
@@ -38,6 +39,7 @@ from samurai.execution_state import (
     WorkIntentInput,
     WorkIntentIssue,
     WorkOperation,
+    _terminal_acceptance,
 )
 from samurai.workflow_state import WorkflowContextError, WorkflowContextIssue, save_company_state
 
@@ -159,6 +161,74 @@ def _state(parent_session_id: str, artifact_id: UUID | None = None) -> CompanySt
         ),
     )
     return accept_artifact(state, artifact, authenticated_session_id=parent_session_id)
+
+
+def test_research_stage_becomes_terminal_only_after_adjudication() -> None:
+    raw_state = _state("parent-session")
+    raw = ArtifactEnvelope(
+        artifact_id=uuid4(),
+        company_id=raw_state.context.company_id,
+        artifact_type=ArtifactType.RESEARCH,
+        revision=2,
+        input_revision=1,
+        producer=Role.RESEARCHER,
+        status="complete",
+        payload=ResearchArtifact(summary="Retained research", conflicts=()),
+        assumptions=(),
+        verification_findings=(
+            VerificationFinding(
+                code="research_raw",
+                message="Raw research awaits adjudication.",
+                severity="info",
+            ),
+        ),
+    )
+    raw_state = accept_artifact(
+        raw_state,
+        raw,
+        authenticated_session_id="parent-session",
+    )
+    adjudicated = ArtifactEnvelope(
+        artifact_id=uuid4(),
+        company_id=raw_state.context.company_id,
+        artifact_type=ArtifactType.RESEARCH,
+        revision=3,
+        input_revision=2,
+        producer=Role.VERIFIER,
+        status="complete",
+        payload=ResearchArtifact(
+            summary="Retained research",
+            conflicts=(),
+            adjudicated_from_artifact_id=raw.artifact_id,
+            adjudicated_from_revision=raw.revision,
+        ),
+        assumptions=(),
+        verification_findings=(
+            VerificationFinding(
+                code="research_adjudicated",
+                message="Research adjudication completed.",
+                severity="info",
+            ),
+        ),
+    )
+    adjudicated_state = accept_artifact(
+        raw_state,
+        adjudicated,
+        authenticated_session_id="parent-session",
+    )
+
+    assert not _terminal_acceptance(
+        WorkOperation.JOURNEY,
+        ApprovedStage.RESEARCH,
+        raw_state,
+        0,
+    )
+    assert _terminal_acceptance(
+        WorkOperation.JOURNEY,
+        ApprovedStage.RESEARCH,
+        adjudicated_state,
+        0,
+    )
 
 
 def _prepare(database: SamuraiPostgresDb, run_id: str) -> tuple[WorkIntentInput, AcceptanceToken]:
