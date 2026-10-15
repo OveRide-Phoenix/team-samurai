@@ -47,12 +47,13 @@ portal-field assertion.
 ## Current acceptance boundary
 
 **Prepared now:** Future of Work narrative, strict time budget, source-aware
-storyboard, and explicit placeholders for cloud/recovery scenes.
+storyboard, a rendered [16-slide working deck and PDF](template-deck/README.md),
+and explicit placeholders for cloud/recovery scenes.
 
 **Pending before a final asset can be accepted:** task-11 candidate-revision
 proof; actual task-11 cost/grounded evidence; authorized portal/template and
-team metadata; rendered deck/PDF; recorded video and `ffprobe` duration below
+team metadata; final deck/PDF content acceptance; recorded video and `ffprobe` duration below
 180 seconds; signed-out public-link review; and evaluator access arrangement.
 
-No live Google service, deployment, portal, video, or deck is asserted by this
-document.
+No current cloud acceptance, portal verification, or recorded video is asserted
+by this document. The local deck is a preparation artifact.

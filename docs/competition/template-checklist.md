@@ -10,7 +10,7 @@ authenticated submission portal.
 | Slide | Required content visible in the template | Samurai preparation / remaining work |
 | --- | --- | --- |
 | 1 | Team name, leader, and problem | Samurai and the founder-coordination problem are drafted; confirm actual team and leader metadata in the portal. |
-| 2 | Instructions for downloading and editing a local PowerPoint copy | The public export downloaded successfully after browser export failed; layout adaptation is pending. No edit request was sent. |
+| 2 | Instructions for downloading and editing a local PowerPoint copy | The public export downloaded successfully after browser export failed; the 16-slide local adaptation is rendered and checked. No edit request was sent. |
 | 3 | Idea summary | Adapt the [solution description](solution-description.md). |
 | 4 | Differentiation, problem-solving approach, and distinctive value | Explain retained company context, evidence gates, and founder-approved progression without claiming validated business outcomes. |
 | 5 | Product features | Separate locally accepted features from historical deployment and proposed capabilities using [local acceptance](../local-acceptance.md). |
