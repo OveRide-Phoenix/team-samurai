@@ -4,6 +4,37 @@
 application, release, artifact, upload, message, deployment, or history change
 was made by this audit. The application remains team-only behind IAP.
 
+## October 16, 2026 history and metadata refresh
+
+A fresh SSH mirror advertised 28 remote refs. Adding the local candidate
+branches produced 76 refs and 264 reachable commits; `git fsck --full
+--no-reflogs` passed. The local documentation/deck candidate was
+`e3787330e43ad972a3295a6388d2ee9279ebad1b`; remote main remained
+`da76f0c6b74b83a60f285441324ef44e695c94f4`.
+
+The pinned Gitleaks 8.30.1 binary initially reported 218 scanned commits with
+`--log-opts=--all`. Repeating against the full mirror with
+`--log-opts='--all --diff-merges=first-parent'` reported 263 scanned commits
+and eight matches. All eight were inspected at their exact commits: repeated
+streamed-byte handling expressions and a browser-storage namespace, not
+credential literals. Independently enumerating all 264 reachable commits found
+exactly one empty first-parent diff (`073d02c4bf6a04870b33348521ebdc5974d87dd8`),
+accounting for the count difference. This closes the merge-diff coverage gap.
+A separate candidate-material scan, including the new deck's extracted XML
+text, reported zero findings. Neither scan constitutes a complete manual
+review of every binary or disclosure choice.
+
+Fresh authenticated GitHub API reads succeeded: zero releases/assets and zero
+Actions artifacts. A temporary checksum-verified Git LFS 3.8.0 binary inventoried
+all refs and returned zero LFS objects. These fresh results supersede earlier
+access failures for these inventories only. The temporary mirror, downloaded
+LFS tool, and its extraction directory were removed.
+
+The application remains restricted. Final disclosure review,
+visibility/access authorization, evaluator identities and expiry,
+and signed-out final links remain open. No visibility, IAM, publication, push,
+or submission change was performed.
+
 ## October 15, 2026 snapshot and coverage
 
 This is the bounded 15 October snapshot, not an audit of the later founder
