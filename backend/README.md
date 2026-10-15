@@ -14,7 +14,7 @@ Owns the server-side behavior for **AI Idea → Company**. Read the root [AGENTS
 
 The founder-platform integration includes the locally accepted offer diagnostic at source commit `928ce5e085ff9b0d73e97ce878199c1235ef56ee`. Strategy requires mapped, supported research with retained evidence and no unresolved contradiction before calling the Strategist. Its offer remains `draft_only`; generated offer text, pricing, and purchasing power remain assumptions. Matching numbers elsewhere in research do not verify a generated price. Numeric strategy assumptions currently require `needs_rework` because they have no explicit evidence binding.
 
-Ordinary Gemini research retains grounding segments and marks claims unverified. It cannot yet satisfy this Strategy gate. The [source-adjudication plan](../.omo/plans/samurai-source-adjudication.md) adds independent page retrieval and source-bound semantic assessment before Strategy; that implementation is in progress. A manually supported fixture is only gate coverage, not proof of an ordinary research-to-offer journey.
+Ordinary research retains grounding segments as unverified, then source adjudication fetches only its retained public URLs and appends a second immutable Research revision. Strategy can use a claim only when the fetched content is bound to that claim, source, content hash, and exact quote and the Verifier returns a supported source-relative verdict. This does not establish source authority, customer demand, or universal truth.
 
 Task 12 acceptance covered 98 provider-free backend tests, static checks, and real Agno workflow execution with fresh SQLite readback. Adversarial cases kept distinct generated prices as assumptions even when unrelated supported or unverified research contained matching numbers. The founder-framework UI remains pending in [the founder-platform plan](../.omo/plans/samurai-founder-platform.md). These changes have not been accepted through a live provider/browser/cloud journey or deployed. The earlier onboarding and cloud results below describe their named historical revisions, not this integration revision.
 
@@ -106,6 +106,25 @@ uv run pytest
 ```
 
 Tests isolate configuration and verify AgentOS authentication without a Google key or running database. Report real PostgreSQL and Gemini checks separately. Settings read `.env` relative to the working directory, so run commands from `backend/`. Never commit credentials or use the service key as browser authentication.
+
+The provider-free source-adjudication acceptance uses disposable local PostgreSQL and Redis endpoints and fails if an external provider path is reached:
+
+```sh
+SAMURAI_TEST_DATABASE_URL='<isolated-postgres-url>' \
+SAMURAI_TEST_REDIS_URL='<isolated-redis-url>' \
+uv run pytest tests/test_source_adjudication_acceptance.py \
+  tests/test_company_store_acceptance.py tests/test_queue_runtime.py tests/test_queue_process.py
+```
+
+The live Gemini/public-page smoke is a separate paid and networked gate. Run it only with explicit authorization and configured credentials:
+
+```sh
+uv run python scripts/smoke_company_journey.py \
+  --idea '<idea>' --customer '<customer>' --geography '<geography>' \
+  --budget '<budget>' --skills '<skills>' --goal '<goal>'
+```
+
+It succeeds only when canonical state contains raw Research revision 2, adjudicated Research revision 3 with sanitized fetch/hash/quote provenance, and a revision-4 draft-only offer diagnostic. Provider-free acceptance does not count as live source, Gemini, browser, or deployment proof.
 
 ## Route isolation and Reporting reference
 

@@ -26,6 +26,7 @@ from samurai.contracts import (
     ArtifactType,
     CompanyState,
     ResearchArtifact,
+    StrategyArtifact,
     WorkflowResult,
 )
 
@@ -63,6 +64,11 @@ def _arguments() -> SmokeArguments:
 
 
 def _artifact_record(artifact: ArtifactEnvelope) -> JsonValue:
+    research = (
+        ResearchArtifact.model_validate(artifact.payload)
+        if artifact.artifact_type == ArtifactType.RESEARCH
+        else None
+    )
     return {
         "type": artifact.artifact_type,
         "artifact_id": str(artifact.artifact_id),
@@ -74,10 +80,64 @@ def _artifact_record(artifact: ArtifactEnvelope) -> JsonValue:
         "source_urls": [str(source.url) for source in artifact.sources],
         "claim_count": len(artifact.claims),
         "claim_verification": [claim.verification_status for claim in artifact.claims],
-        "conflicts": list(ResearchArtifact.model_validate(artifact.payload).conflicts)
-        if artifact.artifact_type == ArtifactType.RESEARCH
+        "conflicts": list(research.conflicts) if research is not None else [],
+        "adjudications": [
+            {
+                "research_artifact_id": str(item.research_artifact_id),
+                "research_revision": item.research_revision,
+                "claim_id": str(item.claim_id),
+                "source_id": str(item.source_id),
+                "source_url": str(item.source_url),
+                "final_url": str(item.final_url),
+                "content_sha256": item.content_sha256,
+                "evidence_quote": item.evidence_quote,
+                "verdict": item.verdict,
+            }
+            for item in research.adjudications
+        ]
+        if research is not None
         else [],
     }
+
+
+def smoke_terminal(result: WorkflowResult, state: CompanyState) -> bool:
+    """Require the complete source-gated canonical journey before live success."""
+    artifacts = state.artifacts
+    if [artifact.artifact_type for artifact in artifacts] != [
+        "intake",
+        "research",
+        "research",
+        "strategy",
+        "product_plan",
+        "verification",
+    ]:
+        return False
+    if [artifact.revision for artifact in artifacts] != [1, 2, 3, 4, 5, 6]:
+        return False
+    raw, adjudicated = artifacts[1:3]
+    raw_payload = ResearchArtifact.model_validate(raw.payload)
+    adjudicated_payload = ResearchArtifact.model_validate(adjudicated.payload)
+    strategy = StrategyArtifact.model_validate(artifacts[3].payload)
+    supported = tuple(
+        item for item in adjudicated_payload.adjudications if item.verdict == "supported"
+    )
+    return (
+        result.outcome in {"verified", "needs_rework"}
+        and result.revision == artifacts[-1].revision
+        and not raw_payload.is_adjudicated
+        and raw.claims[0].verification_status == "unverified"
+        and adjudicated_payload.adjudicated_from_artifact_id == raw.artifact_id
+        and adjudicated_payload.adjudicated_from_revision == raw.revision
+        and bool(supported)
+        and all(
+            item.final_url is not None
+            and item.content_sha256 is not None
+            and bool(item.evidence_quote)
+            for item in supported
+        )
+        and artifacts[3].status == "draft_only"
+        and strategy.offer_diagnostic is not None
+    )
 
 
 def _write_json(path: Path, payload: JsonValue) -> None:
@@ -166,20 +226,10 @@ async def run_smoke(arguments: SmokeArguments) -> None:
     if completed is None:
         raise SmokeError
     result = WorkflowResult.model_validate(completed.content)
-    expected_types = ["intake", "research", "strategy", "product_plan", "verification"]
-    artifacts = list(result.artifacts)
+    state = CompanyState.model_validate(session_state["company"])
+    artifacts = list(state.artifacts)
     step_names = [step.step_name or "" for step in completed.step_results]
-    terminal = (
-        result.outcome in {"verified", "needs_rework"}
-        and [artifact.artifact_type for artifact in artifacts] == expected_types
-        and [artifact.revision for artifact in artifacts] == [1, 2, 3, 4, 5]
-        and [artifact.input_revision for artifact in artifacts] == [0, 1, 2, 3, 4]
-        and all(
-            claim.verification_status == "unverified"
-            for artifact in artifacts
-            for claim in artifact.claims
-        )
-    )
+    terminal = smoke_terminal(result, state)
     _ = sys.stdout.write(
         json.dumps(
             {

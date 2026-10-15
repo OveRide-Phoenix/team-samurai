@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from collections import abc  # noqa: TC003 - Agno resolves model annotations at runtime.
 from datetime import UTC, datetime
@@ -24,7 +25,7 @@ from agno.utils.gemini import format_function_definitions
 from agno.workflow import Step, StepInput, StepOutput, Workflow
 from agno.workflow.types import HumanReview, OnError
 from fastapi.testclient import TestClient
-from pydantic import HttpUrl, JsonValue
+from pydantic import BaseModel, ConfigDict, HttpUrl, JsonValue, TypeAdapter
 
 from samurai.agents import ROLE_CAPABILITIES, ConfiguredRole
 from samurai.app import create_app
@@ -59,6 +60,8 @@ from samurai.parent import (
     create_parent_agent,
 )
 from samurai.research import ResearchAgent, ResearchResult
+from samurai.source_adjudication import SourceAssessmentBatch, SourceAssessmentDecision
+from samurai.source_fetch import SourceFetchResult, SourceFetchSuccess
 
 if TYPE_CHECKING:
     import pathlib
@@ -161,11 +164,13 @@ class _ToolSequenceModel(Model):
 
 
 @final
-class _StaticRoleModel(Model):
-    def __init__(self, content: str) -> None:
+class StaticRoleModel(Model):
+    def __init__(self, content: BaseModel | str) -> None:
         super().__init__(id="role-test", name="Role test", provider="test")
         self.id: str = "role-test"
         self.content = content
+        self.calls = 0
+        self.assessment_calls = 0
 
     @override
     def invoke(self, *_args: Never, **_kwargs: Never) -> ModelResponse:
@@ -174,7 +179,37 @@ class _StaticRoleModel(Model):
     @override
     async def ainvoke(self, messages: list[Message], **_kwargs: Never) -> ModelResponse:
         assert messages
-        return ModelResponse(content=self.content)
+        self.calls += 1
+        prompt = messages[-1].get_content_string()
+        if "Assess every candidate exactly once." in prompt:
+            self.assessment_calls += 1
+            rows = TypeAdapter(list[_AssessmentPromptRow]).validate_json(
+                prompt[prompt.rindex("[") :]
+            )
+            return ModelResponse(
+                content=SourceAssessmentBatch(
+                    decisions=tuple(
+                        SourceAssessmentDecision(
+                            candidate_id=row.candidate_id,
+                            claim_id=row.claim_id,
+                            claim_text=row.claim_text,
+                            source_id=row.source_id,
+                            source_url=row.source_url,
+                            content_sha256=row.content_sha256,
+                            verdict="supported",
+                            evidence_quote=row.claim_text,
+                            rationale="Fetched content supports the retained claim.",
+                        )
+                        for row in rows
+                    )
+                ).model_dump_json()
+            )
+        raw = (
+            self.content.model_dump_json() if isinstance(self.content, BaseModel) else self.content
+        )
+        if isinstance(self.content, IntakeArtifact):
+            raw = raw.replace('"artifact_type":"intake"', '"artifact_type":"founder_intake"')
+        return ModelResponse(content=raw)
 
     @override
     def invoke_stream(self, *_args: Never, **_kwargs: Never) -> abc.Iterator[ModelResponse]:
@@ -193,6 +228,18 @@ class _StaticRoleModel(Model):
     @override
     def _parse_provider_response_delta(self, response: ModelResponse) -> ModelResponse:
         return response
+
+
+class _AssessmentPromptRow(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
+
+    candidate_id: str
+    claim_id: UUID
+    claim_text: str
+    source_id: UUID
+    source_url: HttpUrl
+    content_sha256: str
+    context: str
 
 
 @final
@@ -275,12 +322,9 @@ def _deterministic_catalog() -> dict[Role, ConfiguredRole]:
     }
     catalog: dict[Role, ConfiguredRole] = {}
     for role, output in outputs.items():
-        raw = output.model_dump_json()
-        if role is Role.INTAKE:
-            raw = raw.replace('"artifact_type":"intake"', '"artifact_type":"founder_intake"')
         agent = Agent(
             id=f"test-{role.value}",
-            model=_StaticRoleModel(raw),
+            model=StaticRoleModel(output),
             output_schema=None if role is Role.RESEARCHER else type(output),
             telemetry=False,
         )
@@ -293,7 +337,11 @@ def _deterministic_catalog() -> dict[Role, ConfiguredRole]:
     return catalog
 
 
-async def _mapped_research(
+def deterministic_catalog() -> dict[Role, ConfiguredRole]:
+    return _deterministic_catalog()
+
+
+async def ordinary_mapped_research(
     _agent: ResearchAgent,
     _brief: CompanyBrief,
     *,
@@ -322,7 +370,7 @@ async def _mapped_research(
                 source_ids=(source_id,),
                 support_status="mapped",
                 support_segments=(segment,),
-                verification_status="supported",
+                verification_status="unverified",
             ),
         ),
         assumptions=(
@@ -338,6 +386,22 @@ async def _mapped_research(
                 severity="info",
             ),
         ),
+    )
+
+
+async def supporting_source_fetch(urls: abc.Sequence[str]) -> tuple[SourceFetchResult, ...]:
+    claim = "Clinics report missed calls and compare monthly services."
+    text = f"The study describes clinic operations. {claim} The report records the unit."
+    return tuple(
+        SourceFetchSuccess(
+            original_url=url,
+            final_url=url,
+            fetched_at=datetime.now(UTC),
+            content_sha256=hashlib.sha256(text.encode()).hexdigest(),
+            media_type="text/plain",
+            text=text,
+        )
+        for url in urls
     )
 
 
@@ -830,7 +894,7 @@ def test_complete_metric_call_remains_conditional_and_founder_supplied(
     )
     analyst = Agent(
         id="test-analyst",
-        model=_StaticRoleModel(assessment.model_dump_json()),
+        model=StaticRoleModel(assessment.model_dump_json()),
         output_schema=AnalysisDraft,
         telemetry=False,
     )
@@ -1001,17 +1065,18 @@ def test_repeated_skill_reads_end_at_parent_model_budget(tmp_path: pathlib.Path)
     assert model.calls == settings.agent_tool_call_limit + 1
 
 
-def test_native_http_parent_runs_real_company_workflow_to_five_artifacts(
+def test_ordinary_research_adjudication_offer(
     tmp_path: pathlib.Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    catalog = _deterministic_catalog()
+    catalog = deterministic_catalog()
 
     def catalog_factory(_settings: Settings) -> dict[Role, ConfiguredRole]:
         return catalog
 
     monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
-    monkeypatch.setattr("samurai.company_workflow.run_research", _mapped_research)
+    monkeypatch.setattr("samurai.company_workflow.run_research", ordinary_mapped_research)
+    monkeypatch.setattr("samurai.company_workflow.fetch_sources", supporting_source_fetch)
     arguments = json.dumps(
         {
             "idea": "AI receptionist for Indian dental clinics",
@@ -1060,7 +1125,7 @@ def test_native_http_parent_runs_real_company_workflow_to_five_artifacts(
     assert child_run.session_id == child.session_id
     assert child_run.workflow_id == "company-journey"
     persisted_result = WorkflowResult.model_validate(child_run.content)
-    assert len(child_run.step_results or ()) == 7
+    assert len(child_run.step_results or ()) == 8
     assert child.session_data is not None
     session_state = cast("dict[str, object]", child.session_data["session_state"])
     state = CompanyState.model_validate(session_state["company"])
@@ -1075,16 +1140,21 @@ def test_native_http_parent_runs_real_company_workflow_to_five_artifacts(
     assert [artifact.artifact_type for artifact in state.artifacts] == [
         "intake",
         "research",
+        "research",
         "strategy",
         "product_plan",
         "verification",
     ]
-    assert [artifact.revision for artifact in state.artifacts] == [1, 2, 3, 4, 5]
-    assert all(
-        claim.verification_status == "supported"
-        for artifact in state.artifacts
-        for claim in artifact.claims
-    )
+    assert [artifact.revision for artifact in state.artifacts] == [1, 2, 3, 4, 5, 6]
+    raw, adjudicated = state.artifacts[1:3]
+    assert raw.claims[0].verification_status == "unverified"
+    adjudicated_payload = ResearchArtifact.model_validate(adjudicated.payload)
+    assert adjudicated_payload.adjudicated_from_artifact_id == raw.artifact_id
+    assert adjudicated_payload.adjudicated_from_revision == raw.revision
+    assert adjudicated.claims[0].verification_status == "supported"
+    strategy = StrategyArtifact.model_validate(state.artifacts[3].payload)
+    assert strategy.offer_diagnostic is not None
+    assert state.artifacts[3].status == "draft_only"
 
 
 def test_real_core_step_failure_is_fail_closed_before_state_mutation(
@@ -1094,7 +1164,7 @@ def test_real_core_step_failure_is_fail_closed_before_state_mutation(
 ) -> None:
     provider_marker = "real-core-provider-secret-marker"
     failing_model = _FailingRoleModel(provider_marker)
-    catalog = _deterministic_catalog()
+    catalog = deterministic_catalog()
     catalog[Role.INTAKE] = ConfiguredRole(
         agent_id="test-failing-intake",
         agent=Agent(
@@ -1120,7 +1190,7 @@ def test_real_core_step_failure_is_fail_closed_before_state_mutation(
     ) -> ResearchResult:
         nonlocal research_calls
         research_calls += 1
-        return await _mapped_research(agent, brief, max_sources=max_sources)
+        return await ordinary_mapped_research(agent, brief, max_sources=max_sources)
 
     monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
     monkeypatch.setattr("samurai.company_workflow.run_research", unexpected_research)
@@ -1207,7 +1277,7 @@ def test_launch_child_steps_are_fail_closed_without_losing_review_policy(
                     name=f"Create {role.value} draft",
                     agent=Agent(
                         id=f"test-{role.value}",
-                        model=_StaticRoleModel("unused"),
+                        model=StaticRoleModel("unused"),
                         telemetry=False,
                     ),
                     human_review=HumanReview(
@@ -1265,7 +1335,7 @@ def test_explicit_empty_brief_fields_remain_missing_input(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def catalog_factory(_settings: Settings) -> dict[Role, ConfiguredRole]:
-        return _deterministic_catalog()
+        return deterministic_catalog()
 
     monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
     arguments = json.dumps(
@@ -1318,7 +1388,7 @@ def test_parent_tool_emits_progress_before_blocked_research_and_closes_cross_tas
     tmp_path: pathlib.Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    catalog = _deterministic_catalog()
+    catalog = deterministic_catalog()
 
     def catalog_factory(_settings: Settings) -> dict[Role, ConfiguredRole]:
         return catalog
@@ -1335,7 +1405,7 @@ def test_parent_tool_emits_progress_before_blocked_research_and_closes_cross_tas
         entered_research.set()
         await anyio.sleep_forever()
         research_finished.set()
-        return await _mapped_research(agent, brief, max_sources=max_sources)
+        return await ordinary_mapped_research(agent, brief, max_sources=max_sources)
 
     monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
     monkeypatch.setattr("samurai.company_workflow.run_research", blocked_research)
@@ -1568,13 +1638,14 @@ def test_nonstreaming_child_failures_share_sanitized_terminal_boundary(
 def test_parent_stream_reports_start_and_completion_for_real_workflow_steps(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    catalog = _deterministic_catalog()
+    catalog = deterministic_catalog()
 
     def catalog_factory(_settings: Settings) -> dict[Role, ConfiguredRole]:
         return catalog
 
     monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
-    monkeypatch.setattr("samurai.company_workflow.run_research", _mapped_research)
+    monkeypatch.setattr("samurai.company_workflow.run_research", ordinary_mapped_research)
+    monkeypatch.setattr("samurai.company_workflow.fetch_sources", supporting_source_fetch)
     database = SqliteDb(db_file=str(tmp_path / "step-completion.db"))
     agent = create_parent_agent(database, Settings.model_validate({}), model=_ToolSequenceModel())
     raw_tools = cast("list[object]", agent.tools)

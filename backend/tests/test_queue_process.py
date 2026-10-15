@@ -614,6 +614,9 @@ def test_native_retry_reuses_child_commit_after_pre_ack_process_kill(
                 "scenario": "worker killed after child commit and before parent acknowledgement",
                 "external_provider_calls": 0,
                 "provider_guard": "local fail-closed Gemini invoke patch",
+                "public_source_fetch_guard": (
+                    "local fail-closed company_workflow.fetch_sources patch"
+                ),
                 "first_receipt": running.model_dump(mode="json"),
                 "terminal_receipt": completed.model_dump(mode="json"),
                 "committed_revision": committed.current_revision,
@@ -729,6 +732,9 @@ def test_native_cancel_from_second_replica_reaches_terminal_without_child_artifa
                 "after_replacement": after_replacement.model_dump(mode="json"),
                 "replacement_model_invoked": replacement_marker.exists(),
                 "child_session_created": child is not None,
+                "public_source_fetch_guard": (
+                    "local fail-closed company_workflow.fetch_sources patch"
+                ),
             },
         )
     finally:
@@ -885,6 +891,9 @@ def test_unexpected_provider_stream_fails_locally_before_network(
                 "terminal": terminal.model_dump(mode="json"),
                 "attempt_after_settle": unchanged.attempt,
                 "external_provider_calls": 0,
+                "public_source_fetch_guard": (
+                    "local fail-closed company_workflow.fetch_sources patch"
+                ),
             },
         )
     finally:
