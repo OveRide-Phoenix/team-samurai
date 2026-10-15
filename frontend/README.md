@@ -1,6 +1,6 @@
 # Samurai UI
 
-The React/Vite founder workspace for AI Idea → Company. New companies use the configured local AgentOS backend; existing and demo companies retain labelled Preview mode. Live Gemini runs may incur provider charges. The workspace does not send, publish or deploy; the production Node proxy uses team-only Google IAP, with Google sign-in, live brief creation and reload verified.
+The React/Vite founder workspace for AI Idea → Company. New companies use the configured local AgentOS backend; existing and demo companies retain labelled Preview mode. Live Gemini runs may incur provider charges. The workspace does not send, publish or deploy; recorded production Node-proxy revisions used team-only Google IAP, with Google sign-in, live brief creation, and reload verified there rather than for the current source.
 
 ## Run locally
 
