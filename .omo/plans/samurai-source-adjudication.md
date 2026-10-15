@@ -86,7 +86,7 @@ Critical path: Task 1 -> Task 2/Task 3 -> Task 4 -> Task 5 -> Task 6
 > Implementation + Test = ONE task. Never separate.
 > Every task MUST have: References + Acceptance Criteria + QA Scenarios + Commit.
 
-- [ ] 1. Settle Task 12 and pin the downstream gate/API baseline
+- [x] 1. Settle Task 12 and pin the downstream gate/API baseline
 
   What to do: Wait for the Task 12 owner to provide its verified local commit, then start source-adjudication implementation only from an integration branch containing that commit. Derive and record the exact Task 12 SHA from the commit that introduces `_supported_research_claim`, rather than relying on a commit subject, and confirm the post-Task12 symbols `_supported_research_claim`, `_has_critical_contradiction`, `OfferDiagnostic`, `StrategyArtifact.offer_diagnostic`, and the `draft_only` Strategy behavior. Re-run and capture the already observed locked `agno==3.1.2` preflight: `Agent.arun` accepts `output_schema` and forwards it into per-run dispatch. Task 4 must prove behavioral nonmutation with a fake model because signature/source inspection alone does not establish it. Do not implement a fallback second agent unless this exact locked API check fails; if it fails, stop this plan as blocked because the selected one-call Verifier design would need replanning.
   Must NOT do: Do not edit, discard, commit, rebase, or merge another worker's dirty Task 12 checkout as part of this task. Do not start `company_workflow.py` or `contracts.py` adjudication edits against pre-Task12 integration.

@@ -546,7 +546,7 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
 
   Commit: YES | Message: `feat(founder): preserve truth gaps and next decision` | Files: [backend/src/samurai/contracts.py, backend/src/samurai/company_workflow.py, backend/src/samurai/parent.py, backend/src/samurai/prompts/brief.md, backend/src/samurai/prompts/shared/evidence.md, backend/tests/test_contracts.py, backend/tests/test_company_workflow.py, backend/tests/test_parent.py, backend/tests/fixtures/platform-evals/founder-truth.json]
 
-- [ ] 12. Add the evidence-gated Hormozi offer diagnostic
+- [x] 12. Add the evidence-gated Hormozi offer diagnostic
 
   What to do: On `Kalyan/founder-platform-t12-offer`, add additive `OfferDiagnostic` fields to Strategy: market, painful problem, purchasing-power assumption, draft offer, evidence needed, and framework reference. Run it only after an accepted Research artifact has at least one mapped/supported claim; unresolved claims/pricing/willingness-to-pay remain assumptions and `needs_input|needs_rework`. Preserve existing offer/pricing fields for compatibility.
   Must NOT do: Do not automate leads, outreach, ads, spending, guarantees, money-model commitments, legal/accounting advice, or let the rubric override evidence/approval.
