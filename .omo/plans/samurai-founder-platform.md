@@ -697,7 +697,7 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
 
   Commit: YES | Message: `feat(knowledge): ground drafts in scoped workspace context` | Files: [backend/src/samurai/knowledge_api.py, backend/src/samurai/knowledge.py, backend/src/samurai/company_store.py, backend/src/samurai/contracts.py, backend/src/samurai/company_workflow.py, backend/src/samurai/agents.py, backend/src/samurai/parent.py, backend/src/samurai/app.py, backend/src/samurai/prompts/main.md, backend/tests/test_knowledge_api.py, backend/tests/test_company_store_acceptance.py, backend/tests/test_company_workflow.py, backend/tests/test_agents.py, frontend/src/agentos.ts, frontend/src/agentos.test.ts]
 
-- [ ] 16. Render authenticated knowledge references through the typed UI
+- [x] 16. Render authenticated knowledge references through the typed UI
 
   Verified rendering seam: `GenerativePanelBody.tsx` delegates existing evidence links to `StandardPanelBody.tsx`; include that renderer when introducing the external/internal source union so every caller narrows it correctly. Reuse `files.ts` same-origin authenticated download and safe file metadata rather than creating public URLs. Accepted-artifact references show immutable artifact provenance, not a file download. Task 16 may update the existing development preview fixture and focused file-client tests for browser QA; preserve panel IDs and the established design. Pass the existing company workspace ID through App.tsx and the panel renderers for authenticated file access; use existing styles.css tokens for provenance wrapping and focus states. Strategy knowledge references must render on their existing panels. Internal context cannot by itself satisfy a supported-claim source requirement.
 
@@ -714,9 +714,9 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
   - Test:     `frontend/src/model.test.ts:1` - unsafe URL/panel rejection
 
   Acceptance criteria (agent-executable only):
-  - [ ] Internal references contain file ID, title, hash, chunk, and trust label but no storage path/token; downloads go through same-origin authenticated BFF.
-  - [ ] Existing external HTTP(S) source links keep `noopener noreferrer`; file references never render as external/public URLs.
-  - [ ] Browser reload/revocation/deletion handles references honestly; unknown reference kind/protocol fails schema parsing.
+  - [x] Internal references contain file ID, title, hash, chunk, and trust label but no storage path/token; downloads go through same-origin authenticated BFF.
+  - [x] Existing external HTTP(S) source links keep `noopener noreferrer`; file references never render as external/public URLs.
+  - [x] Browser reload/revocation/deletion handles references honestly; unknown reference kind/protocol fails schema parsing.
 
   QA scenarios (MANDATORY - task incomplete without these):
   ```
