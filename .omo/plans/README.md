@@ -6,7 +6,7 @@ This directory contains portable, reviewable plan summaries. New runtime boulder
 |---|---|---|
 | [Samurai parent-agent completion](samurai-parent-agents.md) | Complete locally | The accepted ordinary Samurai parent, internal workflows, evidence limits, and local API/UI acceptance summary. |
 | [Local developer onboarding completion](local-developer-setup.md) | Complete locally | Repeatable local setup, safe PostgreSQL lifecycle, command validation, and documentation boundaries. |
-| [Frontend deployment and CI/CD](frontend-deployment-cicd.md) | Complete; automatic/manual rollout verified | Team-only IAP, per-user JWT bridge, additive backend trust, main/manual deployment and rollback. |
+| [Frontend deployment and CI/CD](frontend-deployment-cicd.md) | Historical deployment/CI acceptance | Recorded team-only IAP, per-user JWT bridge, additive backend trust, main/manual deployment, and rollback acceptance; it does not prove the current local source is deployed. |
 | [GCP deployment](gcp-deployment.md) | Historical deployment; Agno Live accepted | Recorded Mumbai Cloud Run, Cloud SQL, Gemini, JWT key rotation, authenticated console chat, and reload persistence acceptance; it does not prove the current local source is deployed. |
 | [Samurai Founder Platform](samurai-founder-platform.md) | Tasks 1–9 accepted locally; Task 10 in progress | The follow-on platform now includes accepted local workspace, canonical-company-state, and file-flow work; governed founder-framework resources remain in progress. |
 

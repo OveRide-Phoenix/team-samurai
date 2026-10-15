@@ -16,8 +16,8 @@ release.
 | Workspace/company rows are canonical | `.omo/plans/samurai-founder-platform.md` Tasks 5–6 and `backend/src/samurai/company_store.py` | AgentOS sessions/runs remain actor-scoped; the backend owns accepted company state. |
 | Workspace files are local by default | `.omo/plans/samurai-founder-platform.md` Task 8 and `docs/local-development.md` | A Cloud Storage adapter/deployment is not established. |
 | Founder Platform status | `.omo/plans/samurai-founder-platform.md` checkboxes: Tasks 1–9 checked, Task 10 unchecked | The separate Founder Platform Task 10 is in progress. |
-| Founder Platform Task 9 result | `../samurai-founder-file-api/.omo/evidence/founder-platform/task-9/DoneClaim.md`, `final-acceptance-receipt.txt`, and `task-check-final-pass.txt` | Exact accepted SHA `5eea8dea4c4469c39e6682879d637d5ca3dcf0f8`; focused 39/0, full backend 266 passed/105 environment-gated skips, frontend 130 passed, and provider-free Vite-BFF/IAB owner download/deletion. |
-| Historical deployment and external gates | `../samurai-readiness-runtime/.omo/evidence/readiness/task-12/docs-audit.md` and `../samurai-readiness-runtime/.omo/evidence/readiness/task-13/final-blocked-state.txt` | Historical cloud/IAP evidence does not prove the current checkout is deployed. Readiness Task 11 is deferred; external access/publication remains blocked. |
+| Founder Platform Task 9 result | `/Users/bkakumar/Documents/ChatGPT/Samurai/samurai-founder-file-api/.omo/evidence/founder-platform/task-9/DoneClaim.md`, `/Users/bkakumar/Documents/ChatGPT/Samurai/samurai-founder-file-api/.omo/evidence/founder-platform/task-9/final-acceptance-receipt.txt`, and `/Users/bkakumar/Documents/ChatGPT/Samurai/samurai-founder-file-api/.omo/evidence/founder-platform/task-9/task-check-final-pass.txt` | Exact accepted SHA `5eea8dea4c4469c39e6682879d637d5ca3dcf0f8`; focused 39/0, full backend 266 passed/105 environment-gated skips, frontend 130 passed, and provider-free Vite-BFF/IAB owner download/deletion. |
+| Historical deployment and external gates | `/Users/bkakumar/Documents/ChatGPT/Samurai/samurai-readiness-runtime/.omo/evidence/readiness/task-12/docs-audit.md` and `/Users/bkakumar/Documents/ChatGPT/Samurai/samurai-readiness-runtime/.omo/evidence/readiness/task-13/final-blocked-state.txt` | Historical cloud/IAP evidence does not prove the current checkout is deployed. Readiness Task 11 is deferred; external access/publication remains blocked. |
 
 ## Success-criterion evidence
 
@@ -37,7 +37,7 @@ DIFF_CHECK_EXIT=0
 
 RELATIVE_LINKS_OK files=4 targets=26
 
-STALE_CLAIM_SCAN_EXIT=0
+STALE_CLAIM_ASSERTION_EXIT=0
 
 TASK9_ANCESTOR_OF_CURRENT_HEAD=YES
 5eea8dea4c4469c39e6682879d637d5ca3dcf0f8

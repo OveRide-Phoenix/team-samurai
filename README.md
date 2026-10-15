@@ -8,7 +8,7 @@ Software generation is a supporting capability when the company needs it. The pr
 
 Product direction, UI principles, and competition requirements are documented in [AGENTS.md](AGENTS.md). Samurai brand assets are available in [assets/samurai-logo](assets/samurai-logo).
 
-The repository has the React/Vite founder UI in [frontend/](frontend/), local PostgreSQL in Podman, environment templates, and locked dependencies. The UI has onboarding, chat, generative panels, and a company dashboard. New companies connect to local AgentOS through the authenticated Vite proxy; existing and demo companies retain labelled Preview mode. Production frontend uses a Node server behind team-only Google IAP; Google sign-in, live brief creation and reload are verified. See [deployment and CI/CD](docs/gcp-deployment.md). When a Gemini model is configured, the current parent-agent source registers one ordinary AgentOS agent, **Samurai**, as the conversational entry point. It has four bounded business tools: run or continue the company journey, create launch drafts, analyze provenance-labelled metrics, and read current company state. The nine specialist roles remain internal workflow executors.
+The repository has the React/Vite founder UI in [frontend/](frontend/), local PostgreSQL in Podman, environment templates, and locked dependencies. The UI has onboarding, chat, generative panels, and a company dashboard. New companies connect to local AgentOS through the authenticated Vite proxy; existing and demo companies retain labelled Preview mode. The production frontend Node server behind team-only Google IAP, including Google sign-in, live brief creation, and reload, was verified in recorded deployed revisions; that historical result does not show that the current source is deployed. See [deployment and CI/CD](docs/gcp-deployment.md). When a Gemini model is configured, the current parent-agent source registers one ordinary AgentOS agent, **Samurai**, as the conversational entry point. It has four bounded business tools: run or continue the company journey, create launch drafts, analyze provenance-labelled metrics, and read current company state. The nine specialist roles remain internal workflow executors.
 
 ## Current readiness status
 
@@ -136,7 +136,7 @@ A Hark Pro-inspired conversational workspace with an atmospheric background, fro
 - Gemini for reasoning and native Google Search grounding on Researcher; the model is locked to `gemini-3.5-flash-lite`. Provider access, quota, and measured cost still require separate verification; do not commit `.env`.
 - Team-only Google IAP identity is bridged server-side to per-user AgentOS JWTs; backend owner isolation remains the authorization boundary.
 
-Framework versions were resolved on 11 October 2026. Check the manifests and lockfiles for exact versions. The backend and Cloud SQL have recorded deployment acceptance; frontend IAP sign-in and brief execution are verified; automatic/manual deployment acceptance is recorded separately; see AGENTS.md for the agent responsibilities, verification requirements, and submission checklist.
+Framework versions were resolved on 11 October 2026. Check the manifests and lockfiles for exact versions. The backend, Cloud SQL, frontend IAP sign-in, brief execution, and automatic/manual deployment records are historical acceptance for their recorded revisions; they do not prove the current source is deployed. See AGENTS.md for the agent responsibilities, verification requirements, and submission checklist.
 
 ## Local setup
 
@@ -158,7 +158,7 @@ Before implementation, define the intended outcome and affected contracts. Coord
 
 Backend checks: `uv run ruff check src tests`, `uv run basedpyright`, and `uv run pytest`. Frontend checks: `npm run check` and `npm run build`. Dependency update pull requests are configured in [.github/dependabot.yml](.github/dependabot.yml); they require GitHub activation and review.
 
-[GitHub Actions checks](.github/workflows/checks.yml) run these gates on pushes and pull requests once published. They do not require cloud credentials. The separate [deployment workflow](.github/workflows/deploy.yml) runs the same checks for its commit, then deploys backend and frontend images on pushes to `main` or manual dispatch from `main` using Google Workload Identity Federation. IAM/WIF and key bootstrap, live frontend sign-in/brief/reload, and automatic/manual deployments are verified; see [the deployment guide](docs/gcp-deployment.md).
+[GitHub Actions checks](.github/workflows/checks.yml) run these gates on pushes and pull requests once published. They do not require cloud credentials. The separate [deployment workflow](.github/workflows/deploy.yml) runs the same checks for its commit, then deploys backend and frontend images on pushes to `main` or manual dispatch from `main` using Google Workload Identity Federation. Recorded revisions verify IAM/WIF and key bootstrap, live frontend sign-in/brief/reload, and automatic/manual deployments; they do not prove the current source is deployed. See [the deployment guide](docs/gcp-deployment.md).
 
 For the competition, demonstrate a focused end-to-end journey with meaningful Gemini use, visible verification, and clear user value; the full agent vision is not a claim that every role is already implemented.
 
@@ -168,4 +168,4 @@ CopilotKit 1.79.0 is integrated locally through AG-UI and the existing Agno back
 
 The entry form yields a declarative Company brief. Research/evidence, offer/pricing and delivery-plan panels follow the existing founder-approved stages. The A2UI catalog also covers prospect lists and reuses the same business components in chat, Home and the dashboard. Additional views compose typed text, metrics, lists and tables. Founder-requested custom HTML/CSS/JS runs in an isolated frame with embedded Inter, theme tokens, blocked host access and blocked network/navigation. Generated panels remain drafts; their definitions persist, while custom frame input values are temporary.
 
-This is a source/local integration. The currently deployed Cloud Run revisions have not been updated for these new endpoints. Validation uses deterministic models rather than paid Gemini calls; see [the generative UI contract](docs/generative-ui.md).
+This is a source/local integration. The recorded Cloud Run revisions were not updated for these new endpoints. Validation uses deterministic models rather than paid Gemini calls; see [the generative UI contract](docs/generative-ui.md).
