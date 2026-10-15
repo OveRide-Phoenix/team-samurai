@@ -39,6 +39,7 @@ JOIN "{schema}".samurai_companies c ON c.workspace_id=m.workspace_id
 WHERE m.workspace_id=:workspace_id AND m.user_id=:actor_id AND m.active
 AND c.company_id=:company_id"""
 BASELINE_LOCK_QUERY: Final = BASELINE_QUERY + " FOR UPDATE OF m, c"
+MAX_SCENARIO_DEFINITIONS: Final = 50
 SCENARIO_QUERY: Final = """SELECT scenario_id, workspace_id, company_id, created_by,
 company_revision, input_sha256, inputs FROM "{schema}".samurai_scenarios
 WHERE scenario_id=:scenario_id AND workspace_id=:workspace_id AND company_id=:company_id"""
@@ -145,6 +146,30 @@ class ScenarioStore:
             raise ScenarioStoreError(ScenarioIssue.NOT_FOUND)
         return self._definition(row)
 
+    def list(
+        self, actor_id: str, workspace_id: UUID, company_id: UUID
+    ) -> tuple[ScenarioDefinition, ...]:
+        """Read a bounded newest-first definition collection under current membership."""
+        with self._engine.connect() as connection:
+            _ = self._admit(connection, actor_id, workspace_id, company_id, writable=False)
+            rows = tuple(
+                _ScenarioRow.model_validate(row)
+                for row in connection.execute(
+                    self._sql(
+                        """SELECT scenario_id, workspace_id, company_id, created_by,
+                        company_revision, input_sha256, inputs FROM "{schema}".samurai_scenarios
+                        WHERE workspace_id=:workspace_id AND company_id=:company_id
+                        ORDER BY created_at DESC, scenario_id DESC LIMIT :limit"""
+                    ),
+                    {
+                        "workspace_id": workspace_id,
+                        "company_id": company_id,
+                        "limit": MAX_SCENARIO_DEFINITIONS,
+                    },
+                ).mappings()
+            )
+        return tuple(self._definition(row) for row in rows)
+
     def run(  # noqa: PLR0913 - all arguments are independent persistence fences.
         self,
         actor_id: str,
@@ -157,53 +182,75 @@ class ScenarioStore:
     ) -> tuple[ScenarioResult, bool]:
         """Compute and atomically persist all three deterministic labels."""
         with self._engine.begin() as connection:
-            row = self._scenario_row(connection, scenario_id, workspace_id, company_id, lock=False)
-            if row is None:
-                raise ScenarioStoreError(ScenarioIssue.NOT_FOUND)
-            definition = self._definition(row)
-            _ = self._baseline(
+            return self.run_in_transaction(
                 connection,
                 actor_id,
                 workspace_id,
                 company_id,
-                definition,
-                lock=True,
+                scenario_id,
+                idempotency_key,
+                cancelled=cancelled,
             )
-            row = self._scenario_row(connection, scenario_id, workspace_id, company_id, lock=True)
-            if row is None or row.input_sha256 != definition.input_sha256:
-                raise ScenarioStoreError(ScenarioIssue.NOT_FOUND)
-            existing = self._result(connection, scenario_id)
-            if existing is not None:
-                return existing, False
-            run_id = uuid5(
-                NAMESPACE_URL,
-                f"samurai-scenario-run:{scenario_id}:{actor_id}:{idempotency_key}",
+
+    def run_in_transaction(  # noqa: PLR0913, PLR0917 - transaction owns all fences.
+        self,
+        connection: Connection,
+        actor_id: str,
+        workspace_id: UUID,
+        company_id: UUID,
+        scenario_id: UUID,
+        idempotency_key: UUID,
+        *,
+        cancelled: Callable[[ScenarioLabel], bool] | None = None,
+    ) -> tuple[ScenarioResult, bool]:
+        """Run using a caller-owned transaction so scheduler locks stay atomic."""
+        row = self._scenario_row(connection, scenario_id, workspace_id, company_id, lock=False)
+        if row is None:
+            raise ScenarioStoreError(ScenarioIssue.NOT_FOUND)
+        definition = self._definition(row)
+        _ = self._baseline(
+            connection,
+            actor_id,
+            workspace_id,
+            company_id,
+            definition,
+            lock=True,
+        )
+        row = self._scenario_row(connection, scenario_id, workspace_id, company_id, lock=True)
+        if row is None or row.input_sha256 != definition.input_sha256:
+            raise ScenarioStoreError(ScenarioIssue.NOT_FOUND)
+        existing = self._result(connection, scenario_id)
+        if existing is not None:
+            return existing, False
+        run_id = uuid5(
+            NAMESPACE_URL,
+            f"samurai-scenario-run:{scenario_id}:{actor_id}:{idempotency_key}",
+        )
+        result = analyze(definition)
+        payload = canonical_json(
+            ScenarioResultPayload.model_validate(result.model_dump(exclude={"result_sha256"}))
+        )
+        for trajectory in result.trajectories:
+            if cancelled is not None and cancelled(trajectory.label):
+                raise ScenarioCancelledError(scenario_id)
+            _ = connection.execute(
+                self._sql(
+                    """INSERT INTO "{schema}".samurai_scenario_runs
+                    (run_id, scenario_id, label, result, result_sha256, provenance, created_at)
+                    VALUES (:run_id, :scenario_id, :label, CAST(:result AS jsonb),
+                    :result_sha256, :provenance, :created_at)"""
+                ),
+                {
+                    "run_id": uuid5(NAMESPACE_URL, f"{run_id}:{trajectory.label}"),
+                    "scenario_id": scenario_id,
+                    "label": trajectory.label,
+                    "result": payload,
+                    "result_sha256": result.result_sha256,
+                    "provenance": PROVENANCE,
+                    "created_at": int(time.time()),
+                },
             )
-            result = analyze(definition)
-            payload = canonical_json(
-                ScenarioResultPayload.model_validate(result.model_dump(exclude={"result_sha256"}))
-            )
-            for trajectory in result.trajectories:
-                if cancelled is not None and cancelled(trajectory.label):
-                    raise ScenarioCancelledError(scenario_id)
-                _ = connection.execute(
-                    self._sql(
-                        """INSERT INTO "{schema}".samurai_scenario_runs
-                        (run_id, scenario_id, label, result, result_sha256, provenance, created_at)
-                        VALUES (:run_id, :scenario_id, :label, CAST(:result AS jsonb),
-                        :result_sha256, :provenance, :created_at)"""
-                    ),
-                    {
-                        "run_id": uuid5(NAMESPACE_URL, f"{run_id}:{trajectory.label}"),
-                        "scenario_id": scenario_id,
-                        "label": trajectory.label,
-                        "result": payload,
-                        "result_sha256": result.result_sha256,
-                        "provenance": PROVENANCE,
-                        "created_at": int(time.time()),
-                    },
-                )
-            return result, True
+        return result, True
 
     def get_result(
         self, actor_id: str, workspace_id: UUID, company_id: UUID, scenario_id: UUID

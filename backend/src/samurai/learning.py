@@ -10,19 +10,21 @@ from enum import StrEnum, unique
 from typing import TYPE_CHECKING, ClassVar, Final, Literal, cast, final
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict
+from fastapi import HTTPException
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 
 from samurai.company_store_contracts import WorkspaceRole
 from samurai.company_store_queries import valid_schema
 from samurai.quota import WorkspaceQuota
-from samurai.workspace_membership import WorkspaceMembership
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import Connection, Engine
     from sqlalchemy.sql.elements import TextClause
 
 MAX_LEARNING_RECORDS: Final = 20
+NANOSECONDS_PER_MILLISECOND: Final = 1_000_000
+JAVASCRIPT_MAX_SAFE_INTEGER: Final = 9_007_199_254_740_991
 UNTRUSTED_CONTEXT: Final = "untrusted_preference_context"
 
 
@@ -77,7 +79,7 @@ class LearningRecord(BaseModel):
     shared: bool
     superseded_by: UUID | None
     active: bool
-    created_at: int
+    created_at: int = Field(ge=0, le=JAVASCRIPT_MAX_SAFE_INTEGER)
     evidence_status: Literal["untrusted_preference_context"] = UNTRUSTED_CONTEXT
 
 
@@ -142,7 +144,6 @@ class LearningStore:
             raise LearningStoreError(LearningIssue.INVALID_SCHEMA)
         self._engine = engine
         self._schema = schema
-        self._membership = WorkspaceMembership(engine, schema)
         self._quota = WorkspaceQuota(schema)
 
     def create(self, request: LearningCreate) -> LearningRecord:
@@ -277,7 +278,7 @@ class LearningStore:
             {"workspace_id": workspace_id, "actor_id": actor_id},
         ).scalar_one_or_none()
         if role is None:
-            return self._membership.require_member(connection, workspace_id, actor_id)
+            raise HTTPException(status_code=403, detail="active workspace membership required")
         self._require_company(
             connection,
             workspace_id,
@@ -341,17 +342,20 @@ class LearningStore:
             ),
             parameters,
         )
-        return LearningRecord.model_validate({**parameters, "superseded_by": None, "active": True})
+        return self._record(
+            _LearningRow.model_validate({**parameters, "superseded_by": None, "active": True})
+        )
 
     def _record(self, row: _LearningRow) -> LearningRecord:
-        record = LearningRecord.model_validate(row.model_dump(mode="python"))
-        audit_fields = record.model_dump(
-            mode="python",
-            exclude={"active", "superseded_by", "audit_sha256", "evidence_status"},
+        values = row.model_dump(mode="python")
+        audit_fields = row.model_dump(
+            mode="python", exclude={"active", "superseded_by", "audit_sha256"}
         )
-        if self._audit(audit_fields) != record.audit_sha256:
+        if self._audit(audit_fields) != row.audit_sha256:
             raise LearningStoreError(LearningIssue.AUDIT_MISMATCH)
-        return record
+        return LearningRecord.model_validate(
+            {**values, "created_at": row.created_at // NANOSECONDS_PER_MILLISECOND}
+        )
 
     @staticmethod
     def _audit(fields: dict[str, str | int | bool | UUID]) -> str:

@@ -189,7 +189,7 @@ def test_authenticated_router_harness_preserves_supersession_history(
     with harness.database.db_engine.connect() as connection:
         before = connection.execute(
             render_company_sql(
-                """SELECT founder_text,audit_sha256
+                """SELECT founder_text,audit_sha256,created_at
                 FROM "{schema}".samurai_learning_records
                 WHERE learning_id=:learning_id""",
                 harness.database.db_schema,
@@ -204,6 +204,9 @@ def test_authenticated_router_harness_preserves_supersession_history(
             ),
             {"company_id": harness.company_id},
         ).one()
+
+    assert created.created_at == cast("int", before.created_at) // 1_000_000
+    assert created.created_at <= 9_007_199_254_740_991
 
     # When A supersedes it and retrieves active plus history through HTTP.
     superseded_response = harness.client.post(
@@ -239,7 +242,7 @@ def test_authenticated_router_harness_preserves_supersession_history(
     with harness.database.db_engine.connect() as connection:
         after = connection.execute(
             render_company_sql(
-                """SELECT founder_text,audit_sha256
+                """SELECT founder_text,audit_sha256,created_at
                 FROM "{schema}".samurai_learning_records
                 WHERE learning_id=:learning_id""",
                 harness.database.db_schema,

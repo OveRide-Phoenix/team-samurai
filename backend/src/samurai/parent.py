@@ -91,6 +91,7 @@ from samurai.launch_workflows import (
     create_launch_workflows,
     run_launch_drafts,
 )
+from samurai.learning import LearningContext, LearningStore
 from samurai.panels import presentation_tools
 from samurai.team_areas import TeamArea, journey_handoff, suggest_team_area, team_instructions
 
@@ -157,6 +158,7 @@ class CompanyStateSummary(Contract):
     founder_truth: FounderTruth = FounderTruth()
     artifacts: tuple[ArtifactEnvelope, ...] = ()
     frameworks: tuple[FrameworkReference, ...] = ()
+    learning_context: LearningContext = LearningContext(records=())
 
     @override
     def __str__(self) -> str:
@@ -1423,6 +1425,18 @@ def create_parent_agent(  # noqa: C901, PLR0913, PLR0915 - bounded tool surface.
         )[-20:]
         sources = tuple(source for artifact in state.artifacts for source in artifact.sources)[-20:]
         next_decision = founder_truth.next_decision
+        learning_context = LearningContext(records=())
+        if isinstance(db, SamuraiPostgresDb):
+            user_id, parent_session_id, _child_id = _trusted_identity(run_context)
+            access = CompanyStore(db.db_engine, schema=db.db_schema).read_for_actor(
+                user_id, parent_session_id
+            )
+            if access is not None and access.state.context.company_id == state.context.company_id:
+                learning_context = LearningStore(db.db_engine, schema=db.db_schema).list(
+                    user_id,
+                    access.workspace_id,
+                    state.context.company_id,
+                )
         return CompanyStateSummary(
             company_id=state.context.company_id,
             revision=state.current_revision,
@@ -1436,6 +1450,7 @@ def create_parent_agent(  # noqa: C901, PLR0913, PLR0915 - bounded tool surface.
             founder_truth=founder_truth,
             artifacts=tuple({item.artifact_type: item for item in state.artifacts}.values()),
             frameworks=retained_frameworks or framework_metadata,
+            learning_context=learning_context,
         )
 
     capabilities = ", ".join(

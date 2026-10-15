@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import ClassVar
 from uuid import UUID  # noqa: TC003 - Pydantic resolves directory UUID fields at runtime.
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from samurai.company_store_contracts import WorkspaceRole  # noqa: TC001
 from samurai.contracts import ArtifactEnvelope  # noqa: TC001
@@ -51,6 +51,7 @@ class CompanyRecord(BaseModel):
     workspace_id: UUID
     company_id: UUID
     current_revision: int
+    state_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     created_at: int
     parent_session_id: str | None
     child_session_id: str | None
@@ -73,6 +74,7 @@ class BindingRow(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     current_revision: int
+    state_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     created_at: int
     parent_session_id: str
     child_session_id: str

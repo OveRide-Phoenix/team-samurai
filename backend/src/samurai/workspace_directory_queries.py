@@ -32,7 +32,7 @@ WHERE workspace_id = :workspace_id AND user_id = :user_id AND active FOR UPDATE"
 DEACTIVATE_MEMBER: Final = """UPDATE "{schema}".samurai_workspace_memberships
 SET active = false, authorization_epoch = authorization_epoch + 1, updated_at = :timestamp
 WHERE workspace_id = :workspace_id AND user_id = :user_id"""
-LIST_COMPANIES: Final = """SELECT c.workspace_id, c.company_id, c.current_revision,
+LIST_COMPANIES: Final = """SELECT c.workspace_id, c.company_id, c.current_revision, c.state_sha256,
 c.created_at, b.parent_session_id, b.child_session_id
 FROM "{schema}".samurai_companies c
 LEFT JOIN "{schema}".samurai_company_actor_bindings b
@@ -40,7 +40,7 @@ ON b.company_id = c.company_id AND b.user_id = :actor_id
 WHERE c.workspace_id = :workspace_id ORDER BY c.created_at, c.company_id"""
 READ_COMPANY_WORKSPACE: Final = """SELECT workspace_id FROM "{schema}".samurai_companies
 WHERE company_id = :company_id"""
-READ_BINDING: Final = """SELECT c.current_revision, c.created_at,
+READ_BINDING: Final = """SELECT c.current_revision, c.state_sha256, c.created_at,
 b.parent_session_id, b.child_session_id FROM "{schema}".samurai_companies c
 JOIN "{schema}".samurai_company_actor_bindings b ON b.company_id = c.company_id
 WHERE c.company_id = :company_id AND b.user_id = :actor_id"""

@@ -52,7 +52,7 @@ def _raise_http(error: ScenarioStoreError) -> Never:
     raise HTTPException(status_code=code, detail=str(error)) from error
 
 
-def scenario_router(database: SamuraiPostgresDb) -> APIRouter:
+def scenario_router(database: SamuraiPostgresDb) -> APIRouter:  # noqa: C901
     """Build scenario routes without mounting them in the Task 20 application shell."""
     store = ScenarioStore(database.db_engine, schema=database.db_schema)
     router = APIRouter(prefix="/samurai/workspaces/{workspace_id}/companies/{company_id}/scenarios")
@@ -81,6 +81,15 @@ def scenario_router(database: SamuraiPostgresDb) -> APIRouter:
     ) -> ScenarioDefinition:
         try:
             return store.get(actor_id, workspace_id, company_id, scenario_id)
+        except ScenarioStoreError as error:
+            _raise_http(error)
+
+    @router.get("", response_model=list[ScenarioDefinition])
+    def list_scenarios(
+        workspace_id: UUID, company_id: UUID, actor_id: ScenarioActor
+    ) -> list[ScenarioDefinition]:
+        try:
+            return list(store.list(actor_id, workspace_id, company_id))
         except ScenarioStoreError as error:
             _raise_http(error)
 

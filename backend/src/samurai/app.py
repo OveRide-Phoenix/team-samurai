@@ -42,12 +42,15 @@ from samurai.execution_state import (
 from samurai.file_api import file_router
 from samurai.intake import INTAKE_PAGES, IntakePage
 from samurai.knowledge_api import knowledge_router
+from samurai.learning_api import learning_router
 from samurai.parent import (
     PARENT_AGENT_ID,
     STARTER_PROMPTS,
     child_session_id,
     create_parent_agent,
 )
+from samurai.scenario_api import scenario_router
+from samurai.schedule_api import schedule_router
 from samurai.workspace_api import workspace_router
 
 __all__ = ["Settings"]
@@ -560,6 +563,9 @@ def create_app(
         runtime_base.include_router(workspace_router(runtime_db))
         runtime_base.include_router(file_router(runtime_db, settings.storage_root))
         runtime_base.include_router(knowledge_router(runtime_db, settings.storage_root))
+        runtime_base.include_router(learning_router(runtime_db))
+        runtime_base.include_router(schedule_router(runtime_db))
+        runtime_base.include_router(scenario_router(runtime_db))
     runtime_base.add_middleware(
         _DurableRunBoundary,
         enabled=settings.queue_enabled,

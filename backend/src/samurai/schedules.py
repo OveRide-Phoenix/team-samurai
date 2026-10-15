@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum, unique
 from typing import TYPE_CHECKING, ClassVar, Literal, final, override
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, JsonValue, TypeAdapter
@@ -19,6 +19,8 @@ from samurai.company_store_contracts import WorkspaceRole
 from samurai.company_store_queries import valid_schema
 from samurai.contracts import CompanyState  # noqa: TC001 - Pydantic resolves the state at runtime.
 from samurai.quota import QuotaResource, WorkspaceQuota
+from samurai.scenario_contracts import ScenarioIssue, ScenarioStoreError
+from samurai.scenarios import ScenarioStore
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -28,6 +30,7 @@ if TYPE_CHECKING:
     from sqlalchemy.sql.elements import TextClause
 
 LEASE_SECONDS = 300
+MAX_SCHEDULE_RUNS = 50
 INT_ADAPTER = TypeAdapter(int)
 ROLE_ADAPTER = TypeAdapter(WorkspaceRole)
 UUID_ADAPTER = TypeAdapter(UUID)
@@ -76,6 +79,20 @@ class ScheduleRun(BaseModel):
     error_code: str | None = None
 
 
+class WorkspaceReviewPayload(BaseModel):
+    """The deterministic review has no caller-controlled behavior."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
+
+
+class ScenarioRecomputePayload(BaseModel):
+    """One immutable scenario selected for deterministic recomputation."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
+
+    scenario_id: UUID
+
+
 @unique
 class ScheduleIssue(StrEnum):
     """Stable schedule boundary failures."""
@@ -88,6 +105,7 @@ class ScheduleIssue(StrEnum):
     COMPANY_NOT_FOUND = "company not found in workspace"
     REVISION_CHANGED = "company revision changed"
     MEMBER_REQUIRED = "active workspace membership required"
+    SCHEDULE_NOT_FOUND = "schedule not found in workspace"
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,6 +194,7 @@ class ScheduleStore:
         self._engine = engine
         self._schema = schema
         self._quota = WorkspaceQuota(schema)
+        self._scenarios = ScenarioStore(engine, schema=schema)
 
     def create(  # noqa: PLR0913
         self,
@@ -280,6 +299,40 @@ class ScheduleStore:
                 {"workspace_id": workspace_id},
             ).mappings()
             return tuple(ScheduleRecord.model_validate(row) for row in rows)
+
+    def list_runs(
+        self, actor_id: str, workspace_id: UUID, schedule_id: UUID
+    ) -> tuple[ScheduleRun, ...]:
+        """Return bounded terminal receipts for one visible schedule."""
+        with self._engine.connect() as connection:
+            membership = connection.execute(
+                self._sql(
+                    """SELECT 1 FROM "{schema}".samurai_workspace_memberships
+                    WHERE workspace_id=:workspace_id AND user_id=:actor_id AND active"""
+                ),
+                {"workspace_id": workspace_id, "actor_id": actor_id},
+            ).scalar_one_or_none()
+            if membership is None:
+                raise ScheduleError(ScheduleIssue.MEMBER_REQUIRED)
+            exists = connection.execute(
+                self._sql(
+                    """SELECT 1 FROM "{schema}".samurai_schedules
+                    WHERE workspace_id=:workspace_id AND schedule_id=:schedule_id"""
+                ),
+                {"workspace_id": workspace_id, "schedule_id": schedule_id},
+            ).scalar_one_or_none()
+            if exists is None:
+                raise ScheduleError(ScheduleIssue.SCHEDULE_NOT_FOUND)
+            rows = connection.execute(
+                self._sql(
+                    """SELECT schedule_id, scheduled_for, status, result, error_code
+                    FROM "{schema}".samurai_schedule_runs
+                    WHERE schedule_id=:schedule_id AND status IN ('completed','failed','skipped')
+                    ORDER BY scheduled_for DESC LIMIT :limit"""
+                ),
+                {"schedule_id": schedule_id, "limit": MAX_SCHEDULE_RUNS},
+            ).mappings()
+            return tuple(ScheduleRun.model_validate(row) for row in rows)
 
     def disable(self, actor_id: str, workspace_id: UUID, schedule_id: UUID) -> None:
         """Disable a schedule and release its quota once."""
@@ -421,9 +474,11 @@ class ScheduleStore:
             if valid_lease is None:
                 return None
             reason = self._invalid_reason(connection, schedule)
-            result = None if reason else self._workspace_review(connection, schedule)
+            result: dict[str, JsonValue] | None = None
+            if reason is None:
+                result, reason = self._dispatch(connection, schedule, claim.scheduled_for)
             status: Literal["completed", "failed", "skipped"] = "completed"
-            if reason == "unregistered_action":
+            if reason in {"unregistered_action", "scenario_not_found", "scenario_corrupt_result"}:
                 status = "failed"
             elif reason is not None:
                 status = "skipped"
@@ -510,9 +565,43 @@ class ScheduleStore:
             return "revision_changed"
         if current.schedule_count > current.schedule_limit:
             return "workspace_quota"
-        if current.action_kind != "workspace_review":
+        if current.action_kind not in {"workspace_review", "scenario_recompute"}:
             return "unregistered_action"
         return None
+
+    def _dispatch(
+        self, connection: Connection, schedule: ScheduleRecord, scheduled_for: int
+    ) -> tuple[dict[str, JsonValue] | None, str | None]:
+        if schedule.action_kind == "workspace_review":
+            return self._workspace_review(connection, schedule), None
+        payload = ScenarioRecomputePayload.model_validate(schedule.payload)
+        try:
+            result, _created = self._scenarios.run_in_transaction(
+                connection,
+                schedule.created_by,
+                schedule.workspace_id,
+                schedule.company_id,
+                payload.scenario_id,
+                uuid5(
+                    NAMESPACE_URL,
+                    f"samurai-scheduled-scenario:{schedule.schedule_id}:{scheduled_for}",
+                ),
+            )
+        except ScenarioStoreError as error:
+            reasons = {
+                ScenarioIssue.PERMISSION_DENIED: "scenario_permission_denied",
+                ScenarioIssue.NOT_FOUND: "scenario_not_found",
+                ScenarioIssue.STALE_BASELINE: "scenario_stale_baseline",
+                ScenarioIssue.CHANGED_IDEMPOTENCY: "scenario_changed_idempotency",
+                ScenarioIssue.CORRUPT_RESULT: "scenario_corrupt_result",
+                ScenarioIssue.INVALID_SCHEMA: "scenario_invalid_schema",
+            }
+            return None, reasons[error.issue]
+        return {
+            "action_kind": "scenario_recompute",
+            "scenario_id": str(payload.scenario_id),
+            **result.model_dump(mode="json"),
+        }, None
 
     def _workspace_review(
         self, connection: Connection, schedule: ScheduleRecord

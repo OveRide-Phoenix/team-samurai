@@ -875,6 +875,8 @@ def test_migration_upgrades_source_uniqueness_and_reapply_is_idempotent(
         == (
             "0001_founder_platform",
             "0002_knowledge_provenance",
+            "0003_learning_sharing",
+            "0004_schedule_leases",
         )
     )
     with database.db_engine.begin() as connection:

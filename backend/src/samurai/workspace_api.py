@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Annotated, ClassVar
 from uuid import UUID  # noqa: TC003 - Pydantic resolves route and response UUIDs at runtime.
 
 from fastapi import APIRouter, Header, HTTPException, Request, Response, status
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from samurai.company_store_contracts import WorkspaceRole  # noqa: TC001 - Pydantic runtime field.
 from samurai.workspace_directory import WorkspaceDirectory
@@ -70,6 +70,7 @@ class CompanyView(BaseModel):
     workspace_id: UUID
     company_id: UUID
     current_revision: int
+    state_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     created_at: int
     parent_session_id: str | None
     child_session_id: str | None

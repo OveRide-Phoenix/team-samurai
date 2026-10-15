@@ -21,6 +21,7 @@ from samurai.company_store_contracts import (
 from samurai.contracts import CompanyState, FounderTruth, IntakeArtifact, ResearchArtifact
 from samurai.frameworks import load_framework_catalog
 from samurai.parent import CompanyStateSummary
+from samurai.schema_contracts import canonical_state_hash
 from samurai.workspace_directory_contracts import (
     BindingRow,
     CompanyRecord,
@@ -139,6 +140,7 @@ class WorkspaceDirectory:
             )
             return BindingRow(
                 current_revision=access.state.current_revision,
+                state_sha256=canonical_state_hash(access.state),
                 created_at=int(access.state.context.created_at.timestamp()),
                 parent_session_id=access.parent_session_id,
                 child_session_id=access.child_session_id,
@@ -170,6 +172,7 @@ class WorkspaceDirectory:
             workspace_id=access.workspace_id,
             company_id=access.state.context.company_id,
             current_revision=access.state.current_revision,
+            state_sha256=canonical_state_hash(access.state),
             created_at=int(access.state.context.created_at.timestamp()),
             parent_session_id=access.parent_session_id,
             child_session_id=access.child_session_id,

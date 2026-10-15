@@ -11,11 +11,14 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstrai
 
 from samurai.quota import WorkspaceQuotaExceededError
 from samurai.schedules import (
+    ScenarioRecomputePayload,
     ScheduleCadence,
     ScheduleError,
     ScheduleIssue,
     ScheduleRecord,
+    ScheduleRun,
     ScheduleStore,
+    WorkspaceReviewPayload,
 )
 
 if TYPE_CHECKING:
@@ -26,14 +29,8 @@ TimezoneName = Annotated[
 ]
 
 
-class WorkspaceReviewPayload(BaseModel):
-    """The deterministic review has no caller-controlled behavior."""
-
-    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
-
-
-class ScheduleCreate(BaseModel):
-    """Accepted schedule creation fields."""
+class _ScheduleCreate(BaseModel):
+    """Fields shared by each allowlisted scheduled operation."""
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
 
@@ -41,14 +38,33 @@ class ScheduleCreate(BaseModel):
     timezone: TimezoneName
     first_run_at: AwareDatetime
     pinned_revision: int = Field(ge=0)
+
+
+class WorkspaceReviewScheduleCreate(_ScheduleCreate):
+    """Schedule the bounded canonical-state evidence review."""
+
     action_kind: Literal["workspace_review"]
     payload: WorkspaceReviewPayload = Field(default_factory=WorkspaceReviewPayload)
+
+
+class ScenarioRecomputeScheduleCreate(_ScheduleCreate):
+    """Schedule one deterministic persisted scenario recomputation."""
+
+    action_kind: Literal["scenario_recompute"]
+    payload: ScenarioRecomputePayload
+
+
+ScheduleCreate = Annotated[
+    WorkspaceReviewScheduleCreate | ScenarioRecomputeScheduleCreate,
+    Field(discriminator="action_kind"),
+]
 
 
 ERROR_STATUS: Final = {
     ScheduleIssue.EDITOR_REQUIRED: status.HTTP_403_FORBIDDEN,
     ScheduleIssue.MEMBER_REQUIRED: status.HTTP_403_FORBIDDEN,
     ScheduleIssue.COMPANY_NOT_FOUND: status.HTTP_404_NOT_FOUND,
+    ScheduleIssue.SCHEDULE_NOT_FOUND: status.HTTP_404_NOT_FOUND,
     ScheduleIssue.REVISION_CHANGED: status.HTTP_409_CONFLICT,
     ScheduleIssue.INVALID_TIMEZONE: status.HTTP_422_UNPROCESSABLE_CONTENT,
     ScheduleIssue.NO_RECURRENCE: status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -113,5 +129,14 @@ def schedule_router(database: SamuraiPostgresDb) -> APIRouter:
         except ScheduleError as error:
             _raise_schedule_error(error)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @router.get("/schedules/{schedule_id}/runs", response_model=list[ScheduleRun])
+    def list_schedule_runs(
+        request: Request, workspace_id: UUID, schedule_id: UUID
+    ) -> list[ScheduleRun]:
+        try:
+            return list(store.list_runs(_actor(request), workspace_id, schedule_id))
+        except ScheduleError as error:
+            _raise_schedule_error(error)
 
     return router
