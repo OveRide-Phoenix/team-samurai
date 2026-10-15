@@ -322,7 +322,7 @@ async def _mapped_research(
                 source_ids=(source_id,),
                 support_status="mapped",
                 support_segments=(segment,),
-                verification_status="unverified",
+                verification_status="supported",
             ),
         ),
         assumptions=(
@@ -1081,7 +1081,7 @@ def test_native_http_parent_runs_real_company_workflow_to_five_artifacts(
     ]
     assert [artifact.revision for artifact in state.artifacts] == [1, 2, 3, 4, 5]
     assert all(
-        claim.verification_status == "unverified"
+        claim.verification_status == "supported"
         for artifact in state.artifacts
         for claim in artifact.claims
     )
