@@ -699,7 +699,7 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
 
 - [ ] 16. Render authenticated knowledge references through the typed UI
 
-  Verified rendering seam: `GenerativePanelBody.tsx` delegates existing evidence links to `StandardPanelBody.tsx`; include that renderer when introducing the external/internal source union so every caller narrows it correctly. Reuse `files.ts` same-origin authenticated download and safe file metadata rather than creating public URLs. Accepted-artifact references show immutable artifact provenance, not a file download. Task 16 may update the existing development preview fixture and focused file-client tests for browser QA; preserve panel IDs and the established design.
+  Verified rendering seam: `GenerativePanelBody.tsx` delegates existing evidence links to `StandardPanelBody.tsx`; include that renderer when introducing the external/internal source union so every caller narrows it correctly. Reuse `files.ts` same-origin authenticated download and safe file metadata rather than creating public URLs. Accepted-artifact references show immutable artifact provenance, not a file download. Task 16 may update the existing development preview fixture and focused file-client tests for browser QA; preserve panel IDs and the established design. Pass the existing company workspace ID through App.tsx and the panel renderers for authenticated file access; use existing styles.css tokens for provenance wrapping and focus states. Strategy knowledge references must render on their existing panels. Internal context cannot by itself satisfy a supported-claim source requirement.
 
   What to do: On `Kalyan/founder-platform-t16-knowledge-ui`, extend evidence source schemas with a strict discriminated external URL versus internal file reference. Render internal references through the authenticated download client, show trust class/hash/revision in progressive details, and keep current panel IDs/update behavior. Close knowledge/typed-UI phase with browser/adversarial QA and exact-commit review.
   Must NOT do: Do not place bearer tokens in URLs, expose storage locators, add arbitrary link protocols/components, or display uploaded context as independent verification.
@@ -733,7 +733,7 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
     Evidence: <attemptDir>/task-16-knowledge-ui-error.png
   ```
 
-  Commit: YES | Message: `feat(ui): render scoped knowledge provenance` | Files: [frontend/src/model.ts, frontend/src/model.test.ts, frontend/src/agentos.ts, frontend/src/agentos.test.ts, frontend/src/GenerativePanelBody.tsx, frontend/src/GenerativePanelBody.test.ts, frontend/src/StandardPanelBody.tsx, frontend/src/LocalPanelPreview.tsx, frontend/src/files.ts, frontend/src/files.test.ts, frontend/BACKEND_CONTRACT.md]
+  Commit: YES | Message: `feat(ui): render scoped knowledge provenance` | Files: [frontend/src/App.tsx, frontend/src/styles.css, frontend/src/model.ts, frontend/src/model.test.ts, frontend/src/agentos.ts, frontend/src/agentos.test.ts, frontend/src/GenerativePanelBody.tsx, frontend/src/GenerativePanelBody.test.ts, frontend/src/StandardPanelBody.tsx, frontend/src/LocalPanelPreview.tsx, frontend/src/files.ts, frontend/src/files.test.ts, frontend/BACKEND_CONTRACT.md]
 
 - [ ] 17. Add explicit preference and correction learning records
 
