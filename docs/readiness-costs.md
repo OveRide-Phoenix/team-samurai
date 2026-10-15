@@ -37,9 +37,11 @@ AgentOS settings are:
 These values match the currently pinned `agno==3.1.2` queue contract: durable
 queues support per-replica concurrency, fleet queue depth, attempts, native
 jittered retry delay, timeout, deployment affinity, lock grace, poll interval,
-retention, and a shutdown window. The current repository has no `QueueConfig`
-or Redis configuration, so this is a future implementation design rather than
-a live setting.
+retention, and a shutdown window. At the 12 October design snapshot, queue and
+Redis configuration had not been implemented. The current local implementation
+now defines `create_queue_config` in `backend/src/samurai/config.py`, including
+`durable=True`, and has [local acceptance evidence](local-acceptance.md). This
+cost design still does not establish a deployed queue or current cloud settings.
 
 For costing only, the target backend shape is one vCPU and 2 GiB memory. The
 deployment guide records that as the intended initial allocation, but the

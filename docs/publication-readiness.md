@@ -6,7 +6,8 @@ was made by this audit. The application remains team-only behind IAP.
 
 ## October 15, 2026 snapshot and coverage
 
-This is the current bounded refresh. It is still a preparation audit: no
+This is the bounded 15 October snapshot, not an audit of the later founder
+candidate or new competition deck. It is still a preparation audit: no
 repository visibility, IAM, application, release, artifact, upload, message,
 deployment, login, provider, or account change was made.
 
