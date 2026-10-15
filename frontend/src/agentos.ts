@@ -67,11 +67,18 @@ const payload = z.discriminatedUnion('artifact_type', [
 ]).refine(value => value.artifact_type !== 'intake' || value.frameworks === undefined || (value.frameworks.length === 1
   && value.frameworks[0]?.id === 'founder_truth' && value.frameworks[0].allowed_roles.includes('intake')));
 const source = z.strictObject({ source_id: uuid, url: publicUrl, title: text, retrieved_at: date, search_query: text, excerpt: z.string().min(1).max(2000) });
+const knowledgeReference = z.strictObject({
+  chunk_id: uuid, file_id: uuid.nullable().default(null), artifact_id: uuid.nullable().default(null), indexed_revision: z.number().int().min(0), ordinal: z.number().int().min(0),
+  content_sha256: z.string().regex(/^[0-9a-f]{64}$/), trust_class: z.enum(['accepted_artifact', 'uploaded_file']), evidence_status: z.literal('untrusted_context'),
+}).refine(value => value.trust_class === 'uploaded_file'
+  ? value.file_id !== null && value.artifact_id === null
+  : value.artifact_id !== null && value.file_id === null);
 const metric = z.strictObject({ metric_id: uuid, name: text, value: z.number().finite(), unit: text, window_start: date, window_end: date, source_label: text, collected_at: date, provenance: z.enum(['connected_measurement', 'founder_supplied', 'demo_fixture']), trusted_connector_receipt: text.nullable().default(null) }).refine(value => Date.parse(value.window_end) > Date.parse(value.window_start) && ((value.provenance === 'connected_measurement') === Boolean(value.trusted_connector_receipt)));
 const artifact = z.strictObject({
   artifact_id: uuid, company_id: uuid, artifact_type: text, revision: z.number().int().min(1), input_revision: z.number().int().min(0), producer: roles,
   status: z.enum(['complete', 'insufficient_evidence', 'needs_input', 'needs_rework', 'draft_only', 'requires_metrics', 'based_on_founder_supplied_metrics']), acceptance_status: z.enum(['pending', 'accepted']).default('pending'), payload,
   founder_statements: z.array(z.strictObject({ statement_id: uuid, text })).max(100).default([]), sources: z.array(source).max(100).default([]),
+  knowledge_references: z.array(knowledgeReference).max(5).refine(value => new Set(value.map(item => item.chunk_id)).size === value.length).optional(),
   claims: z.array(z.strictObject({ claim_id: uuid, text, source_ids: z.array(uuid).min(1).max(100), support_status: z.enum(['mapped', 'unmapped']), support_segments: strings, verification_status: z.enum(['unverified', 'supported', 'contradicted']) }).refine(value => value.support_status !== 'mapped' || value.support_segments.length > 0)).max(100).default([]),
   measurements: z.array(metric).max(100).default([]), assumptions: z.array(assumption).max(100),
   verification_findings: z.array(z.strictObject({ code: text, message: text, severity: z.enum(['info', 'warning', 'error']) })).min(1).max(100),

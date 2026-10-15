@@ -41,6 +41,7 @@ from samurai.execution_state import (
 )
 from samurai.file_api import file_router
 from samurai.intake import INTAKE_PAGES, IntakePage
+from samurai.knowledge_api import knowledge_router
 from samurai.parent import (
     PARENT_AGENT_ID,
     STARTER_PROMPTS,
@@ -558,6 +559,7 @@ def create_app(
     if isinstance(runtime_db, SamuraiPostgresDb):
         runtime_base.include_router(workspace_router(runtime_db))
         runtime_base.include_router(file_router(runtime_db, settings.storage_root))
+        runtime_base.include_router(knowledge_router(runtime_db, settings.storage_root))
     runtime_base.add_middleware(
         _DurableRunBoundary,
         enabled=settings.queue_enabled,

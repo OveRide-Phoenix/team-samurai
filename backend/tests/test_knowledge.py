@@ -14,9 +14,11 @@ from agno.session.workflow import WorkflowSession
 from pydantic import BaseModel
 from sqlalchemy import MetaData, Table, select, text
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session as SqlAlchemySession
 from sqlalchemy.schema import DropSchema
 
-from samurai.company_store_contracts import WorkspaceRole
+from samurai.company_store import CompanyStore
+from samurai.company_store_contracts import CompanyAcceptance, WorkspaceRole
 from samurai.company_store_queries import render_company_sql
 from samurai.contracts import (
     ArtifactEnvelope,
@@ -25,6 +27,7 @@ from samurai.contracts import (
     CompanyContext,
     CompanyState,
     IntakeArtifact,
+    KnowledgeReference,
     Role,
     VerificationFinding,
     accept_artifact,
@@ -32,7 +35,9 @@ from samurai.contracts import (
 from samurai.execution_state import SamuraiPostgresDb
 from samurai.file_store import FileStore
 from samurai.knowledge import (
+    KnowledgeAcceptance,
     KnowledgeIssue,
+    KnowledgeReferenceGuard,
     KnowledgeScope,
     KnowledgeStore,
     KnowledgeStoreError,
@@ -287,6 +292,94 @@ def test_index_is_deterministic_idempotent_and_keeps_explicit_provenance(
     )
 
 
+def test_acceptance_guard_rechecks_file_state_hash_and_exact_chunk_provenance(
+    knowledge_database: SamuraiPostgresDb, tmp_path: Path
+) -> None:
+    workspace_id, company_id, _artifact = _workspace_company(knowledge_database)
+    objects = LocalObjectStore(tmp_path / "objects")
+    files, knowledge = _store(knowledge_database, objects)
+    uploaded = files.upload(
+        "owner",
+        workspace_id,
+        "constraint.md",
+        "text/markdown",
+        [b"Founder approves every outreach."],
+        company_id=company_id,
+    )
+    chunk = knowledge.index_file(_scope(workspace_id, company_id), uploaded.file_id)[0]
+    reference = KnowledgeReference(
+        chunk_id=chunk.chunk_id,
+        file_id=chunk.file_id,
+        indexed_revision=chunk.indexed_revision,
+        ordinal=chunk.ordinal,
+        content_sha256=chunk.content_sha256,
+        trust_class="uploaded_file",
+    )
+    company_store = CompanyStore(knowledge_database.db_engine, schema=knowledge_database.db_schema)
+    company = WorkspaceDirectory(knowledge_database).open_company("owner", workspace_id, company_id)
+    assert company.child_session_id is not None
+    actor_access = company_store.read_for_child("owner", company.child_session_id)
+    assert actor_access is not None
+    canonical_state = actor_access.state
+    acceptance = KnowledgeAcceptance(
+        workspace_id=workspace_id,
+        company_id=company_id,
+        canonical_state=canonical_state,
+        references=(reference,),
+    )
+    guard = KnowledgeReferenceGuard(knowledge_database.db_schema)
+
+    with knowledge_database.db_engine.begin() as connection:
+        guard.validate(connection, acceptance)
+    pending = canonical_state.artifacts[-1].model_copy(
+        update={
+            "artifact_id": uuid4(),
+            "revision": canonical_state.current_revision + 1,
+            "input_revision": canonical_state.current_revision,
+            "knowledge_references": (reference,),
+            "acceptance_status": "pending",
+        }
+    )
+    proposed = accept_artifact(
+        canonical_state,
+        pending,
+        authenticated_session_id=canonical_state.context.authenticated_session_id,
+    )
+    files.delete("owner", workspace_id, uploaded.file_id)
+    with (
+        knowledge_database.db_engine.begin() as connection,
+        pytest.raises(KnowledgeStoreError, match="content changed"),
+    ):
+        guard.validate(connection, acceptance)
+    sessions = Table(
+        knowledge_database.session_table_name,
+        MetaData(schema=knowledge_database.db_schema),
+        autoload_with=knowledge_database.db_engine,
+    )
+    with (
+        SqlAlchemySession(knowledge_database.db_engine) as session,
+        pytest.raises(KnowledgeStoreError, match="content changed"),
+    ):
+        _ = company_store.accept_in_transaction(
+            session,
+            sessions,
+            CompanyAcceptance(
+                state=proposed,
+                workspace_id=workspace_id,
+                actor_id="owner",
+                parent_session_id=actor_access.parent_session_id,
+                child_session_id=actor_access.child_session_id,
+                authorization_epoch=actor_access.authorization_epoch,
+                expected_revision=canonical_state.current_revision,
+            ),
+        )
+    retained = company_store.read_for_child(
+        "owner", canonical_state.context.authenticated_session_id
+    )
+    assert retained is not None
+    assert retained.state == canonical_state
+
+
 def test_deterministic_retrieval_is_top_five_stable_and_company_scoped(
     knowledge_database: SamuraiPostgresDb, tmp_path: Path
 ) -> None:
@@ -344,9 +437,7 @@ def test_deterministic_retrieval_is_top_five_stable_and_company_scoped(
     )
     assert other_artifact.artifact_id not in {result.artifact_id for result in first}
     assert knowledge.retrieve(_scope(workspace_id, company_b.company_id), "private alpha") == ()
-    shared = knowledge.retrieve(
-        _scope(workspace_id, company_b.company_id), "shared global beta"
-    )
+    shared = knowledge.retrieve(_scope(workspace_id, company_b.company_id), "shared global beta")
     assert len(shared) == 1
     assert shared[0].company_id is None
 

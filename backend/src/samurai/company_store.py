@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from sqlalchemy import Engine, Table, select
 from sqlalchemy.exc import IntegrityError
@@ -24,8 +24,13 @@ from samurai.company_store_contracts import (
     WorkspaceRow,
 )
 from samurai.contracts import CompanyState, create_company_state
+from samurai.knowledge import KnowledgeAcceptance, KnowledgeReferenceGuard
 from samurai.quota import QuotaResource, WorkspaceQuota, WorkspaceQuotaExceededError
 from samurai.schema_contracts import canonical_state_hash
+
+_READ_CANONICAL_STATE: Final = (
+    'SELECT canonical_state FROM "{schema}".samurai_companies WHERE company_id=:company_id'
+)
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -197,6 +202,7 @@ class CompanyStore:
         acceptance: CompanyAcceptance,
     ) -> CompanyState:
         """Accept one revision inside the caller's locked job transaction."""
+        self._quota.lock(session, acceptance.workspace_id)
         company = (
             session.execute(
                 queries.render_company_sql(queries.READ_COMPANY_FOR_UPDATE, self._schema),
@@ -238,6 +244,30 @@ class CompanyStore:
         ).scalar_one_or_none()
         if binding is None:
             raise CompanyStoreError(CompanyStoreIssue.NOT_FOUND)
+        canonical_state = CompanyState.model_validate(
+            session.execute(
+                queries.render_company_sql(
+                    _READ_CANONICAL_STATE,
+                    self._schema,
+                ),
+                {"company_id": acceptance.state.context.company_id},
+            ).scalar_one()
+        )
+        new_references = tuple(
+            reference
+            for artifact in acceptance.state.artifacts
+            if artifact.revision > acceptance.expected_revision
+            for reference in artifact.knowledge_references
+        )
+        KnowledgeReferenceGuard(self._schema).validate(
+            session,
+            KnowledgeAcceptance(
+                workspace_id=acceptance.workspace_id,
+                company_id=acceptance.state.context.company_id,
+                canonical_state=canonical_state,
+                references=new_references,
+            ),
+        )
         if (
             acceptance.state.context.workspace_id is not None
             and acceptance.state.context.workspace_id != acceptance.workspace_id

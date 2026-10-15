@@ -7,11 +7,12 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Annotated, Literal, Self, override
 from uuid import uuid4
 
+import anyio
 from agno.workflow import Step, StepInput, StepOutput, Workflow
 from pydantic import BaseModel, Field, JsonValue, TypeAdapter, ValidationError, model_validator
 from pydantic_core import PydanticCustomError
 
-from samurai.agents import create_role_catalog
+from samurai.agents import create_role_catalog, prepare_knowledge_context
 from samurai.contracts import (
     ArtifactEnvelope,
     ArtifactPayload,
@@ -25,6 +26,7 @@ from samurai.contracts import (
     FounderTruth,
     FrameworkReference,
     IntakeArtifact,
+    KnowledgeReference,
     OfferDiagnostic,
     ProductPlanArtifact,
     ResearchArtifact,
@@ -40,7 +42,10 @@ from samurai.contracts import (
     WorkflowResult,
     accept_artifact,
 )
+from samurai.execution_state import SamuraiPostgresDb
 from samurai.frameworks import load_framework_catalog
+from samurai.knowledge import KnowledgeResult, KnowledgeStore
+from samurai.local_object_store import LocalObjectStore
 from samurai.research import ResearchAgent, ResearchResult, run_research
 from samurai.source_adjudication import adjudicate_sources as run_source_adjudication
 from samurai.source_fetch import fetch_sources
@@ -198,6 +203,7 @@ class _ArtifactCandidate:
     status: ArtifactStatus
     findings: tuple[VerificationFinding, ...]
     sources: tuple[SourceReference, ...] = ()
+    knowledge_references: tuple[KnowledgeReference, ...] = ()
     claims: tuple[SourcedClaim, ...] = ()
     assumptions: tuple[Assumption, ...] = ()
     founder_statements: tuple[FounderStatement, ...] = ()
@@ -215,6 +221,7 @@ def _envelope(state: CompanyState, candidate: _ArtifactCandidate) -> ArtifactEnv
         payload=candidate.payload,
         founder_statements=candidate.founder_statements,
         sources=candidate.sources,
+        knowledge_references=candidate.knowledge_references,
         claims=candidate.claims,
         assumptions=candidate.assumptions,
         verification_findings=candidate.findings,
@@ -293,6 +300,18 @@ def _brief(request: CompanyJourneyRequest, existing: CompanyBrief | None) -> Com
         open_questions=[],
         next_actions=[],
     )
+
+
+def _knowledge_query(brief: CompanyBrief, *additional: str) -> str:
+    values = (
+        brief.idea,
+        brief.target_customer,
+        brief.geography,
+        brief.goal,
+        *brief.supplied_context,
+        *additional,
+    )
+    return " ".join(value for value in values if value)[:200]
 
 
 def _context_fact_is_retained(fact: FounderKnownFact, brief: CompanyBrief) -> bool:
@@ -468,11 +487,30 @@ async def _agent_payload[PayloadT: BaseModel](
 @dataclass(frozen=True, slots=True)
 class _Journey:
     db: BaseDb
+    knowledge: KnowledgeStore | None
     intake_agent: ResearchAgent
     research_agent: ResearchAgent
     strategy_agent: ResearchAgent
     product_agent: ResearchAgent
     verifier_agent: Agent
+
+    async def _knowledge(
+        self, context: RunContext, state: CompanyState, query: str
+    ) -> tuple[KnowledgeResult, ...]:
+        workspace_id = state.context.workspace_id
+        if self.knowledge is None or workspace_id is None:
+            return ()
+        actor_id = context.user_id
+        if actor_id is None:
+            message = "authenticated knowledge actor is missing"
+            raise JourneyInputError(message)
+        knowledge_store = self.knowledge
+
+        def retrieve() -> tuple[KnowledgeResult, ...]:
+            scope = knowledge_store.current_scope(actor_id, workspace_id, state.context.company_id)
+            return knowledge_store.retrieve(scope, query)
+
+        return await anyio.to_thread.run_sync(retrieve)
 
     async def intake(
         self, step_input: StepInput, run_context: RunContext | None = None
@@ -509,9 +547,11 @@ class _Journey:
             == brief.model_dump(exclude={"open_questions", "next_actions"})
         ):
             return _step_output(prior)
+        knowledge = await self._knowledge(context, state, _knowledge_query(brief))
+        grounding = prepare_knowledge_context(knowledge)
         proposed = await _agent_payload(
             self.intake_agent,
-            brief.model_dump_json(),
+            f"{brief.model_dump_json()}\n\n{grounding.prompt}",
             _IntakeDraft,
         )
         founder_truth, unsupported_known = _verified_founder_truth(proposed.founder_truth, brief)
@@ -566,6 +606,7 @@ class _Journey:
                 if missing or unsupported_known or truth_incomplete
                 else "complete",
                 findings=tuple(findings),
+                knowledge_references=grounding.references,
                 founder_statements=statements,
                 assumptions=tuple(
                     Assumption(assumption_id=uuid4(), text=text)
@@ -750,9 +791,17 @@ class _Journey:
                 ),
                 stop=True,
             )
+        intake = _latest(state, ArtifactType.INTAKE)
+        brief = IntakeArtifact.model_validate(intake.payload if intake is not None else None).brief
+        knowledge = await self._knowledge(
+            context,
+            state,
+            _knowledge_query(brief, supported_claim.text),
+        )
+        grounding = prepare_knowledge_context(knowledge)
         draft = await _agent_payload(
             self.strategy_agent,
-            state.model_dump_json(),
+            f"{state.model_dump_json()}\n\n{grounding.prompt}",
             _StrategyDraft,
         )
         diagnostic = _offer_diagnostic(draft, supported_claim.text)
@@ -784,6 +833,7 @@ class _Journey:
                 ),
                 sources=research.sources,
                 claims=research.claims,
+                knowledge_references=grounding.references,
                 assumptions=(
                     *tuple(
                         Assumption(assumption_id=uuid4(), text=text)
@@ -861,9 +911,25 @@ class _Journey:
                 ),
                 stop=True,
             )
+        intake = _latest(state, ArtifactType.INTAKE)
+        brief = IntakeArtifact.model_validate(intake.payload if intake is not None else None).brief
+        strategy = _latest(state, ArtifactType.STRATEGY)
+        strategy_payload = StrategyArtifact.model_validate(
+            strategy.payload if strategy is not None else None
+        )
+        knowledge = await self._knowledge(
+            context,
+            state,
+            _knowledge_query(
+                brief,
+                strategy_payload.positioning,
+                strategy_payload.offer,
+            ),
+        )
+        grounding = prepare_knowledge_context(knowledge)
         proposal = await _agent_payload(
             self.verifier_agent,
-            state.model_dump_json(),
+            f"{state.model_dump_json()}\n\n{grounding.prompt}",
             _VerificationDraft,
         )
         upstream = tuple(_latest(state, artifact_type) for artifact_type in JOURNEY_TYPES[:-1])
@@ -939,6 +1005,7 @@ class _Journey:
                 producer=Role.VERIFIER,
                 status="complete" if outcome == "verified" else outcome,
                 findings=tuple(findings),
+                knowledge_references=grounding.references,
             ),
         )
         updated = _save(state, envelope, context, self.db)
@@ -957,6 +1024,15 @@ def create_company_workflow(
     catalog = create_role_catalog(settings)
     journey = _Journey(
         db=db,
+        knowledge=(
+            KnowledgeStore(
+                db.db_engine,
+                schema=db.db_schema,
+                objects=LocalObjectStore(settings.storage_root),
+            )
+            if isinstance(db, SamuraiPostgresDb)
+            else None
+        ),
         intake_agent=catalog[Role.INTAKE].agent,
         research_agent=catalog[Role.RESEARCHER].agent,
         strategy_agent=catalog[Role.STRATEGIST].agent,
