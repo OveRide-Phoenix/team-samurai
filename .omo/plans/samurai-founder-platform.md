@@ -881,17 +881,17 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
 
   Commit: YES | Message: `feat(platform): integrate bounded founder operations` | Files: [frontend/server/production.mjs, frontend/tests/production-server.test.mjs, backend/src/samurai/app.py, backend/src/samurai/schedules.py, backend/src/samurai/platform_api.py, backend/scripts/run_platform_evals.py, backend/tests/test_platform_e2e.py, frontend/src/model.ts, frontend/src/model.test.ts, frontend/src/App.tsx, frontend/src/GenerativePanelBody.tsx, frontend/src/GenerativePanelBody.test.ts, frontend/src/scenarios.ts, frontend/src/styles.css, frontend/BACKEND_CONTRACT.md, README.md, backend/README.md, frontend/README.md, docs/architecture.md, docs/local-development.md, .omo/plans/README.md]
 
-Local acceptance: `7b731d6942e113e671d5ce0110d694deea19193e`, fast-forwarded into the founder integration branch. `task check` passed (554 backend tests, 150 frontend tests, build); server tests passed 60/60, Sites tests 4/4, and platform evaluations 40/40 without skips or provider calls. Browser creation/reload and actual backend restart evidence, revoked scheduled-actor rejection, isolated restore reconciliation, exact-commit review, and task-owned cleanup passed. F1–F4 remain pending; this is not deployment or competition acceptance.
+Local acceptance: `7b731d6942e113e671d5ce0110d694deea19193e`, fast-forwarded into the founder integration branch. `task check` passed (554 backend tests, 150 frontend tests, build); server tests passed 60/60, Sites tests 4/4, and platform evaluations 40/40 without skips or provider calls. Browser creation/reload and actual backend restart evidence, revoked scheduled-actor rejection, isolated restore reconciliation, exact-commit review, and task-owned cleanup passed. F1–F4 subsequently passed at `da69bbfa6fef32abb01d789efde21eed4f550782`, now merged into local main. Caller final acceptance remains pending; this is not deployment or competition acceptance.
 
 ## Final verification wave (MANDATORY - after all implementation tasks)
 > Runs in PARALLEL. ALL must APPROVE. Surface results to the caller and wait for an explicit "okay" before declaring complete.
-- [ ] F1. Plan compliance audit - every task done, every acceptance criterion met
+- [x] F1. Plan compliance audit - every task done, every acceptance criterion met
   Read-only reviewer maps Tasks 1–20 to exact commit/evidence hashes, verifies readiness tasks 6–10 are the only Phase 0 gate, checks phase order/branch ledger/local merges, and rejects any blocked/skipped criterion presented as pass. Evidence: `<attemptDir>/final-plan-compliance.md`.
-- [ ] F2. Code quality review - diagnostics clean, idioms match, no dead code
+- [x] F2. Code quality review - diagnostics clean, idioms match, no dead code
   Run OMo review-work plus Ponytail review on the final SHA; inspect migration/backfill/legacy mirror, membership epochs, company fence, quota/file transaction seams, framework loader, knowledge trust classes, schedule leases, scenario arithmetic, secrets/redaction, and cleanup. Run `task check`, frontend server/sites tests, migration restore, and full platform evals. Evidence: `<attemptDir>/final-code-review.md`.
-- [ ] F3. Real manual QA - every QA scenario executed with evidence captured
+- [x] F3. Real manual QA - every QA scenario executed with evidence captured
   Independent QA executor drives the actual local backend+BFF/browser plus disposable PostgreSQL/Redis: two synthetic principals share workspace, race company revision, upload/download/delete a file, inspect founder/knowledge panels, create explicit learning, execute a persisted schedule and scenario, restart/reload, and confirm cleanup. No live second Google account or provider/cloud call. Evidence: `<attemptDir>/final-manual-qa.md` plus screenshots/JSON.
-- [ ] F4. Scope fidelity - nothing extra shipped beyond Must-Have, nothing Must-NOT-Have introduced
+- [x] F4. Scope fidelity - nothing extra shipped beyond Must-Have, nothing Must-NOT-Have introduced
   Read-only reviewer inspects final diff/dependency/route/config/resource inventory for org/tenant layers, third-party packs, GCS enablement, AG-UI/OpenUI, vector DB, MiroFish, provider/cloud/deploy/public/IAM/outbound changes, arbitrary UI/filesystem, evidence overclaims, or leftover task resources. Evidence: `<attemptDir>/final-scope-fidelity.md`.
 
 ## Commit strategy
@@ -915,3 +915,5 @@ Local acceptance: `7b731d6942e113e671d5ce0110d694deea19193e`, fast-forwarded int
 - All task QA evidence exists, final F1–F4 approve at the same SHA, task-owned processes/data are removed, local commit history is clean, and the caller gives explicit final acceptance.
 
 Task 15 accepted locally at `c6c455b162d7ae2501549c2034b378563e95e7a0`: real HTTP upload/index, PostgreSQL-backed staged Agno workflow and owner readback retain exact context provenance. Root verified unauthenticated/foreign denial, deleted-source purge/reindex rejection, and combined retrieve-then-revoke dispatch/acceptance denial without canonical mutation or model calls. Independent exact-SHA gate APPROVE; all fourteen merged files match reviewed bytes. This does not establish live provider, browser, or cloud acceptance.
+
+Final review receipt: all six local review lanes (goal, code, security, runtime, context/scope, QA) passed at `da69bbfa6fef32abb01d789efde21eed4f550782`. The corrected QA report distinguishes auth-boundary rejection from the fresh PostgreSQL canonical stale-upsert test. Original readiness F1–F4 and cloud/submission acceptance remain open. Caller approval required above has not been inferred.

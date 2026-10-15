@@ -49,10 +49,13 @@ remain untrusted context, not source-backed claims or action authority.
 ## Remaining gates
 
 At `da69bbfa6fef32abb01d789efde21eed4f550782`, plan-compliance, code-quality,
-security, runtime, and scope/context reviews returned PASS. The final integrated
-manual QA gate remains open; this snapshot does not substitute the earlier
-Task 20 browser exercise for that final gate. Local integration into `main` is
-also pending.
+security, runtime, scope/context, and final local manual QA reviews returned PASS.
+Root reconciled the corrected PostgreSQL stale-write evidence: HTTP 401 probes
+prove only authentication denial; the separate persistence test proves a stale
+Agno upsert cannot overwrite the accepted canonical revision or actor mirror.
+Local `main` was fast-forwarded to this exact reviewed commit with a clean tree.
+No push occurred. Caller final acceptance of the founder plan remains pending;
+these local reviews do not complete the original readiness plan.
 
 - The paid cloud queue upgrade is deferred. Current-candidate deployment,
   cross-replica cloud recovery, and the isolated Cloud SQL restore drill remain

@@ -11,7 +11,7 @@ it does not complete its acceptance gate. The application remains restricted.
 | Product/test candidate | `7b731d6942e113e671d5ce0110d694deea19193e` |
 | Founder review candidate | `da69bbfa6fef32abb01d789efde21eed4f550782`; same product/test tree |
 | Documentation snapshot | `f21a117848c68e7da2050e0a786f015e77dac799`; this manifest records the preceding documentation snapshot, not its own containing commit |
-| Local main integration | Pending final QA evidence reconciliation |
+| Local main integration | Completed at `da69bbfa6fef32abb01d789efde21eed4f550782`; newer documentation branch not yet merged |
 | Current deployed commit and image digests | Not verified for this candidate; historical deployment is not acceptance |
 | Repository | [team-samurai](https://github.com/OveRide-Phoenix/team-samurai); publication authorization and signed-out accessibility pending |
 | Prototype / evaluator access | Restricted application; final candidate URL/revision verification, evaluator identities, and access expiry pending |
@@ -33,7 +33,8 @@ They are not proof of deployed business results.
 
 ## Gates before freeze
 
-- Resolve final founder QA evidence and integrate reviewed local branches.
+- Final founder QA and product integration passed at the review candidate above;
+  integrate the newer reviewed documentation branch.
 - Complete authorized Task 11 cloud/recovery/business acceptance; the paid
   upgrade remains explicitly deferred, so this dependency is not satisfied.
 - Finish manual public-disclosure review and obtain concrete publication and
@@ -46,3 +47,7 @@ They are not proof of deployed business results.
 
 No upload, publication, access change, deployment, or submission is authorized
 by this manifest. The skipped second-Google-account test stays excluded.
+
+The hashed deck is an earlier preparation snapshot: its final-QA/local-merge
+pending line predates the completed local review. Update that slide when preparing
+the final accepted submission deck; it does not override this status record.
