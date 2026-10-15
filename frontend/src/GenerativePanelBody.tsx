@@ -3,8 +3,9 @@ import { lazy, Suspense } from 'react';
 const DeclarativePanel = lazy(() => import('./DeclarativePanel').then(module => ({ default: module.DeclarativePanel })));
 import { CustomPanel } from './CustomPanel';
 import type { Panel } from './model';
+import { ScenarioPanelBody } from './ScenarioPanelBody';
 
-type StandardPanel = Exclude<Panel, { kind: 'custom' | 'declarative' }>;
+type StandardPanel = Exclude<Panel, { kind: 'custom' | 'declarative' | 'scenario' }>;
 
 function FounderContext({ context }: { context: NonNullable<StandardPanel['founder_context']> }) {
   return <aside className="founder-context" aria-label="Founder decision context">
@@ -20,5 +21,6 @@ export function GenerativePanelBody({ panel, compact, completedTasks, onComplete
 }) {
   if (panel.kind === 'declarative') return <Suspense fallback={<p>Preparing view…</p>}><DeclarativePanel panel={panel} /></Suspense>;
   if (panel.kind === 'custom') return <CustomPanel mode={mode} panel={panel} compact={compact} />;
+  if (panel.kind === 'scenario') return <ScenarioPanelBody panel={panel} />;
   return <><StandardPanelBody panel={panel} compact={compact} completedTasks={completedTasks} onComplete={onComplete} shortlisted={shortlisted} onShortlist={onShortlist} approved={approved} onApprove={onApprove} onDiscuss={onDiscuss} workspaceId={workspaceId} />{panel.founder_context && <FounderContext context={panel.founder_context} />}</>;
 }

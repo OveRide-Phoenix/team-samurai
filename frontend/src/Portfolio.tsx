@@ -92,7 +92,7 @@ export function App({ scope }: { readonly scope: BrowserScope }) {
     const local = {
       id: parentSessionId, name: name.trim(), workspace: { ...emptyCompanyView(), brief, executionMode: 'live' as const },
       workspaceId: pending.workspace.workspace_id, companyId: pending.company.company_id,
-      currentRevision: pending.company.current_revision, createdAt: pending.company.created_at, role: pending.workspace.role,
+      currentRevision: pending.company.current_revision, stateSha256: pending.company.state_sha256, createdAt: pending.company.created_at, role: pending.workspace.role,
     };
     updatePortfolio(current => ({ ...current, activeId: local.id, companies: [...current.companies, local] }));
     setDirectory(current => [...current, pending]); setName(''); setReservation(null);
@@ -127,7 +127,7 @@ export function App({ scope }: { readonly scope: BrowserScope }) {
       const local = {
         id: opened.parent_session_id, name: existing?.name ?? companyName(item.workspace, opened), workspace,
         workspaceId: opened.workspace_id, companyId: opened.company_id,
-        currentRevision: opened.current_revision, createdAt: opened.created_at, role: item.workspace.role,
+        currentRevision: opened.current_revision, stateSha256: opened.state_sha256, createdAt: opened.created_at, role: item.workspace.role,
       };
       updatePortfolio(current => ({ ...current, activeId: local.id, companies: existing ? current.companies.map(company => company.id === existing.id ? local : company) : [...current.companies, local] }));
       setDirectoryError('');

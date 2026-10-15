@@ -3,7 +3,7 @@ import { ArrowRight, Check, CheckCheck, ChevronDown, Download, ExternalLink, Map
 import { downloadWorkspaceFile, getWorkspaceFile } from './files';
 import type { EvidenceSource, Panel } from './model';
 
-type StandardPanel = Exclude<Panel, { kind: 'custom' | 'declarative' }>;
+type StandardPanel = Exclude<Panel, { kind: 'custom' | 'declarative' | 'scenario' }>;
 type Props = {
   panel: StandardPanel; compact: boolean; completedTasks: string[]; onComplete: (id: string) => void;
   shortlisted: string[]; onShortlist: (id: string) => void; approved: boolean; onApprove: () => void;

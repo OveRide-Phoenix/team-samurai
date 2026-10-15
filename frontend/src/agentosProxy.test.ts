@@ -89,6 +89,16 @@ describe('actual local AgentOS proxy', () => {
     expect(upstream.mock.calls[0]?.[1]?.headers).toMatchObject({ 'idempotency-key': submissionId });
     expect((await request(`/api/agentos/samurai/workspaces/${workspaceId}/companies`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status).toBe(400);
   });
+  it('forwards only a typed scenario run through the local proxy', async () => {
+    const { request, upstream } = await fixture();
+    const workspaceId = '00000000-0000-4000-8000-000000000001';
+    const companyId = '00000000-0000-4000-8000-000000000002';
+    const scenarioId = '00000000-0000-4000-8000-000000000003';
+    const response = await request(`/api/agentos/samurai/workspaces/${workspaceId}/companies/${companyId}/scenarios/${scenarioId}/runs`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-samurai-submission-id': scenarioId }, body: '{}' });
+    expect(response.status).toBe(200);
+    expect(upstream.mock.calls[0]?.[0]).toBe(`http://127.0.0.1:8000/agentos/samurai/workspaces/${workspaceId}/companies/${companyId}/scenarios/${scenarioId}/runs`);
+    expect(upstream.mock.calls[0]?.[1]?.headers).toMatchObject({ 'idempotency-key': scenarioId, authorization: 'Bearer test-private-token' });
+  });
   it('rejects malformed directory bodies, unsafe identity fields, invalid UUIDs and methods', async () => {
     const { request, upstream } = await fixture();
     const workspaceId = '00000000-0000-4000-8000-000000000001';

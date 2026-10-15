@@ -9,6 +9,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { createIapVerifier, productionConfig, RequestError, signAgentosToken } from './iapAuth.mjs';
 import { MultipartFileError, multipartFileBody } from './agentosProxy.mjs';
+import { FounderOperationsRequestError, founderOperationsBody, founderOperationsError, founderOperationsHeaders, founderOperationsRoute } from './founderOperationsProxy.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../dist/client');
 const safeId = /^[A-Za-z0-9_-]{1,200}$/;
@@ -154,16 +155,17 @@ export function createProductionServer(config, { verifyIdentity = createIapVerif
         if (url.pathname === '/api/copilotkit' && req.method === 'POST' && !url.search) {
           return await serveCopilot(req, res, { backend: config.backend, token: signAgentosToken(subject, config.key), origin: config.origin, signal: controller.signal, fetchImpl });
         }
-        const selected = route(url, req.method);
+        const selected = founderOperationsRoute(url, req.method) ?? route(url, req.method);
         if (selected.kind === 'connection') return json(res, 200, { backend: config.backend, configured: true, auth: 'jwt', storageNamespace: createHash('sha256').update(subject).digest('hex') });
         const fileUpload = selected.kind === 'file_upload';
         if (!fileUpload && Number(req.headers['content-length'] ?? 0) > bodyLimit) throw new RequestError(413, 'Request too large.');
         const directoryKinds = ['workspace_create', 'member_update', 'company_create', 'company_open'];
-        const body = selected.kind === 'run' ? await runBody(req) : selected.kind === 'resume' ? await resumeBody(req) : fileUpload ? multipartFileBody(req) : directoryKinds.includes(selected.kind) ? await directoryBody(req, selected.kind) : undefined;
-        if (!['run', 'resume', 'file_upload', ...directoryKinds].includes(selected.kind) && (req.headers['transfer-encoding'] || Number(req.headers['content-length'] ?? 0) > 0)) throw new RequestError(400, 'Body not allowed.');
+        const body = selected.kind === 'run' ? await runBody(req) : selected.kind === 'resume' ? await resumeBody(req) : fileUpload ? multipartFileBody(req) : directoryKinds.includes(selected.kind) ? await directoryBody(req, selected.kind) : selected.body ? await founderOperationsBody(req, selected.body) : undefined;
+        if (!selected.body && !['run', 'resume', 'file_upload', ...directoryKinds].includes(selected.kind) && (req.headers['transfer-encoding'] || Number(req.headers['content-length'] ?? 0) > 0)) throw new RequestError(400, 'Body not allowed.');
         const upstreamHeaders = { authorization: `Bearer ${signAgentosToken(subject, config.key)}`, 'x-samurai-client': '1' };
         if (directoryKinds.includes(selected.kind)) upstreamHeaders['content-type'] = 'application/json';
         if (fileUpload) upstreamHeaders['content-type'] = req.headers['content-type'];
+        if (selected.kind === 'founder_operation') Object.assign(upstreamHeaders, founderOperationsHeaders(req, selected));
         if (selected.kind === 'company_create') {
           const submissionId = req.headers['x-samurai-submission-id'];
           if (typeof submissionId !== 'string' || !uuid.test(submissionId)) throw new RequestError(400, 'Valid submission id required.');
@@ -185,6 +187,7 @@ export function createProductionServer(config, { verifyIdentity = createIapVerif
         }
         const upstream = await fetchImpl(`${config.backend}${selected.path}`, { method: req.method, redirect: 'error', headers: upstreamHeaders, body, ...(fileUpload ? { duplex: 'half' } : {}), signal: AbortSignal.any([controller.signal, AbortSignal.timeout(3_600_000)]) });
         if (!upstream.ok) {
+          if (selected.kind === 'founder_operation' && upstream.status < 500) return json(res, upstream.status, { detail: await founderOperationsError(upstream) });
           await upstream.body?.cancel();
           return json(res, upstream.status >= 500 ? 503 : upstream.status, { detail: upstream.status >= 500 ? 'Samurai AgentOS is unavailable.' : 'AgentOS request denied.' });
         }
@@ -214,7 +217,7 @@ export function createProductionServer(config, { verifyIdentity = createIapVerif
       if (res.destroyed) return;
       if (res.headersSent) return res.destroy();
       const multipartError = error instanceof MultipartFileError ? error : error instanceof TypeError && error.cause instanceof MultipartFileError ? error.cause : undefined;
-      json(res, error instanceof RequestError ? error.status : multipartError?.status ?? 502, { detail: error instanceof RequestError ? error.message : multipartError?.message ?? 'Samurai is unavailable.' });
+      json(res, error instanceof RequestError || error instanceof FounderOperationsRequestError ? error.status : multipartError?.status ?? 502, { detail: error instanceof RequestError || error instanceof FounderOperationsRequestError ? error.message : multipartError?.message ?? 'Samurai is unavailable.' });
     }
   });
   server.requestTimeout = 30_000;

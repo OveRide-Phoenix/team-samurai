@@ -106,11 +106,17 @@ const artifact = z.strictObject({
   });
 });
 const resultSchema = z.strictObject({ company_id: uuid, revision: z.number().int().min(0), outcome, artifacts: z.array(artifact).max(100).default([]), questions: z.array(z.string().min(1).max(200)).max(100).default([]) }).refine(value => (value.outcome === 'needs_input') === (value.questions.length > 0) && value.artifacts.every(item => item.company_id === value.company_id && item.revision <= value.revision));
+const learningRecord = z.strictObject({
+  learning_id: uuid, workspace_id: uuid, user_id: z.string(), company_id: uuid, kind: z.enum(['preference', 'correction']), source_revision: z.number().int().min(0),
+  founder_text: z.string().min(1).max(2000), created_by: z.string(), audit_sha256: z.string().regex(/^[a-f0-9]{64}$/), shared: z.boolean(), superseded_by: uuid.nullable(), active: z.boolean(), created_at: z.number().int().min(0), evidence_status: z.literal('untrusted_preference_context'),
+});
+const emptyLearningContext = { context_boundary: 'untrusted_preference_context' as const, records: [] };
+const learningContext = z.strictObject({ context_boundary: z.literal('untrusted_preference_context'), records: z.array(learningRecord).max(20) }).default(emptyLearningContext);
 const summarySchema = z.strictObject({
   company_id: uuid.nullable(), revision: z.number().int().min(0), artifact_count: z.number().int().min(0), status: z.enum(['active', 'not_started']),
   brief: brief.nullable().default(null), sources: z.array(source).max(100).default([]), evidence_conflicts: strings.default([]),
   verification_findings: z.array(z.strictObject({ code: text, message: text, severity: z.enum(['info', 'warning', 'error']) })).max(100).default([]),
-  next_decision: text.nullable().default(null), founder_truth: founderTruth.optional(), artifacts: z.array(artifact).max(20).default([]), frameworks: z.array(frameworkMetadata).max(2).default([]),
+  next_decision: text.nullable().default(null), founder_truth: founderTruth.optional(), artifacts: z.array(artifact).max(20).default([]), frameworks: z.array(frameworkMetadata).max(2).default([]), learning_context: learningContext,
 }).refine(value => value.artifacts.every(item => item.company_id === value.company_id && item.revision <= value.revision)
   && new Set(value.frameworks.map(item => item.id)).size === value.frameworks.length);
 export const companyResultSchema = z.union([resultSchema, summarySchema]);

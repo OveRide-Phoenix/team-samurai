@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cancelAgentosRun, companyResultSchema, companySnapshotEvents, createAgentosTransport, readAgentosRun, resumeAgentosRun, presentMessages, type AgentosRun } from './agentos';
+import { cancelAgentosRun, companyResultSchema, companySnapshotEvents, companySnapshotSchema, createAgentosTransport, readAgentosRun, resumeAgentosRun, presentMessages, type AgentosRun } from './agentos';
 import { loadPortfolio, persistPortfolio, portfolioStorageKey } from './browserStorage';
 import { emptyCompanyView, type Message, type WorkEvent } from './model';
 
@@ -103,6 +103,15 @@ describe('AgentOS transport wire boundary', () => {
     expect(parsed.data.artifacts[0]?.knowledge_references).toEqual([reference]);
     expect(companyResultSchema.safeParse({ ...grounded, artifacts: [{ ...grounded.artifacts[0], knowledge_references: [{ ...reference, artifact_id: artifactId }] }] }).success).toBe(false);
     expect(companyResultSchema.safeParse({ ...grounded, artifacts: [{ ...grounded.artifacts[0], knowledge_references: [{ ...reference, content_sha256: 'bad' }] }] }).success).toBe(false);
+  });
+
+  it('accepts only bounded learning context marked as untrusted', () => {
+    const learning = { learning_id: artifactId, workspace_id: sourceId, user_id: 'founder@example.com', company_id: company, kind: 'preference', source_revision: 1, founder_text: 'Prefer weekly reviews', created_by: 'founder@example.com', audit_sha256: 'a'.repeat(64), shared: false, superseded_by: null, active: true, created_at: 1, evidence_status: 'untrusted_preference_context' };
+    const snapshot = { summary: { company_id: company, revision: 1, artifact_count: 0, status: 'active', brief: null, sources: [], evidence_conflicts: [], verification_findings: [], next_decision: null, artifacts: [], frameworks: [], learning_context: { context_boundary: 'untrusted_preference_context', records: [learning] } }, artifacts: [] };
+
+    expect(companySnapshotSchema.parse(snapshot).summary.learning_context.records).toEqual([learning]);
+    expect(companySnapshotSchema.safeParse({ ...snapshot, summary: { ...snapshot.summary, learning_context: { ...snapshot.summary.learning_context, records: Array(21).fill(learning) } } }).success).toBe(false);
+    expect(companySnapshotSchema.safeParse({ ...snapshot, summary: { ...snapshot.summary, learning_context: { ...snapshot.summary.learning_context, records: [{ ...learning, evidence_status: 'verified' }] } } }).success).toBe(false);
   });
 
   it('maps strategy knowledge provenance to its stable existing panels', () => {

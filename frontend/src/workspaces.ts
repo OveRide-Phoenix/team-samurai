@@ -18,6 +18,7 @@ export const directoryCompanySchema = z.strictObject({
   workspace_id: uuid,
   company_id: uuid,
   current_revision: z.number().int().min(0),
+  state_sha256: z.string().regex(/^[a-f0-9]{64}$/),
   created_at: z.number().int().min(0),
   parent_session_id: z.string().min(1).nullable(),
   child_session_id: z.string().min(1).nullable(),

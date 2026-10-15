@@ -26,6 +26,9 @@ export const panelBlockSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('table'), columns: z.array(shortText).min(1).max(8), rows: z.array(z.array(shortText).max(8)).max(100) }).refine(block => block.rows.every(row => row.length === block.columns.length), 'Rows must match columns'),
 ]);
 const draftNote = z.literal('Generated view · Working assumptions, not verified business results');
+const scenarioNumber = z.union([z.number().finite(), z.string().min(1).refine(value => Number.isFinite(Number(value)), 'Finite decimal required')]);
+const scenarioAssumption = z.strictObject({ name: shortText, target_metric: shortText, low_delta_percent: scenarioNumber, base_delta_percent: scenarioNumber, high_delta_percent: scenarioNumber });
+const scenarioTrajectory = z.strictObject({ label: z.enum(['low', 'base', 'high']), metrics: z.array(z.strictObject({ metric: shortText, unit: shortText, points: z.tuple([z.strictObject({ day: z.number().int().min(0), value: scenarioNumber }), z.strictObject({ day: z.number().int().min(0), value: scenarioNumber })]) })).min(1).max(20) });
 export const panelSchema = z.discriminatedUnion('kind', [
   z.strictObject({ ...basePanel, kind: z.literal('prospects'), rows: z.array(z.strictObject({
     id: z.string(), name: z.string(), area: z.string(), reason: z.string(), fit: z.enum(['High', 'Medium']),
@@ -44,6 +47,7 @@ export const panelSchema = z.discriminatedUnion('kind', [
   z.strictObject({ ...basePanel, kind: z.literal('pricing'), options: z.array(z.strictObject({
     name: z.string(), price: z.string(), description: z.string(),
   })).max(100) }),
+  z.strictObject({ ...basePanel, kind: z.literal('scenario'), provenance: z.record(z.string(), z.unknown()).refine(value => value.label === 'synthetic_scenario_not_validation'), synthetic_label: z.literal('synthetic_scenario_not_validation'), company_revision: z.number().int().min(0), result_sha256: z.string().regex(/^[a-f0-9]{64}$/), horizon_days: z.number().int().min(1).max(365), assumptions: z.array(scenarioAssumption).min(1).max(10), trajectories: z.tuple([scenarioTrajectory, scenarioTrajectory, scenarioTrajectory]), formulas: z.array(z.strictObject({ metric: shortText, expression: z.literal('end = baseline * (1 + delta_percent / 100)'), baseline_input: scenarioNumber, assumption: shortText.nullable() })).max(20), constraints: z.array(z.strictObject({ constraint: shortText, label: z.enum(['low', 'base', 'high']), metric: shortText, operator: z.enum(['minimum', 'maximum']), threshold: scenarioNumber, actual: scenarioNumber, unit: shortText, violated: z.boolean() })).max(30) }),
 ]);
 export type Panel = z.infer<typeof panelSchema>;
 export const teamAreaSchema = z.enum(["overview", "research", "strategy", "verification", "sales"]);
@@ -81,7 +85,7 @@ export const backendRunSchema = z.object({
 export type BackendRun = z.infer<typeof backendRunSchema>;
 export const workspaceSchema = z.object({
   executionMode: z.enum(['preview', 'live']).default('preview'), backendRun: backendRunSchema.optional(),
-  companyId: z.string().uuid().optional(), currentRevision: z.number().int().min(0).optional(),
+  companyId: z.string().uuid().optional(), currentRevision: z.number().int().min(0).optional(), stateSha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   brief: companyBriefSchema.optional(),
   selectedArea: teamAreaSchema.default("overview"),
   selectedAreas: z.array(workflowAreaSchema).max(4).refine(items => new Set(items).size === items.length).optional(),
@@ -101,7 +105,7 @@ export const portfolioKey = 'samurai-companies-v2';
 export const companySchema = z.object({
   id: z.string(), name: z.string().min(1).max(80), workspace: workspaceSchema,
   workspaceId: z.string().uuid().optional(), companyId: z.string().uuid().optional(),
-  currentRevision: z.number().int().min(0).optional(), createdAt: z.number().int().min(0).optional(),
+  currentRevision: z.number().int().min(0).optional(), stateSha256: z.string().regex(/^[a-f0-9]{64}$/).optional(), createdAt: z.number().int().min(0).optional(),
   role: z.enum(['owner', 'editor', 'viewer']).optional(),
 });
 export const portfolioSchema = z.object({

@@ -5,6 +5,7 @@ import { URL } from 'node:url';
 import { Readable } from 'node:stream';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { FounderOperationsRequestError, founderOperationsBody, founderOperationsHeaders, founderOperationsRoute } from './founderOperationsProxy.mjs';
 
 const BACKEND = 'http://127.0.0.1:8000';
 const RUN = /^\/api\/agentos\/agents\/samurai\/runs$/;
@@ -162,10 +163,14 @@ export function agentosProxy(root, fetchImpl = fetch) {
     const copilot = req.url === '/api/copilotkit' && req.method === 'POST';
     if (!copilot && !req.url?.startsWith('/api/agentos/')) return next();
     if (req.headers['x-samurai-client'] !== '1' || req.headers.authorization) return reject(res, 403, 'invalid local client');
-    const host = String(req.headers.host ?? '').split(':')[0];
+    const requestHost = String(req.headers.host ?? '');
+    const host = requestHost.split(':')[0];
     const origin = req.headers.origin;
-    if (!['127.0.0.1', 'localhost'].includes(host) || (origin && !/^https?:\/\/(127\.0\.0\.1|localhost):4173$/.test(origin))) return reject(res, 403, 'invalid local origin');
+    if (!['127.0.0.1', 'localhost'].includes(host) || (origin && ![`http://${requestHost}`, `https://${requestHost}`].includes(origin))) return reject(res, 403, 'invalid local origin');
     const url = new URL(req.url, 'http://127.0.0.1:4173');
+    let operation;
+    try { operation = founderOperationsRoute(url, req.method); }
+    catch (error) { return error instanceof FounderOperationsRequestError ? reject(res, error.status, error.message) : reject(res, 502, 'Samurai AgentOS is unavailable.'); }
     const { token, configured } = config(root);
     if (url.pathname === '/api/agentos/connection' && req.method === 'GET' && !url.search) {
       res.statusCode = configured ? 200 : 503;
@@ -191,12 +196,13 @@ export function agentosProxy(root, fetchImpl = fetch) {
     const isRun = RUN.test(url.pathname) && req.method === 'POST';
     const isRead = RUN_ID.test(url.pathname) && req.method === 'GET';
     const isCancel = CANCEL.test(url.pathname) && req.method === 'POST';
-    if (!isIntake && !directoryKind && !fileKind && (!match || (!isRun && !isRead && !isCancel))) return reject(res, 404, 'route not available');
+    if (!operation && !isIntake && !directoryKind && !fileKind && (!match || (!isRun && !isRead && !isCancel))) return reject(res, 404, 'route not available');
     const sessions = url.searchParams.getAll('session_id');
-    if ([...url.searchParams.keys()].some(key => key !== 'session_id') || (isRun && url.search) || (!directoryKind && !fileKind && !isRun && !isIntake && (sessions.length !== 1 || !/^[A-Za-z0-9_-]{1,200}$/.test(sessions[0])))) return reject(res, 400, 'query not allowed');
-    const target = isIntake ? `${BACKEND}/api/company/intake` : `${BACKEND}/agentos${url.pathname.slice('/api/agentos'.length)}${url.search}`;
+    if (!operation && ([...url.searchParams.keys()].some(key => key !== 'session_id') || (isRun && url.search) || (!directoryKind && !fileKind && !isRun && !isIntake && (sessions.length !== 1 || !/^[A-Za-z0-9_-]{1,200}$/.test(sessions[0]))))) return reject(res, 400, 'query not allowed');
+    const target = operation ? `${BACKEND}${operation.path}` : isIntake ? `${BACKEND}/api/company/intake` : `${BACKEND}/agentos${url.pathname.slice('/api/agentos'.length)}${url.search}`;
     const headers = { authorization: `Bearer ${token}`, 'x-samurai-client': '1' };
     if (req.headers['content-type']) headers['content-type'] = req.headers['content-type'];
+    if (operation) Object.assign(headers, founderOperationsHeaders(req, operation));
     if (directoryKind === 'company_create') {
       const submissionId = req.headers['x-samurai-submission-id'];
       if (typeof submissionId !== 'string' || !IDEMPOTENCY_KEY.test(submissionId)) return reject(res, 400, 'Valid submission id required.');
@@ -205,10 +211,10 @@ export function agentosProxy(root, fetchImpl = fetch) {
     const controller = new AbortController();
     res.once('close', () => { if (!res.writableFinished) controller.abort(); });
     try {
-      const body = directoryKind && !['workspace_list', 'company_list', 'member_delete'].includes(directoryKind) ? await directoryBody(req, directoryKind) : fileKind === 'file_upload' ? multipartFileBody(req) : isRun ? req : undefined;
+      const body = operation?.body ? await founderOperationsBody(req, operation.body) : directoryKind && !['workspace_list', 'company_list', 'member_delete'].includes(directoryKind) ? await directoryBody(req, directoryKind) : fileKind === 'file_upload' ? multipartFileBody(req) : isRun ? req : undefined;
       if (directoryKind && body) headers['content-type'] = 'application/json';
       if (fileKind === 'file_upload') headers['content-type'] = req.headers['content-type'];
-      if (fileKind && fileKind !== 'file_upload' && (req.headers['transfer-encoding'] || Number(req.headers['content-length'] ?? 0) > 0)) return reject(res, 400, 'Body not allowed.');
+      if ((operation && !operation.body || fileKind && fileKind !== 'file_upload') && (req.headers['transfer-encoding'] || Number(req.headers['content-length'] ?? 0) > 0)) return reject(res, 400, 'Body not allowed.');
       const upstream = await fetchImpl(target, { signal: controller.signal, method: req.method, headers, body, ...((isRun || fileKind === 'file_upload') ? { duplex: 'half' } : {}) });
       res.statusCode = upstream.status;
       if (upstream.headers.get('content-type')) res.setHeader('Content-Type', upstream.headers.get('content-type'));
@@ -238,7 +244,7 @@ export function agentosProxy(root, fetchImpl = fetch) {
       if (res.destroyed) return;
       if (res.headersSent) return res.destroy();
       const multipartError = error instanceof MultipartFileError ? error : error instanceof TypeError && error.cause instanceof MultipartFileError ? error.cause : undefined;
-      if (error instanceof DirectoryRequestError || multipartError) return reject(res, error instanceof DirectoryRequestError ? error.status : multipartError.status, error instanceof DirectoryRequestError ? error.message : multipartError.message);
+      if (error instanceof DirectoryRequestError || error instanceof FounderOperationsRequestError || multipartError) return reject(res, error instanceof DirectoryRequestError || error instanceof FounderOperationsRequestError ? error.status : multipartError.status, error instanceof DirectoryRequestError || error instanceof FounderOperationsRequestError ? error.message : multipartError.message);
       return reject(res, 502, 'Samurai AgentOS is unavailable.');
     }
   };

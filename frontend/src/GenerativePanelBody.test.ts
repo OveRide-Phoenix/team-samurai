@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { GenerativePanelBody } from './GenerativePanelBody';
-import type { Panel } from './model';
+import { panelSchema, type Panel } from './model';
 
 function render(panel: Panel) {
   return renderToStaticMarkup(createElement(GenerativePanelBody, { panel, compact: false, completedTasks: [], onComplete: () => undefined }));
@@ -51,5 +51,14 @@ describe('readable evidence details', () => {
     expect(html).toContain('Accepted artifact details');
     expect(html).toContain('does not independently verify a finding');
     expect(html).not.toContain('00000000-0000-4000-8000-000000000003/download');
+  });
+
+  it('keeps the synthetic warning and exact provenance visible beside all three trajectories', () => {
+    const metric = (value: string) => [{ metric: 'revenue', unit: 'inr', points: [{ day: 0, value: '100' }, { day: 30, value }] }];
+    const panel = panelSchema.parse({ id: 'scenario-a', kind: 'scenario', title: 'Revenue range', note: 'Synthetic scenario', provenance: { label: 'synthetic_scenario_not_validation' }, synthetic_label: 'synthetic_scenario_not_validation', company_revision: 2, result_sha256: 'a'.repeat(64), horizon_days: 30, assumptions: [{ name: 'growth', target_metric: 'revenue', low_delta_percent: '-20', base_delta_percent: '0', high_delta_percent: '20' }], trajectories: [{ label: 'low', metrics: metric('80') }, { label: 'base', metrics: metric('100') }, { label: 'high', metrics: metric('120') }], formulas: [{ metric: 'revenue', expression: 'end = baseline * (1 + delta_percent / 100)', baseline_input: '100', assumption: 'growth' }], constraints: [] });
+    const html = render(panel);
+    expect(html).toContain('Synthetic scenario, not validation');
+    expect(html).toContain('synthetic_scenario_not_validation');
+    expect(html).toContain('low'); expect(html).toContain('base'); expect(html).toContain('high');
   });
 });

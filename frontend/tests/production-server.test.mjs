@@ -84,6 +84,20 @@ test('requires a submission ID for company reservations and maps it to the upstr
   assert.equal((await app.request(`/api/agentos/samurai/workspaces/${workspaceId}/companies`, { method: 'POST', headers: { origin: 'https://samurai.example', 'content-type': 'application/json' }, body: '{}' })).status, 400);
 });
 
+test('forwards one exact scenario run with server identity and mapped idempotency', async t => {
+  const workspaceId = '00000000-0000-4000-8000-000000000001';
+  const companyId = '00000000-0000-4000-8000-000000000002';
+  const scenarioId = '00000000-0000-4000-8000-000000000003';
+  const calls = [];
+  const app = await fixture(t, async (url, options) => { calls.push([url, options]); return Response.json({ provenance: 'synthetic_scenario_not_validation' }); });
+  const response = await app.request(`/api/agentos/samurai/workspaces/${workspaceId}/companies/${companyId}/scenarios/${scenarioId}/runs`, { method: 'POST', headers: { origin: 'https://samurai.example', 'content-type': 'application/json', 'x-samurai-submission-id': scenarioId, 'idempotency-key': 'browser-forged' }, body: '{}' });
+  assert.equal(response.status, 200);
+  assert.equal(calls[0][0], `https://backend.example/agentos/samurai/workspaces/${workspaceId}/companies/${companyId}/scenarios/${scenarioId}/runs`);
+  assert.equal(calls[0][1].headers['idempotency-key'], scenarioId);
+  assert.match(calls[0][1].headers.authorization, /^Bearer /);
+  assert.equal(calls[0][1].body, '{}');
+});
+
 test('rejects forged directory fields and invalid directory routes before upstream access', async t => {
   const app = await fixture(t, () => assert.fail('upstream reached'));
   const headers = { origin: 'https://samurai.example', 'content-type': 'application/json' };
