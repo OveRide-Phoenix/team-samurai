@@ -10,11 +10,17 @@ This is the current bounded refresh. It is still a preparation audit: no
 repository visibility, IAM, application, release, artifact, upload, message,
 deployment, login, provider, or account change was made.
 
-The fresh remote `main` is `da76f0c6b74b83a60f285441324ef44e695c94f4`; the
-local candidate is `318e6780e22d60ca5277838b65c0ed5d11b7da2a`. The fresh mirror
-advertised 25 refs and zero tag refs, contained 91 reachable commits, and
-`git fsck --full --no-reflogs` exited 0. The candidate worktree was clean at
-the start of the audit.
+The original snapshot bound remote `main`
+`da76f0c6b74b83a60f285441324ef44e695c94f4` and local candidate
+`318e6780e22d60ca5277838b65c0ed5d11b7da2a`. Its fresh mirror advertised 25
+refs and zero tag refs, contained 91 reachable commits, and `git fsck --full
+--no-reflogs` exited 0. The candidate worktree was clean at the start of that
+audit.
+
+A follow-on refresh now records 28 current remote refs and 93 reachable
+commits, with zero tag refs; `main` remains `da76f0c6b74b83a60f285441324ef44e695c94f4`.
+The exact candidate remains `318e6780e22d60ca5277838b65c0ed5d11b7da2a`.
+These receipts do not audit the current integration `HEAD`.
 
 The bundled Gitleaks 8.30.1 binary (SHA-256
 `f414bc2fb952be6c9072b75cb411e3368614ef4b16d48dbd9ad238034afd2302`) was
@@ -36,10 +42,12 @@ identifiers requiring a deliberate disclosure or removal decision.
 The bounded GitHub API reads succeeded: releases returned zero rows/assets and
 Actions artifacts returned zero rows/count. `gh auth status --hostname
 github.com` separately exited 1 for an invalid stored profile; that does not
-negate the successful bounded reads. Git LFS inventory is **UNAVAILABLE**
-because `git-lfs` was not installed. Visibility, evaluator identities/IAM,
-and signed-out public-link checks were not attempted, and no authorization was
-supplied.
+negate the successful bounded reads. The follow-on LFS refresh used a verified
+temporary tool and found zero LFS files across all current remote refs and the
+exact candidate history. The two commits newly reachable in the current remote
+delta produced zero findings in the bounded pinned scanner run. Visibility,
+evaluator identities/IAM, and signed-out public-link checks were not attempted,
+and no authorization was supplied.
 
 ### October 15 reproducible evidence
 
@@ -53,14 +61,18 @@ task audit worktree (`samurai-publication-audit`).
 | Tracked deck artifact scan | `unzip` PPTX extraction; bundled `pypdf 6.10.0` PDF extraction; same-pinned scans and marker checks | PPTX exit 0/0 findings; PDF semantic text from 7 pages; scans and checks exit 0 | `.omo/evidence/readiness/task-13-snapshot-refresh/snapshot-audit.md` |
 | Release and Actions metadata | `gh api --paginate 'repos/OveRide-Phoenix/team-samurai/releases?per_page=100'`; `gh api --paginate 'repos/OveRide-Phoenix/team-samurai/actions/artifacts?per_page=100'` | Exit 0; 0 releases/assets and 0 artifacts/count | `.omo/evidence/readiness/task-13-snapshot-refresh/snapshot-audit.md` |
 | Stored CLI profile boundary | `gh auth status --hostname github.com` | Exit 1; invalid stored profile; does not negate the successful API reads | `.omo/evidence/readiness/task-13-snapshot-refresh/snapshot-audit.md` |
-| Git LFS inventory boundary | `command -v git-lfs`; `git lfs version`; exported-tree `.gitattributes` search | `git-lfs` unavailable; inventory not performed | `.omo/evidence/readiness/task-13-snapshot-refresh/snapshot-audit.md` |
+| Original snapshot Git LFS boundary | `command -v git-lfs`; `git lfs version`; exported-tree `.gitattributes` search | Original snapshot could not inventory LFS because `git-lfs` was unavailable | `.omo/evidence/readiness/task-13-snapshot-refresh/snapshot-audit.md` |
+| Follow-on LFS and remote delta | Verified temporary `git-lfs` with `git ... lfs ls-files --all --json`; bounded pinned Gitleaks delta scan | Current remote 28 refs/93 commits; remote and candidate LFS counts 0; two-commit delta scan exit 0 with 0 findings | `.omo/evidence/readiness/task-13-snapshot-refresh/lfs-refresh.md`, `.omo/evidence/readiness/task-13-snapshot-refresh/snapshot-audit.md`, `.omo/evidence/readiness/task-13-snapshot-refresh/lfs-cleanup.txt` |
 | Disposable audit cleanup | Targeted removal of the four task-owned temporary directories | All four absent; candidate worktree clean; retained evidence ignored | `.omo/evidence/readiness/task-13-snapshot-refresh/cleanup.txt` |
 
-The snapshot is sanitized: raw scanner reports, command logs, private-key
-fixture bytes, and raw metadata logs were removed. No application runtime or
-provider call was opened. A later commit, ref change, release/artifact,
-binary-artifact change, credential discovery, or publication/IAM action
-invalidates the relevant coverage and requires a fresh bounded review.
+The snapshot and follow-on receipts are sanitized: raw scanner reports,
+command logs, private-key fixture bytes, temporary tools, and raw metadata logs
+were removed. No application runtime or provider call was opened. Remaining
+blockers are the deliberate identifier-disclosure decision, evaluator/IAM
+authorization, and signed-out public-link testing. A later commit, ref change,
+release/artifact, binary-artifact change, credential discovery, or
+publication/IAM action invalidates the relevant coverage and requires a fresh
+bounded review.
 
 ### Current decisions requiring explicit approval
 
