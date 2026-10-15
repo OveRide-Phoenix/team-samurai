@@ -1213,9 +1213,16 @@ def run_http_journeys(
             proof = _HttpJourneyProof.model_validate_json(artifact_path.read_text(encoding="utf-8"))
             valid = (
                 proof.staged.company_id != proof.unsupported.company_id
-                and proof.staged.revisions == [1, 2, 3, 5]
+                and proof.staged.revisions == [1, 3, 4, 6]
                 and proof.staged.artifact_types
-                == ["intake", "research", "strategy", "product_plan", "verification"]
+                == [
+                    "intake",
+                    "research",
+                    "research",
+                    "strategy",
+                    "product_plan",
+                    "verification",
+                ]
                 and proof.unsupported.revision == TOTAL_ATTEMPTS
                 and proof.unsupported.artifact_types == ["intake", "research"]
             )

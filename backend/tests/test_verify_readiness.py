@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 
+from samurai.contracts import ResearchArtifact
 from scripts import verify_readiness as readiness
 from scripts.verify_readiness import (
     CaseResult,
@@ -805,9 +806,10 @@ def test_http_journey_runner_requires_semantic_process_artifact(
             "provider_guard": "local deterministic models",
             "staged": {
                 "company_id": str(uuid4()),
-                "revisions": [1, 2, 3, 5],
+                "revisions": [1, 3, 4, 6],
                 "artifact_types": [
                     "intake",
+                    "research",
                     "research",
                     "strategy",
                     "product_plan",
@@ -944,10 +946,22 @@ def test_readiness_http_runs_approved_stages_and_unsupported_research(
     assert [artifact.artifact_type for artifact in staged_state.artifacts] == [
         "intake",
         "research",
+        "research",
         "strategy",
         "product_plan",
         "verification",
     ]
+    raw_research, adjudicated_research = staged_state.artifacts[1:3]
+    raw_payload = ResearchArtifact.model_validate(raw_research.payload)
+    adjudicated_payload = ResearchArtifact.model_validate(adjudicated_research.payload)
+    assert raw_payload.is_adjudicated is False
+    assert raw_research.revision == 2
+    assert raw_research.claims[0].verification_status == "unverified"
+    assert adjudicated_research.revision == 3
+    assert adjudicated_payload.adjudicated_from_artifact_id == raw_research.artifact_id
+    assert adjudicated_payload.adjudicated_from_revision == raw_research.revision
+    assert adjudicated_payload.adjudications[0].verdict == "supported"
+    assert adjudicated_research.claims[0].verification_status == "supported"
 
     unsupported_session = f"unsupported-{uuid4()}"
     brief = _run_http_stage(

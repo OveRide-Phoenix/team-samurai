@@ -16,6 +16,7 @@ from samurai.execution_state import SamuraiPostgresDb
 from tests.test_company_workflow import (
     _catalog,  # pyright: ignore[reportPrivateUsage]
     _complete_research,  # pyright: ignore[reportPrivateUsage]
+    _supporting_fetch,  # pyright: ignore[reportPrivateUsage]
     _unmapped_research_result,  # pyright: ignore[reportPrivateUsage]
 )
 
@@ -64,7 +65,7 @@ class _ReadinessParentModel(Model):
             "target_customer": "Independent Indian dental clinics",
             "geography": "India",
             "budget": "INR 50,000",
-            "founder_skills": "Python and product",
+            "founder_skills": "Python and Next.js",
             "goal": "Validate demand in 30 days",
             "stage": self._requested_stage(messages),
         }
@@ -134,6 +135,7 @@ def create_readiness_process_app() -> FastAPI:
         return catalog
 
     company_workflow.create_role_catalog = role_catalog  # pyright: ignore[reportPrivateLocalImportUsage]
+    company_workflow.fetch_sources = _supporting_fetch  # pyright: ignore[reportPrivateLocalImportUsage]
     company_workflow.run_research = (  # pyright: ignore[reportPrivateLocalImportUsage]
         _unsupported_research
         if os.environ["SAMURAI_READINESS_RESEARCH_MODE"] == "unsupported"
