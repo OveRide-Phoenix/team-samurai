@@ -143,13 +143,13 @@ Schedules are persisted when the backend receives them, but no cloud scheduler i
 
 ```sh
 DATABASE_URL='postgresql+psycopg://USER:PASSWORD@127.0.0.1:54329/samurai' \
-  SAMURAI_DB_SCHEMA='samurai' \
+  SAMURAI_DB_SCHEMA='ai' \
   uv --directory backend run python scripts/run_due_schedules.py \
-  --once --now '2026-10-16T12:00:00+00:00' \
+  --once --now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --database-url-env DATABASE_URL --schema-env SAMURAI_DB_SCHEMA
 ```
 
-The runner requires `--once`, an offset-bearing `--now`, and explicit environment-variable names; it prints the terminal receipts as JSON. Repeat the same due pass to verify that an already completed one-shot produces no second receipt. Use an isolated database when testing this command.
+The runner requires `--once`, an offset-bearing `--now`, and explicit environment-variable names; it prints the terminal receipts as JSON. `ai` matches the default `SamuraiPostgresDb` schema used by the local app; set both values to the same isolated schema when using a custom database. Repeat the same due pass to verify that an already completed one-shot produces no second receipt. Use an isolated database when testing this command.
 
 Task20's separate disposable restart/browser acceptance used task-owned ports and synthetic identities. Its ignored harness and sanitized receipts are local evidence, not a setup dependency for a fresh checkout; see `.omo/evidence/task20-runtime/` only when that evidence is present. The recorded acceptance requires one completed schedule run, zero receipts on due-run replay, unchanged company revision/state hash and scenario result hash across backend restart, typed result rendering, and a successful browser reload. The root acceptance run separately stopped task containers and closed its task browser tab; preserve user-owned services and the 4173 tab.
 
