@@ -86,7 +86,7 @@ def _scenario_payload(company: CompanyView) -> dict[str, object]:
     }
 
 
-def test_scheduled_scenario_is_exactly_once_and_recoverable_after_restart(
+def test_scheduled_scenario_is_exactly_once_and_recoverable_after_store_reconstruction(
     platform_client: tuple[TestClient, rsa.RSAPrivateKey, SamuraiPostgresDb],
 ) -> None:
     # Given the real authenticated app, a pinned scenario, and a due one-shot schedule.
@@ -187,7 +187,7 @@ def test_scheduled_scenario_is_exactly_once_and_recoverable_after_restart(
         headers=headers,
     )
 
-    # Then one terminal receipt and one stable synthetic result survive the restart boundary.
+    # Then fresh store instances read one terminal receipt and one stable synthetic result.
     assert len(first) == 1
     assert replay == ()
     receipt = ScheduleRun.model_validate(first[0])
