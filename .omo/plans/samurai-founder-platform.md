@@ -508,7 +508,7 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
 
   Commit: YES | Message: `feat(skills): add pinned founder framework references` | Files: [backend/src/samurai/frameworks.py, backend/src/samurai/frameworks/manifest.json, backend/src/samurai/frameworks/founder-truth.md, backend/src/samurai/frameworks/offer-diagnostic.md, backend/src/samurai/agents.py, backend/src/samurai/foundation.py, backend/src/samurai/parent.py, backend/tests/test_frameworks.py, backend/tests/test_agents.py, docs/framework-attributions.md]
 
-- [ ] 11. Add founder truth and one-next-decision to canonical artifacts
+- [x] 11. Add founder truth and one-next-decision to canonical artifacts
 
   What to do: On `Kalyan/founder-platform-t11-founder-truth`, add strict additive `FounderTruth` and `FrameworkReference` contracts with defaults for legacy artifacts. Populate known/believed/hoped, evidence gaps, current bottleneck, and one next founder decision during Intake; Verifier must keep unsupported entries as assumptions/needs-input. Persist framework IDs/pins/hashes with the artifact. Update prompts and state summary without changing existing stage order or approval boundaries.
   Must NOT do: Do not score founders, auto-advance, convert belief/hope into evidence, require exact framework prose, or rewrite existing accepted artifacts.
