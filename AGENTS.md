@@ -199,4 +199,13 @@ The temporary `gemini-3.8-flash` restoration is historical context only. The fol
 The user funded the API account and now requests `gemini-3.5-flash-lite` with native Google Search. This supersedes the preceding 3.8 restoration and temporary no-call instruction. Keep all roles on Flash-Lite and enable Search only for Researcher. Initial live verification is one bounded research call; do not launch bulk/full-journey tests without discussing measured cost. Billing allowance and tax are estimates until confirmed in the account. Keep the local backend stopped outside explicitly requested testing to avoid accidental charges.
 
 ### Current readiness boundary
+The [16 October local acceptance snapshot](docs/local-acceptance.md) supersedes
+the older Task 9 test totals below as the latest full local check: founder Tasks
+1–20 are accepted at production/test commit `7b731d6`, with 554 backend, 150
+frontend, 60 server, 4 Sites, and 40 provider-free evaluator tests passing.
+Final integrated manual QA and local-main integration remain pending. Preserve
+the exact-version evidence boundary; these results do not establish cloud or
+competition readiness.
+
+The following Task 9 totals are historical:
 Cloud deployment and IAP acceptance are historical, exact-revision evidence in [the deployment guide](docs/gcp-deployment.md); local queue/recovery evidence does not deploy the current checkout. Cloud SQL recovery (`a84c718`) and Cloud Run queue rollout (`571a378`) are preparation only. The user deferred the paid cloud queue upgrade; readiness Task 11 remains deferred and unverified while local founder work continues. Task 7 terminal UI evidence (`1a4c6a9`) and Task 10 provider-free readiness (`76c9884`) are locally accepted. Founder Platform Task 9 is accepted locally at `5eea8dea4c4469c39e6682879d637d5ca3dcf0f8`: focused file tests passed 39 with no skips, the full backend run passed 266 with 105 environment-gated skips, and the frontend run passed 130; this is not authorized GitHub Actions coverage. The live second-account browser check was explicitly skipped, so automated owner-isolation coverage does not establish that skipped exercise.

@@ -157,6 +157,10 @@ The local AgentOS surface is `/agentos` on port 8000. JWT is the intended contro
 
 ## Contributing
 
+The [16 October local acceptance snapshot](docs/local-acceptance.md) records the
+founder-platform version, checks, browser/restore evidence, and remaining gates.
+It is separate from historical cloud deployment evidence.
+
 Start with [AGENTS.md](AGENTS.md), then the [backend guide](backend/README.md) or [frontend guide](frontend/README.md). Use the applicable **OMo and Ponytail skills for planning, coding, and execution**: inspect existing behavior, make the smallest complete change, and verify it through its real surface.
 
 Before implementation, define the intended outcome and affected contracts. Coordinate changes across both directories, preserve existing product and UI decisions, and document architecture decisions where contributors can find them. Include verification evidence and clearly identify anything still planned or unverified.
