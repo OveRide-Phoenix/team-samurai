@@ -42,9 +42,12 @@ from samurai.contracts import (
 )
 from samurai.frameworks import load_framework_catalog
 from samurai.research import ResearchAgent, ResearchResult, run_research
+from samurai.source_adjudication import adjudicate_sources as run_source_adjudication
+from samurai.source_fetch import fetch_sources
 from samurai.workflow_state import WorkflowContextError, load_company_state, save_company_state
 
 if TYPE_CHECKING:
+    from agno.agent import Agent
     from agno.db.base import BaseDb
     from agno.run import RunContext
     from agno.workflow.workflow import WorkflowStep
@@ -469,7 +472,7 @@ class _Journey:
     research_agent: ResearchAgent
     strategy_agent: ResearchAgent
     product_agent: ResearchAgent
-    verifier_agent: ResearchAgent
+    verifier_agent: Agent
 
     async def intake(
         self, step_input: StepInput, run_context: RunContext | None = None
@@ -697,6 +700,34 @@ class _Journey:
             envelope if outcome == "complete" else _result(updated, outcome),
             stop=outcome != "complete",
         )
+
+    async def adjudicate_sources(
+        self, _step_input: StepInput, run_context: RunContext | None = None
+    ) -> StepOutput:
+        context = _context(run_context)
+        state = _state(context)
+        research = _research_lineage(state)
+        if ResearchArtifact.model_validate(research.payload).is_adjudicated:
+            return _step_output(research)
+        result = await run_source_adjudication(
+            self.verifier_agent,
+            research,
+            fetch_sources,
+        )
+        envelope = _envelope(
+            state,
+            _ArtifactCandidate(
+                payload=result.payload,
+                producer=Role.VERIFIER,
+                status=result.status,
+                findings=result.findings,
+                sources=result.sources,
+                claims=result.claims,
+                assumptions=result.assumptions,
+            ),
+        )
+        _ = _save(state, envelope, context, self.db)
+        return _step_output(envelope)
 
     async def strategy(
         self, _step_input: StepInput, run_context: RunContext | None = None
@@ -937,6 +968,7 @@ def create_company_workflow(
         Step(name="Verify brief", executor=journey.brief_check, max_retries=0),
         Step(name="Research", executor=journey.research, max_retries=0),
         Step(name="Verify evidence", executor=journey.evidence_check, max_retries=0),
+        Step(name="Adjudicate sources", executor=journey.adjudicate_sources, max_retries=0),
         Step(name="Strategy", executor=journey.strategy, max_retries=0),
         Step(name="Product plan", executor=journey.product, max_retries=0),
         Step(name="Verify journey", executor=journey.verify, max_retries=0),
@@ -979,7 +1011,7 @@ def create_company_workflow(
                 stop=True,
             )
 
-        steps = steps[: {"brief": 2, "research": 4, "strategy": 5}[stage]]
+        steps = steps[: {"brief": 2, "research": 5, "strategy": 6}[stage]]
         steps.append(Step(name="Await founder decision", executor=pause, max_retries=0))
     return Workflow(
         id=WORKFLOW_ID,
