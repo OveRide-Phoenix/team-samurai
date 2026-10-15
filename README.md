@@ -12,7 +12,7 @@ The repository has the React/Vite founder UI in [frontend/](frontend/), local Po
 
 ## Current readiness status
 
-The [architecture](docs/architecture.md) separates the locally verified durable queue/recovery slice from the historical cloud/IAP baseline. The native queue implementation at `201f0f7`, formatted at `aa07b46`, the independently reviewed local PostgreSQL/Redis restore scenario, Task 7's terminal UI proof (`1a4c6a9`), Task 10's provider-free readiness runner (`76c9884`), and Task 9's provider-free local acceptance at `1f841e7` establish bounded local recovery. Task 9's combined check records 233 backend tests passed with 26 PostgreSQL tests intentionally skipped and separately covered; it does not claim an authorized GitHub Actions run. None of this deploys the current checkout. The user deferred the paid cloud queue upgrade; Task 11 remains deferred and unverified while local founder work continues. The live second-account browser exercise was user-skipped, and the competition's portal-only team, deadline, and form details remain unverified.
+The [architecture](docs/architecture.md) separates the locally verified durable queue/recovery slice from the historical cloud/IAP baseline. Original readiness Tasks 1–10 are accepted locally. The native queue implementation at `201f0f7`, formatted at `aa07b46`, the independently reviewed local PostgreSQL/Redis restore scenario, Task 7's terminal UI proof (`1a4c6a9`), and Task 10's provider-free readiness runner (`76c9884`) establish bounded local recovery. The separate Founder Platform Task 9 acceptance at `5eea8dea4c4469c39e6682879d637d5ca3dcf0f8` records 39 focused PostgreSQL file tests without skips, a full backend result of 266 passed with 105 environment-gated skips, a frontend result of 130 passed, and a provider-free Vite-BFF/IAB owner download-and-deletion flow. It does not claim an authorized GitHub Actions run. None of this deploys the current checkout. The user deferred the paid cloud queue upgrade; readiness Task 11 remains deferred and unverified while local founder work continues. The live second-account browser exercise was user-skipped, and the competition's portal-only team, deadline, and form details remain unverified.
 
 The source defines the core journey as intake → brief check → grounded research → evidence check → strategy → product plan → verification. It retains typed, revisioned artifacts with founder statements, assumptions, source references, claims, and verification findings. Builder, Marketer, and Sales produce reviewable drafts only; Analyst requires eligible metrics and labels founder-supplied metrics as conditional. No current tool can publish, send, spend, contact prospects, run ads, or deploy.
 
@@ -121,7 +121,7 @@ team-samurai/
     └── samurai-logo/     # Existing shared brand assets
 ```
 
-The backend owns orchestration, execution, verification, integrations, and authorization. The frontend owns the founder experience and will render structured company state. The frontend serves the founder UI preview on port 4173. Authenticated local intake, streamed runs, cancellation, and saved-result recovery are implemented.
+The backend owns orchestration, execution, verification, integrations, authorization, app-owned workspace/company canonical state, and the local workspace-file lifecycle. The frontend owns the founder experience and renders server-projected structured company state; browser-local panels and drafts are not canonical state. The frontend serves the founder UI preview on port 4173. Authenticated local intake, streamed runs, cancellation, and saved-result recovery are implemented.
 
 ## UI direction
 
@@ -131,8 +131,8 @@ A Hark Pro-inspired conversational workspace with an atmospheric background, fro
 
 - Python 3.14, Agno AgentOS 3.1.2, and explicit workflows for backend execution.
 - React 19.2.0, Vite 6.4.2, TypeScript 7.0.2, Tailwind CSS 4.3.3, assistant-ui, and Radix for the existing founder UI.
-- PostgreSQL locally in Podman, with Cloud SQL as the production target.
-- Cloud Run for application hosting and Cloud Storage for generated artifacts.
+- PostgreSQL locally in Podman, with app-owned workspace/company canonical state; Cloud SQL remains the production target.
+- Cloud Run application hosting has recorded historical deployment acceptance; local immutable workspace files are the default, and Cloud Storage is a future adapter/deployment option.
 - Gemini for reasoning and native Google Search grounding on Researcher; the model is locked to `gemini-3.5-flash-lite`. Provider access, quota, and measured cost still require separate verification; do not commit `.env`.
 - Team-only Google IAP identity is bridged server-side to per-user AgentOS JWTs; backend owner isolation remains the authorization boundary.
 
