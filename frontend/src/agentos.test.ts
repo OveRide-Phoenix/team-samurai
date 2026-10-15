@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cancelAgentosRun, companyResultSchema, companySnapshotEvents, createAgentosTransport, readAgentosRun, resumeAgentosRun, presentMessages, type AgentosRun } from './agentos';
-import type { Message, WorkEvent } from './model';
+import { loadPortfolio, persistPortfolio, portfolioStorageKey } from './browserStorage';
+import { emptyCompanyView, type Message, type WorkEvent } from './model';
 
 const company = '00000000-0000-4000-8000-000000000001';
 const artifactId = '00000000-0000-4000-8000-000000000002';
@@ -40,6 +41,25 @@ function serve(data: string, split = false) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('AgentOS transport wire boundary', () => {
+  it('rejects hostile HTML before mapping panels and leaves the last saved workspace intact', async () => {
+    const hostile = { ...result, artifacts: [{ ...result.artifacts[0], payload: { ...result.artifacts[0].payload, summary: '<img src=x onerror="alert(1)">' } }] };
+    const script = { ...result, artifacts: [{ ...result.artifacts[0], payload: { ...result.artifacts[0].payload, summary: '<script>alert(1)</script>' } }] };
+    const ordinaryBusinessText = { ...result, artifacts: [{ ...result.artifacts[0], payload: { ...result.artifacts[0].payload, summary: 'Pilot price ₹4,999 < ₹5,499 budget' } }] };
+    expect(companyResultSchema.safeParse(hostile).success).toBe(false);
+    expect(companyResultSchema.safeParse(script).success).toBe(false);
+    expect(companyResultSchema.safeParse(ordinaryBusinessText).success).toBe(true);
+
+    const scope = { kind: 'development' } as const;
+    const saved = new Map<string, string>();
+    const lastValid = { version: 2 as const, mode: 'light' as const, activeId: 'saved-company', companies: [{ id: 'saved-company', name: 'Saved clinic pilot', workspace: emptyCompanyView() }] };
+    const key = portfolioStorageKey(scope);
+    expect(persistPortfolio({ setItem: (storageKey, value) => { saved.set(storageKey, value); } }, key, lastValid)).toBe(true);
+
+    serve(frame(wire('RunStarted')) + frame(wire('RunCompleted', { content: hostile })));
+    await expect(collect(createAgentosTransport('session-1')('Check pricing', new AbortController().signal))).rejects.toThrow('invalid workflow result');
+    expect(loadPortfolio({ getItem: storageKey => saved.get(storageKey) ?? null }, scope)).toEqual(lastValid);
+  });
+
   it('parses adjudicated Research with the existing evidence panel and rejects malformed provenance', async () => {
     const raw = result.artifacts[0];
     const source = raw.sources[0], claim = raw.claims[0];
@@ -79,6 +99,24 @@ describe('AgentOS transport wire boundary', () => {
     const events = companySnapshotEvents(snapshot, company);
 
     expect(events.some(event => event.type === 'message' && event.panel?.provenance && 'founder_truth' in event.panel.provenance)).toBe(true);
+    const briefPanel = events.find(event => event.type === 'message' && event.panel?.title === 'Company brief');
+    if (briefPanel?.type !== 'message' || briefPanel.panel?.kind !== 'evidence') throw new Error('Expected founder brief panel');
+    expect(briefPanel.panel.id).toBe(`artifact-${artifactId}`);
+    expect(briefPanel.panel.founder_context).toMatchObject({ next_decision: truth.next_decision, evidence_gaps: truth.evidence_gaps, framework: { id: 'founder_truth', version: '1.0.0' } });
+    expect(briefPanel.panel.claims.map(claim => claim.claim)).toContain('Believed: Clinics may lose bookings');
+  });
+  it('maps an evidence-gated offer diagnostic to stable offer and pricing panels', () => {
+    const framework = { id: 'offer_diagnostic', version: '1.0.0', source_repository: 'mindantic/hormozi', source_revision: '45ab29ffa1aab417f76b90e49dd97e1007af81f7', source_url: 'https://github.com/mindantic/hormozi/tree/45ab29ffa1aab417f76b90e49dd97e1007af81f7', license: 'MIT', attribution: 'Adapted from reviewed offer diagnostics.', allowed_roles: ['strategist'], sha256: 'c'.repeat(64), review_date: '2026-10-15' };
+    const diagnostic = { market: 'Independent clinics', painful_problem: 'Missed calls', purchasing_power_assumption: { assumption_id: '00000000-0000-4000-8000-000000000008', text: 'Clinics can test a monthly fee' }, draft_offer: 'Receptionist trial', evidence_needed: ['Interview five owners'], framework };
+    const strategy = { ...result.artifacts[0], artifact_id: '00000000-0000-4000-8000-000000000009', artifact_type: 'strategy', producer: 'strategist', claims: [], sources: [], payload: { artifact_type: 'strategy', ideal_customer_profile: 'Independent clinics', positioning: 'Reduce missed calls', offer: 'Receptionist trial', pricing_assumptions: ['₹4999 monthly'], offer_diagnostic: diagnostic } };
+    const events = companySnapshotEvents({ summary: { company_id: company, revision: 1, artifact_count: 1, status: 'active', brief: null, sources: [], evidence_conflicts: [], verification_findings: [], next_decision: null, artifacts: [], frameworks: [] }, artifacts: [strategy] }, company);
+    const panels = events.flatMap(event => event.type === 'message' && event.panel ? [event.panel] : []);
+    expect(panels.map(panel => panel.id)).toEqual([`company-summary-${company}`, `artifact-${strategy.artifact_id}`, `artifact-${strategy.artifact_id}-pricing`]);
+    const offer = panels.find(panel => panel.kind === 'offer');
+    const pricing = panels.find(panel => panel.kind === 'pricing');
+    expect(offer?.founder_context).toMatchObject({ evidence_gaps: ['Interview five owners', 'Purchasing power assumption: Clinics can test a monthly fee'], framework: { id: 'offer_diagnostic' } });
+    expect(pricing?.founder_context).toMatchObject({ evidence_gaps: ['Interview five owners', 'Purchasing power assumption: Clinics can test a monthly fee'] });
+    expect(pricing?.founder_context?.framework).toBeUndefined();
   });
   it('hydrates matching canonical summary and strategy/product artifacts without a run', () => {
     const strategy = { ...result.artifacts[0], artifact_id: '00000000-0000-4000-8000-000000000005', artifact_type: 'strategy', producer: 'strategist', claims: [], sources: [], payload: { artifact_type: 'strategy', ideal_customer_profile: 'Independent clinics', positioning: 'Reduce missed calls', offer: 'Receptionist trial', pricing_assumptions: [] } };
