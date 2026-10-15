@@ -1,11 +1,16 @@
 """Company journey state-machine acceptance scenarios. # noqa: SIZE_OK."""
 
+import hashlib
 import json
-from dataclasses import replace
+import os
+import sys
+import tempfile
+import time
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Never, final, override
+from typing import TYPE_CHECKING, ClassVar, Literal, Never, final, override
 from uuid import UUID, uuid4
 
 import anyio
@@ -17,8 +22,9 @@ from agno.models.response import ModelResponse
 from agno.run import RunContext
 from agno.run.workflow import WorkflowRunOutput
 from agno.workflow import Step, StepInput, StepOutput, Workflow
-from pydantic import HttpUrl, JsonValue, TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict, HttpUrl, JsonValue, TypeAdapter, ValidationError
 
+from samurai import source_fetch
 from samurai.agents import ROLE_CAPABILITIES, ConfiguredRole
 from samurai.company_workflow import (
     CompanyJourneyFailure,
@@ -46,15 +52,23 @@ from samurai.contracts import (
     VerificationFinding,
     WorkflowRequest,
     WorkflowResult,
+    accept_artifact,
 )
 from samurai.research import ResearchAgent, ResearchResult
+from samurai.source_adjudication import SourceAssessmentBatch, SourceAssessmentDecision
+from samurai.source_fetch import (
+    SourceFetchFailure,
+    SourceFetchResult,
+    SourceFetchSuccess,
+    fetch_sources,
+)
 from samurai.team_areas import HANDOFF_MARKER, journey_handoff
 from samurai.workflow_state import WorkflowContextError, load_company_state, save_company_state
 from samurai.workspace_directory import WorkspaceDirectory
 from scripts.smoke_company_journey import SmokeArguments, SmokeError, run_smoke
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Iterator, Mapping
+    from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
 
     from agno.db.base import BaseDb
     from agno.models.message import Message
@@ -230,6 +244,9 @@ class _StaticModel(Model):
             | VerificationArtifact
         ) = content
         self.calls: int = 0
+        self.adjudication_verdict: Literal["supported", "contradicted", "insufficient"] = (
+            "supported"
+        )
 
     @override
     def invoke(self, *_args: Never, **_kwargs: Never) -> ModelResponse:
@@ -239,6 +256,33 @@ class _StaticModel(Model):
     async def ainvoke(self, messages: list[Message], **_kwargs: Never) -> ModelResponse:
         assert messages
         self.calls += 1
+        prompt = messages[-1].get_content_string()
+        if prompt.startswith("Assess every candidate exactly once."):
+            rows = TypeAdapter(list[_AssessmentPromptRow]).validate_json(
+                prompt[prompt.index("[") :]
+            )
+            return ModelResponse(
+                content=SourceAssessmentBatch(
+                    decisions=tuple(
+                        SourceAssessmentDecision(
+                            candidate_id=row.candidate_id,
+                            claim_id=row.claim_id,
+                            claim_text=row.claim_text,
+                            source_id=row.source_id,
+                            source_url=row.source_url,
+                            content_sha256=row.content_sha256,
+                            verdict=self.adjudication_verdict,
+                            evidence_quote=(
+                                row.claim_text
+                                if self.adjudication_verdict != "insufficient"
+                                else ""
+                            ),
+                            rationale="Fetched content was assessed against the retained claim.",
+                        )
+                        for row in rows
+                    )
+                ).model_dump_json()
+            )
         raw = self.content.model_dump_json()
         if isinstance(self.content, IntakeArtifact):
             raw = raw.replace('"artifact_type":"intake"', '"artifact_type":"founder_intake"')
@@ -259,6 +303,60 @@ class _StaticModel(Model):
     @override
     def _parse_provider_response_delta(self, response: ModelResponse) -> ModelResponse:
         return response
+
+
+class _AssessmentPromptRow(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
+
+    candidate_id: str
+    claim_id: UUID
+    claim_text: str
+    source_id: UUID
+    source_url: HttpUrl
+    content_sha256: str
+    context: str
+
+
+@dataclass(frozen=True, slots=True)
+class _TestProcessLimits:
+    total_seconds: float = 20.0
+    cleanup_seconds: float = 2.0
+    terminate_grace_seconds: float = 0.25
+    stdin_bytes: int = 16 * 1024
+    stdout_bytes: int = 2 * 1024 * 1024
+    stderr_bytes: int = 4 * 1024
+
+
+def _launcher(path: Path, body: str) -> tuple[str, ...]:
+    _ = path.write_text(body, encoding="utf-8")
+    return sys.executable, "-I", "-S", str(path)
+
+
+def _load_fetch_helper_source() -> str:
+    helper_path = Path(source_fetch.__file__).with_name("source_fetch_helper.py").resolve()
+    return (
+        "import importlib.util, sys\n"
+        f"path={json.dumps(str(helper_path))}\n"
+        "spec=importlib.util.spec_from_file_location('samurai_source_fetch_helper', path)\n"
+        "module=importlib.util.module_from_spec(spec)\n"
+        "sys.modules[spec.name]=module\n"
+        "spec.loader.exec_module(module)\n"
+    )
+
+
+def _wait_for_file(path: Path) -> None:
+    deadline = time.monotonic() + 2
+    while not path.exists():
+        if time.monotonic() >= deadline:
+            raise TimeoutError
+        time.sleep(0.01)
+
+
+def _assert_process_gone(pid: int) -> None:
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)
+    with pytest.raises(ChildProcessError):
+        _ = os.waitpid(pid, os.WNOHANG)
 
 
 def _settings() -> Settings:
@@ -600,7 +698,38 @@ async def _complete_research(
     _agent: ResearchAgent, _brief: CompanyBrief, *, max_sources: int = 5
 ) -> ResearchResult:
     assert max_sources == 5
-    return _research_result()
+    return _research_result(verification_status="unverified")
+
+
+async def _supporting_fetch(urls: Sequence[str]) -> tuple[SourceFetchResult, ...]:
+    results: list[SourceFetchResult] = []
+    for url in urls:
+        claim = (
+            "An unrelated market estimate is INR 9000."
+            if "unrelated-pricing-note" in url
+            else "Clinics report missed calls and compare monthly services."
+        )
+        text = f"The study describes clinic operations. {claim} The report records the unit."
+        results.append(
+            SourceFetchSuccess(
+                original_url=url,
+                final_url=url,
+                fetched_at=datetime.now(UTC),
+                content_sha256=hashlib.sha256(text.encode()).hexdigest(),
+                media_type="text/plain",
+                text=text,
+            )
+        )
+    return tuple(results)
+
+
+async def _inaccessible_fetch(urls: Sequence[str]) -> tuple[SourceFetchResult, ...]:
+    return tuple(SourceFetchFailure(original_url=url) for url in urls)
+
+
+@pytest.fixture(autouse=True)
+def _provider_free_source_fetch(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("samurai.company_workflow.fetch_sources", _supporting_fetch)
 
 
 def _research_result(
@@ -714,8 +843,8 @@ def test_complete_company_journey_persists_verified_ordered_lineage(
     # Then five artifact types form monotonic verified lineage in canonical child state.
     result = WorkflowResult.model_validate(output.content)
     assert result.outcome == "verified"
-    assert [artifact.revision for artifact in result.artifacts] == [1, 2, 3, 4, 5]
-    assert [artifact.input_revision for artifact in result.artifacts] == [0, 1, 2, 3, 4]
+    assert [artifact.revision for artifact in result.artifacts] == [1, 3, 4, 5, 6]
+    assert [artifact.input_revision for artifact in result.artifacts] == [0, 2, 3, 4, 5]
     step_names: list[str] = []
     for step in output.step_results or ():
         assert isinstance(step, StepOutput)
@@ -725,6 +854,7 @@ def test_complete_company_journey_persists_verified_ordered_lineage(
         "Verify brief",
         "Research",
         "Verify evidence",
+        "Adjudicate sources",
         "Strategy",
         "Product plan",
         "Verify journey",
@@ -739,7 +869,189 @@ def test_complete_company_journey_persists_verified_ordered_lineage(
     assert verification.checked_artifact_ids == tuple(
         artifact.artifact_id for artifact in result.artifacts[:-1]
     )
-    assert CompanyState.model_validate(session_state["company"]).current_revision == 5
+    assert CompanyState.model_validate(session_state["company"]).current_revision == 6
+
+
+def test_ordinary_research_adjudicates_before_offer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given ordinary mapped Research whose claim is still unverified.
+    catalog, models = _catalog()
+    fetch_calls: list[tuple[str, ...]] = []
+
+    def catalog_factory(_settings: Settings) -> Mapping[Role, ConfiguredRole]:
+        return catalog
+
+    async def counted_fetch(urls: Sequence[str]) -> tuple[SourceFetchResult, ...]:
+        fetch_calls.append(tuple(urls))
+        return await _supporting_fetch(urls)
+
+    monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
+    monkeypatch.setattr("samurai.company_workflow.run_research", _complete_research)
+    monkeypatch.setattr("samurai.company_workflow.fetch_sources", counted_fetch)
+    workflow = create_company_workflow(
+        SqliteDb(db_file=str(tmp_path / "adjudicated-journey.db")),
+        _settings(),
+    )
+    session_state: dict[str, JsonValue] = {}
+
+    # When the real Agno workflow runs through source adjudication.
+    output = anyio.run(partial(_run_workflow, workflow, _complete_request(), session_state))
+
+    # Then raw history is retained and only the adjudicated Research reaches Strategy.
+    result = WorkflowResult.model_validate(output.content)
+    retained = CompanyState.model_validate(session_state["company"])
+    assert [artifact.revision for artifact in retained.artifacts] == [1, 2, 3, 4, 5, 6]
+    assert [artifact.artifact_type for artifact in retained.artifacts] == [
+        "intake",
+        "research",
+        "research",
+        "strategy",
+        "product_plan",
+        "verification",
+    ]
+    assert [artifact.revision for artifact in result.artifacts] == [1, 3, 4, 5, 6]
+    raw, adjudicated = retained.artifacts[1:3]
+    raw_payload = ResearchArtifact.model_validate(raw.payload)
+    adjudicated_payload = ResearchArtifact.model_validate(adjudicated.payload)
+    assert raw_payload.is_adjudicated is False
+    assert raw.claims[0].verification_status == "unverified"
+    assert adjudicated_payload.adjudicated_from_artifact_id == raw.artifact_id
+    assert adjudicated_payload.adjudicated_from_revision == raw.revision
+    assert adjudicated.producer is Role.VERIFIER
+    assert adjudicated.claims[0].verification_status == "supported"
+    assert StrategyArtifact.model_validate(result.artifacts[2].payload).offer_diagnostic is not None
+    assert fetch_calls == [("https://example.com/clinic-study",)]
+    assert models[Role.VERIFIER].calls == 2
+    assert sum(model.calls for model in models.values()) == 5
+
+
+def test_stale_adjudication_loses_existing_revision_fence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given another accepted revision appears while source adjudication is in flight.
+    catalog, models = _catalog()
+    session_state: dict[str, JsonValue] = {}
+
+    def catalog_factory(_settings: Settings) -> Mapping[Role, ConfiguredRole]:
+        return catalog
+
+    async def racing_fetch(urls: Sequence[str]) -> tuple[SourceFetchResult, ...]:
+        current = CompanyState.model_validate(session_state["company"])
+        raw = current.artifacts[-1]
+        competing = raw.model_copy(
+            update={
+                "artifact_id": uuid4(),
+                "revision": 3,
+                "input_revision": 2,
+                "acceptance_status": "pending",
+            }
+        )
+        accepted = accept_artifact(
+            current,
+            competing,
+            authenticated_session_id=current.context.authenticated_session_id,
+        )
+        session_state["company"] = accepted.model_dump(mode="json")
+        return await _supporting_fetch(urls)
+
+    monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
+    monkeypatch.setattr("samurai.company_workflow.run_research", _complete_research)
+    monkeypatch.setattr("samurai.company_workflow.fetch_sources", racing_fetch)
+    workflow = create_company_workflow(
+        SqliteDb(db_file=str(tmp_path / "stale-adjudication.db")), _settings()
+    )
+
+    # When the older adjudication attempts to save against that changed history.
+    result = WorkflowResult.model_validate(
+        anyio.run(partial(_run_workflow, workflow, _complete_request(), session_state)).content
+    )
+
+    # Then the fence rejects it before Strategy and preserves the competing raw revision.
+    retained = CompanyState.model_validate(session_state["company"])
+    assert result.outcome == "needs_input"
+    assert retained.current_revision == 3
+    assert all(
+        not ResearchArtifact.model_validate(artifact.payload).is_adjudicated
+        for artifact in retained.artifacts
+        if artifact.artifact_type == "research"
+    )
+    assert models[Role.STRATEGIST].calls == 0
+
+
+def test_cancellation_reaps_blocked_source_helper_before_returning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given a journey whose real source supervisor blocks inside child DNS resolution.
+    catalog, models = _catalog()
+    pid_path = tmp_path / "workflow-helper.pid"
+    launcher = tmp_path / "blocked_resolver.py"
+    body = _load_fetch_helper_source() + (
+        "import os, signal\n"
+        f"open({json.dumps(str(pid_path))},'w',encoding='utf-8').write(str(os.getpid()))\n"
+        "def blocked(*args, **kwargs):\n"
+        " while True:\n"
+        "  signal.pause()\n"
+        "module.socket.getaddrinfo=blocked\n"
+        "raise SystemExit(module.main())\n"
+    )
+    created_directories: list[Path] = []
+    original_mkdtemp = tempfile.mkdtemp
+
+    def catalog_factory(_settings: Settings) -> Mapping[Role, ConfiguredRole]:
+        return catalog
+
+    def recording_mkdtemp(*, prefix: str) -> str:
+        path = Path(original_mkdtemp(prefix=prefix, dir=tmp_path))
+        created_directories.append(path)
+        return str(path)
+
+    async def blocked_fetch(urls: Sequence[str]) -> tuple[SourceFetchResult, ...]:
+        return await fetch_sources(
+            urls,
+            _limits=_TestProcessLimits(),
+            _command_factory=lambda _directory: _launcher(launcher, body),
+        )
+
+    monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
+    monkeypatch.setattr("samurai.company_workflow.run_research", _complete_research)
+    monkeypatch.setattr("samurai.company_workflow.fetch_sources", blocked_fetch)
+    monkeypatch.setattr(tempfile, "mkdtemp", recording_mkdtemp)
+    workflow = create_company_workflow(
+        SqliteDb(db_file=str(tmp_path / "cancelled-adjudication.db")), _settings()
+    )
+    session_state: dict[str, JsonValue] = {}
+
+    # When cancellation reaches the journey while the helper is blocked.
+    async def scenario() -> bool:
+        cancellation_observed = False
+
+        async def invoke() -> None:
+            nonlocal cancellation_observed
+            try:
+                _ = await _run_workflow(workflow, _complete_request(), session_state)
+            except anyio.get_cancelled_exc_class():
+                cancellation_observed = True
+                raise
+
+        async with anyio.create_task_group() as tasks:
+            _ = tasks.start_soon(invoke)
+            await anyio.to_thread.run_sync(_wait_for_file, pid_path)
+            tasks.cancel_scope.cancel()
+        return cancellation_observed
+
+    cancellation_observed = anyio.run(scenario)
+
+    # Then cleanup reaps the child and no adjudicated or downstream artifact is accepted.
+    _assert_process_gone(int(pid_path.read_text(encoding="utf-8")))
+    assert cancellation_observed is True
+    assert all(not path.exists() for path in created_directories)
+    retained = CompanyState.model_validate(session_state["company"])
+    assert [artifact.revision for artifact in retained.artifacts] == [1, 2]
+    assert ResearchArtifact.model_validate(retained.artifacts[-1].payload).is_adjudicated is False
+    assert models[Role.VERIFIER].calls == 0
+    assert models[Role.STRATEGIST].calls == 0
+    assert models[Role.PRODUCT_MANAGER].calls == 0
 
 
 def test_generated_offer_content_is_assumption_backed_and_unverified(
@@ -951,7 +1263,7 @@ def test_invalid_research_stops_before_strategy(
     assert models[Role.VERIFIER].calls == 0
 
 
-def test_unverified_research_requires_input_before_an_offer_draft(
+def test_inaccessible_research_requires_input_before_an_offer_draft(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Given mapped research whose claim still lacks an independent support verdict.
@@ -968,6 +1280,10 @@ def test_unverified_research_requires_input_before_an_offer_draft(
 
     monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
     monkeypatch.setattr("samurai.company_workflow.run_research", unverified_research)
+    monkeypatch.setattr(
+        "samurai.company_workflow.fetch_sources",
+        _inaccessible_fetch,
+    )
     workflow = create_company_workflow(
         SqliteDb(db_file=str(tmp_path / "unverified-research.db")), _settings()
     )
@@ -978,10 +1294,11 @@ def test_unverified_research_requires_input_before_an_offer_draft(
     )
     assert result.outcome == "needs_input"
     assert [artifact.artifact_type for artifact in result.artifacts] == ["intake", "research"]
+    assert models[Role.VERIFIER].calls == 0
     assert models[Role.STRATEGIST].calls == 0
 
 
-def test_mixed_supported_and_contradicted_research_requires_rework(
+def test_adjudicated_contradiction_requires_rework(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Given research with one supported claim and one critical contradiction.
@@ -998,6 +1315,7 @@ def test_mixed_supported_and_contradicted_research_requires_rework(
 
     monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
     monkeypatch.setattr("samurai.company_workflow.run_research", mixed_research)
+    models[Role.VERIFIER].adjudication_verdict = "contradicted"
     workflow = create_company_workflow(
         SqliteDb(db_file=str(tmp_path / "mixed-research.db")), _settings()
     )
@@ -1034,7 +1352,8 @@ def test_conflicting_grounded_research_stops_before_an_offer_draft(
     )
 
     # When the ordered journey sees a retained critical contradiction.
-    output = anyio.run(partial(_run_workflow, workflow, _complete_request(), {}))
+    session_state: dict[str, JsonValue] = {}
+    output = anyio.run(partial(_run_workflow, workflow, _complete_request(), session_state))
 
     # Then it preserves the accepted history but creates no offer draft.
     result = WorkflowResult.model_validate(output.content)
@@ -1043,12 +1362,13 @@ def test_conflicting_grounded_research_stops_before_an_offer_draft(
     research = result.artifacts[1]
     assert research.status == "complete"
     assert ResearchArtifact.model_validate(research.payload).conflicts == (conflict,)
+    raw = CompanyState.model_validate(session_state["company"]).artifacts[1]
     assert any(
-        finding.code == "research_conflicts_retained" for finding in research.verification_findings
+        finding.code == "research_conflicts_retained" for finding in raw.verification_findings
     )
     assert models[Role.STRATEGIST].calls == 0
     assert models[Role.PRODUCT_MANAGER].calls == 0
-    assert models[Role.VERIFIER].calls == 0
+    assert models[Role.VERIFIER].calls == 1
 
 
 def test_smoke_timeout_retains_sanitized_progress(
@@ -1191,16 +1511,22 @@ def test_founder_stage_stops_before_downstream_work(
     assert step.step_name == "Await founder decision"
 
 
-def test_approved_stages_resume_the_same_retained_company(
+def test_approved_stages_resume_retry_reuses_the_same_retained_company(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    catalog, _ = _catalog()
+    catalog, models = _catalog()
+    fetch_calls: list[tuple[str, ...]] = []
 
     def catalog_factory(_settings: Settings) -> Mapping[Role, ConfiguredRole]:
         return catalog
 
+    async def counted_fetch(urls: Sequence[str]) -> tuple[SourceFetchResult, ...]:
+        fetch_calls.append(tuple(urls))
+        return await _supporting_fetch(urls)
+
     monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
     monkeypatch.setattr("samurai.company_workflow.run_research", _complete_research)
+    monkeypatch.setattr("samurai.company_workflow.fetch_sources", counted_fetch)
     database = SqliteDb(db_file=str(tmp_path / "resume-stages.db"))
     request = _complete_request()
     state: dict[str, JsonValue] = {}
@@ -1216,7 +1542,9 @@ def test_approved_stages_resume_the_same_retained_company(
             update={"company_id": result.company_id, "expected_revision": result.revision}
         )
     assert result.outcome == "verified"
-    assert result.revision == 5
+    assert result.revision == 6
+    assert fetch_calls == [("https://example.com/clinic-study",)]
+    assert models[Role.VERIFIER].calls == 2
 
 
 @pytest.mark.parametrize(
