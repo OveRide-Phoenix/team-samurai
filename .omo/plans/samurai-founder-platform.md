@@ -655,12 +655,14 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
 
   Schema prerequisite discovered during execution: migration `0001` uniquely keys chunks by workspace/content hash/ordinal, which collides for distinct sources with identical bytes. Task 14 includes an additive `0002_knowledge_provenance.sql` migration and the ordered migration allowlist in `schema.py`. Preserve applied `0001` unchanged and preserve the authoritative source content hash; do not salt it with source identity. Enforce exactly one source identity and source-scoped uniqueness, with explicit derived trust classes. Verify existing-0001 upgrade, duplicate-content provenance, idempotent reapply, and atomic rejection of invalid legacy rows without deleting them.
 
-  Commit: YES | Message: `feat(knowledge): index scoped artifacts and file text` | Files: [backend/src/samurai/knowledge.py, backend/src/samurai/migrations/0002_knowledge_provenance.sql, backend/src/samurai/schema.py, backend/tests/test_knowledge.py, backend/tests/test_workspace_quota_resources.py, backend/tests/fixtures/platform-evals/knowledge.json]
+  Commit: YES | Message: `feat(knowledge): index scoped artifacts and file text` | Files: [backend/src/samurai/knowledge.py, backend/src/samurai/migrations/0002_knowledge_provenance.sql, backend/src/samurai/schema.py, backend/tests/test_knowledge.py, backend/tests/test_workspace_quota_resources.py, backend/tests/test_founder_platform_migration.py, backend/tests/fixtures/platform-evals/knowledge.json]
 
 - [ ] 15. Integrate bounded knowledge context and provenance into workflows and APIs
 
   What to do: On `Kalyan/founder-platform-t15-knowledge-context`, expose authorized index/search endpoints and strict `KnowledgeReference` fields on artifacts. Before Intake/Strategy/Verifier reasoning, retrieve at most five relevant chunks after membership/revision checks and wrap them as untrusted context. Persist only references actually used; file knowledge is founder/workspace context, never independent market support. Keep Google Search research as the only external retrieval path.
   Must NOT do: Do not let knowledge widen tools/identity/permissions, mark file text as supported market evidence, silently ingest all files, or invoke provider calls in tests.
+
+  Wire-compatibility prerequisite: `frontend/src/agentos.ts` uses a strict ArtifactEnvelope schema. Adding backend knowledge references must include the matching strict wire schema and focused `agentos.test.ts` coverage in this task, preserving existing payload compatibility and rejecting malformed references. Task 16 still owns rendering, authenticated link behavior, and browser acceptance; do not weaken strict parsing or silently discard references.
 
   Parallelization: Can parallel: NO | Wave 13 | Blocks: [16] | Blocked by: [14]
 
@@ -691,7 +693,7 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
     Evidence: <attemptDir>/task-15-knowledge-context-error.json
   ```
 
-  Commit: YES | Message: `feat(knowledge): ground drafts in scoped workspace context` | Files: [backend/src/samurai/knowledge_api.py, backend/src/samurai/contracts.py, backend/src/samurai/company_workflow.py, backend/src/samurai/agents.py, backend/src/samurai/parent.py, backend/src/samurai/app.py, backend/src/samurai/prompts/main.md, backend/tests/test_knowledge_api.py, backend/tests/test_company_workflow.py, backend/tests/test_agents.py]
+  Commit: YES | Message: `feat(knowledge): ground drafts in scoped workspace context` | Files: [backend/src/samurai/knowledge_api.py, backend/src/samurai/contracts.py, backend/src/samurai/company_workflow.py, backend/src/samurai/agents.py, backend/src/samurai/parent.py, backend/src/samurai/app.py, backend/src/samurai/prompts/main.md, backend/tests/test_knowledge_api.py, backend/tests/test_company_workflow.py, backend/tests/test_agents.py, frontend/src/agentos.ts, frontend/src/agentos.test.ts]
 
 - [ ] 16. Render authenticated knowledge references through the typed UI
 
