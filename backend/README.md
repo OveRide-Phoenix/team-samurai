@@ -16,7 +16,7 @@ The founder-platform integration includes the locally accepted offer diagnostic 
 
 Ordinary research retains grounding segments as unverified, then source adjudication fetches only its retained public URLs and appends a second immutable Research revision. Strategy can use a claim only when the fetched content is bound to that claim, source, content hash, and exact quote and the Verifier returns a supported source-relative verdict. This does not establish source authority, customer demand, or universal truth.
 
-Task 12 acceptance covered 98 provider-free backend tests, static checks, and real Agno workflow execution with fresh SQLite readback. Adversarial cases kept distinct generated prices as assumptions even when unrelated supported or unverified research contained matching numbers. The founder-framework UI remains pending in [the founder-platform plan](../.omo/plans/samurai-founder-platform.md). These changes have not been accepted through a live provider/browser/cloud journey or deployed. The earlier onboarding and cloud results below describe their named historical revisions, not this integration revision.
+Task 12 acceptance covered 98 provider-free backend tests, static checks, and real Agno workflow execution with fresh SQLite readback. Adversarial cases kept distinct generated prices as assumptions even when unrelated supported or unverified research contained matching numbers. The Task20 founder-operations panel and its backend routes now have focused local runtime evidence; final exact-SHA review, broader adversarial acceptance, and the remaining plan gates are still pending. These changes have not been accepted through a live provider/browser/cloud journey or deployed. The earlier onboarding and cloud results below describe their named historical revisions, not this integration revision.
 
 ## Selected stack and status
 
@@ -35,6 +35,28 @@ Each child workflow has a deadline of `GEMINI_TIMEOUT_SECONDS * 7` (420 seconds 
 Local onboarding validation at `d6d05fb` passed `task check`: 141 backend tests, Ruff, formatting, and basedpyright, plus the frontend check, type generation, and build. Separately, authenticated parent API checks cover parent registration, run reads, restart/recall, owner isolation, input rejection, sanitized errors, the five-artifact core journey, and conditional metrics analysis. The API primary retained three unique grounded sources and nine propagated references; claims remained unverified and verification returned `needs_rework`. The metrics child completed revision 6 with all seven fields, founder-supplied provenance, no connector receipt, and `based_on_founder_supplied_metrics`.
 
 The final real TCP cancellation regression observed streamed child progress, returned cancellation in about 20 ms, persisted both parent and child as `CANCELLED`, emptied the active registry, and prevented a late artifact. Chrome independently completed the fictional five-artifact primary, state recall, and reload persistence. These are local acceptance results. Those local results do not claim live launch-draft generation, push, deployment, or external action; the separately verified GCP deployment is recorded below. See [setup verification](../docs/setup-verification.md) for the detailed evidence boundary and [the parent-agent plan](../.omo/plans/samurai-parent-agents.md) for the acceptance scenarios.
+
+## Founder operations integration
+
+The current local integration mounts three authenticated, workspace-scoped API families inside the real AgentOS application at `/agentos`:
+
+- `learning` stores explicit founder preferences and corrections. Records are immutable; replacement creates a new record and retains the supersession link. Returned timestamps are epoch milliseconds for safe browser transport, while the audit hash is calculated over the persisted nanosecond value.
+- `schedules` accepts only `workspace_review` or `scenario_recompute`, with `once`, `daily`, or `weekly` cadence. A schedule pins the company revision and authorization epoch. The due runner leases work, writes one terminal receipt, and replays safely without a duplicate receipt. Scenario recomputation runs in the scheduler's existing database transaction.
+- `scenarios` stores bounded, deterministic low/base/high assumption trajectories. Each definition pins `current_revision` and `state_sha256`; every result carries the explicit `synthetic_scenario_not_validation` provenance label and its input/result hashes.
+
+The React founder workspace reaches these routes through the server-side `/api/agentos/...` proxy. It validates request shapes, forwards a UUID `Idempotency-Key` for scenario create/run, and never treats browser state or model text as authorization. The Founder operations panel shows learning, saved scenarios, schedule receipts, and the typed scenario panel; scenario values are assumption checks, not observed demand or source-backed validation.
+
+Schedules do not run merely because the API is started, and this checkout has no cloud scheduler. Use the tracked `scripts/run_due_schedules.py --once` command in [local development](../docs/local-development.md) for an explicit local pass.
+
+The provider-free platform evaluator covers the learning, schedule, scenario, and platform end-to-end tests. Run it only against an isolated loopback PostgreSQL database:
+
+```sh
+SAMURAI_TEST_DATABASE_URL='postgresql+psycopg://USER:PASSWORD@127.0.0.1:PORT/DATABASE' \
+  uv --directory backend run python scripts/run_platform_evals.py \
+  --evidence-dir .omo/evidence/task20-evals
+```
+
+The runner clears provider credentials in its child process, rejects non-loopback database URLs, requires a non-empty zero-skip JUnit result, and writes `pytest.log`, `pytest.xml`, and `summary.json`. This is local behavior evidence; it is not a Gemini, deployment, or cloud-queue acceptance.
 
 ## Local setup
 

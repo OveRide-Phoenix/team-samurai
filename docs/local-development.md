@@ -123,6 +123,36 @@ For streaming journeys, consume the SSE lifecycle and use the returned run ident
 
 `BACKEND_URL` is reserved and is not consumed by the current UI preview. Do not put `OS_SECURITY_KEY`, `GOOGLE_API_KEY`, JWT verification configuration, or user bearer tokens in `VITE_` or other browser-exposed variables.
 
+## Founder operations and restart acceptance
+
+The current founder operations panel uses the real AgentOS application routes mounted below `/agentos` and the production-compatible BFF. It supports explicit learning (`preference` or `correction`), allowlisted `workspace_review` and `scenario_recompute` schedules, and deterministic low/base/high scenarios. Learning is returned as untrusted preference context; scenario results are labelled `synthetic_scenario_not_validation`. The UI sends UUID `X-Samurai-Submission-Id` values for scenario create/run, which the BFF forwards as `Idempotency-Key`.
+
+For the normal contributor path, start the tracked services with `task backend:dev` and `task frontend:dev`, open the authenticated founder workspace, and use the Founder operations panel on a company. The backend enforces membership and revision/state-hash pins; the panel reloads persisted learning, scenarios, schedules, and run receipts through the BFF. Do not treat the panel's deterministic scenarios as observed demand or source-backed validation.
+
+The provider-free evaluator is also tracked and reproducible from the repository root against a disposable loopback PostgreSQL database:
+
+```sh
+SAMURAI_TEST_DATABASE_URL='postgresql+psycopg://USER:PASSWORD@127.0.0.1:PORT/DATABASE' \
+  uv --directory backend run python scripts/run_platform_evals.py \
+  --evidence-dir .omo/evidence/task20-evals
+```
+
+The evaluator clears provider credentials, rejects non-loopback database URLs, and requires a non-empty zero-skip JUnit result. These checks establish local behavior only; they do not establish Gemini access, Google authentication, deployment, or the deferred paid cloud recovery upgrade.
+
+Schedules are persisted when the backend receives them, but no cloud scheduler is enabled in this checkout. Run one local due pass explicitly with the tracked runner and the same database/schema used by the backend:
+
+```sh
+DATABASE_URL='postgresql+psycopg://USER:PASSWORD@127.0.0.1:54329/samurai' \
+  SAMURAI_DB_SCHEMA='samurai' \
+  uv --directory backend run python scripts/run_due_schedules.py \
+  --once --now '2026-10-16T12:00:00+00:00' \
+  --database-url-env DATABASE_URL --schema-env SAMURAI_DB_SCHEMA
+```
+
+The runner requires `--once`, an offset-bearing `--now`, and explicit environment-variable names; it prints the terminal receipts as JSON. Repeat the same due pass to verify that an already completed one-shot produces no second receipt. Use an isolated database when testing this command.
+
+Task20's separate disposable restart/browser acceptance used task-owned ports and synthetic identities. Its ignored harness and sanitized receipts are local evidence, not a setup dependency for a fresh checkout; see `.omo/evidence/task20-runtime/` only when that evidence is present. The recorded acceptance requires one completed schedule run, zero receipts on due-run replay, unchanged company revision/state hash and scenario result hash across backend restart, typed result rendering, and a successful browser reload. The root acceptance run separately stopped task containers and closed its task browser tab; preserve user-owned services and the 4173 tab.
+
 ## Checks
 
 ```sh

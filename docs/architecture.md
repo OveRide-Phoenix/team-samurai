@@ -36,6 +36,14 @@ Canonical state is an accepted, contiguous artifact history. Each artifact has a
 
 The core workflow requires founder context for target customer, geography, budget, founder skills, and goal before research. Builder, Marketer, and Sales workflows require verified strategy and product-plan inputs and produce drafts only. Analyst returns `requires_metrics` for missing or ineligible metric input; when it accepts founder-supplied values, its result remains `based_on_founder_supplied_metrics`. No workflow has a tool for external side effects.
 
+## Founder operations boundary
+
+Founder operations extend the same AgentOS application and workspace authorization boundary. The backend mounts learning, schedule, and deterministic scenario routers in the `/agentos` sub-application; the Node/Vite server exposes only their narrow `/api/agentos/...` proxy routes. Learning records are explicit founder context marked `untrusted_preference_context`, bounded to the current workspace/company, and superseded immutably. They can inform presentation and questions but cannot change permissions, evidence, or canonical company state.
+
+Schedules are an allowlist of `workspace_review` and `scenario_recompute`. Each schedule pins a company revision and authorization epoch, and its due runner leases and records one terminal receipt. Scenario recomputation uses the scheduler's existing database transaction, so the worker does not open a second transaction against the same company locks. The scenario contract produces low/base/high arithmetic with assumptions, formulas, constraints, and hashes; its result is explicitly synthetic and must not be presented as validation or observed demand.
+
+The Founder operations panel is a single typed UI surface for these operations. It reloads persisted learning, scenarios, schedules, and run receipts through the BFF, validates nested results, displays the synthetic provenance label, and sends UUID idempotency keys for scenario create/run. Epoch milliseconds are used at the learning API boundary so JavaScript can represent timestamps safely; persistence and audit calculations retain their higher-resolution value.
+
 ## Build sequence
 
 1. **Foundation:** dependency locks, environment templates, secured AgentOS bootstrap, PostgreSQL, and frontend runtime. Verify startup and authentication without paid model calls.
@@ -54,11 +62,15 @@ Financial projections and market estimates must remain labeled assumptions or es
 
 The configured request boundary limits founder message input to 20,000 characters. The model token and timeout settings and the native parent tool-call limit are configured from the backend environment. Local JWT/API and Chrome acceptance verified port 8000 liveness, authorization and isolation, source-backed primary journeys, recall/reload, and cancellation. These results do not establish deployment or external action capability.
 
+Task20's focused local acceptance used the current `create_app` factory, the production-compatible BFF, disposable PostgreSQL/Redis services, and the Codex internal browser with provider credentials empty. It verified learning persistence across backend restart, one scheduled scenario receipt with zero replay receipts, unchanged company revision/state hash and scenario result hash after restart, typed low/base/high rendering, and an empty browser error/warning log after reload. The sanitized receipts are local evidence under `.omo/evidence/task20-runtime/`; final exact-SHA review and broader adversarial acceptance remain separate gates. Cleanup removed the task schema, containers, ports, private keys, logs, and task browser tab while preserving the user's port-4173 tab.
+
 ## Local developer architecture
 
 The root Taskfile is the local entry point. It creates missing private configuration without overwriting it, installs locked dependencies, starts only Samurai PostgreSQL through the pinned Podman Compose provider, and runs backend or frontend servers in the foreground. `task health` checks PostgreSQL and AgentOS liveness without a model call.
 
 The saved **Samurai Local** AgentOS connection is a backend technical-console test path: it renders raw structured responses and verifies the parent agent, state persistence, and JWT boundary. The founder workspace is the React/Vite UI preview in `frontend/`. The user requested consolidating the existing UI here, replacing the Next.js health-only scaffold without a framework rewrite. The request/result contract and authenticated local integration are implemented.
+
+For the founder operations slice, the backend and frontend were tested as the actual pair on task-owned loopback ports (8200 and 4200); the user's existing port 4173 preview was preserved. The disposable harness and receipts are ignored local evidence, not a fresh-checkout setup dependency. Use the tracked service commands and evaluator in [local development](local-development.md) for contributor checks. Do not substitute a manually mounted test router for the current application factory or treat a fixture-only result as browser acceptance.
 
 ## Sources and update policy
 

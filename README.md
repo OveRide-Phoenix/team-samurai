@@ -16,6 +16,8 @@ The [architecture](docs/architecture.md) separates the locally verified durable 
 
 The source defines the core journey as intake → brief check → grounded research → evidence check → strategy → product plan → verification. It retains typed, revisioned artifacts with founder statements, assumptions, source references, claims, and verification findings. Builder, Marketer, and Sales produce reviewable drafts only; Analyst requires eligible metrics and labels founder-supplied metrics as conditional. No current tool can publish, send, spend, contact prospects, run ads, or deploy.
 
+The current Founder Platform Task 20 integration adds a typed Founder operations panel for explicit learning, bounded schedules, and deterministic low/base/high scenarios. The real local application and production-compatible BFF were exercised with provider credentials empty: learning survived a backend restart, a scheduled scenario produced exactly one receipt with zero replay receipts, company revision/state and scenario result hashes stayed unchanged across restart, and the browser rendered the typed synthetic result after reload. Final exact-SHA review, broader adversarial acceptance, and the documented full-check gates remain pending. These scenarios are assumption checks labelled `synthetic_scenario_not_validation`; they are not observed demand or source-backed validation.
+
 Intake, Strategist, Product Manager, and Verifier preload the validated local skill text and expose no runtime function tools. Researcher has native Gemini Search only. Builder, Marketer, Sales, and Analyst use only local read-only skill functions; the parent exposes bounded local skill inspection alongside its four business tools and two draft-presentation tools. Child workflows have a seven-model-timeout deadline (420 seconds with the default 60-second timeout), cancellation drains child runs, model requests are capped at the configured tool-call budget plus one, and child failures become sanitized typed errors.
 
 Local onboarding validation at `d6d05fb` passed `task check`: 141 backend tests, Ruff, formatting, basedpyright, and the frontend check, type generation, and build. Separately, parent acceptance at `9002382` verified a real JWT server probe on port 8000 (unauthenticated 401, root 404, authorized configuration 200), owner-only run reads, and sanitized terminal errors. The authenticated API primary completed the five-artifact core journey to revision 5 with three unique grounded sources and nine propagated references; source-backed claims remain unverified and verification honestly returns `needs_rework`. The founder-supplied metrics path then completed at revision 6 with all seven required fields and a conditional `based_on_founder_supplied_metrics` result.
@@ -36,6 +38,8 @@ task frontend:dev   # founder UI preview on 127.0.0.1:4173
 ```
 
 In a second terminal, use `task db:status`, `task db:logs`, or `task db:stop`. `db:stop` preserves the Samurai volume and does not touch Reporting or other Podman services. See [the local development guide](docs/local-development.md) for prerequisites, JWT AgentOS testing, safe repeat behavior, and the technical-console/UI boundary.
+
+The separate [Founder operations acceptance record](docs/local-development.md#founder-operations-and-restart-acceptance) covers disposable loopback PostgreSQL/Redis services and task-owned ports 8200/4200, leaving the user's 4173 preview untouched. It exercised the actual application factory and BFF with synthetic local identities and no provider calls; its ignored harness is evidence, not a fresh-checkout setup dependency.
 
 The local AgentOS screenshots demonstrate the saved **Samurai Local** connection, a retained journey, and state recall. They are sanitized local QA evidence, intentionally excluded from Git; the rendered output is a technical AgentOS console with raw structured JSON, not the React/Vite founder workspace.
 
@@ -116,6 +120,7 @@ team-samurai/
 │   ├── package.json      # Frontend scripts; package-lock.json pins resolution
 │   └── README.md         # Frontend setup and ownership
 ├── compose.yaml          # Local PostgreSQL through Podman
+├── docs/local-development.md # Local services and Task20 acceptance harness
 ├── docs/architecture.md  # Selected architecture and phased build plan
 └── assets/
     └── samurai-logo/     # Existing shared brand assets
