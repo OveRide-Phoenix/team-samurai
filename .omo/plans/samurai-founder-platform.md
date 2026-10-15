@@ -582,7 +582,7 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
 
   Commit: YES | Message: `feat(founder): gate offer drafts on grounded research` | Files: [backend/src/samurai/contracts.py, backend/src/samurai/company_workflow.py, backend/src/samurai/agents.py, backend/src/samurai/prompts/shared/evidence.md, backend/tests/test_contracts.py, backend/tests/test_company_workflow.py, backend/tests/test_agents.py, backend/tests/fixtures/platform-evals/offer.json]
 
-- [ ] 13. Render founder frameworks through the existing typed panel catalog
+- [x] 13. Render founder frameworks through the existing typed panel catalog
 
   What to do: On `Kalyan/founder-platform-t13-founder-ui`, extend frontend wire schemas and existing evidence/offer/pricing mappings for founder truth, next decision, framework attribution, and offer evidence gaps. Reuse existing panel kinds and stable artifact/revision IDs; keep framework detail progressive and accessible. Run real local browser QA and exact-commit OMo/Ponytail review before merge.
   Must NOT do: Do not introduce AG-UI/OpenUI, arbitrary component names/code, a new rendering engine, or show framework provenance as independent evidence.
