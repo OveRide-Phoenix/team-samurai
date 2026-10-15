@@ -1,6 +1,6 @@
 # Samurai UI
 
-The React/Vite founder workspace for AI Idea → Company. New companies use the configured local AgentOS backend; existing and demo companies retain labelled Preview mode. Live Gemini runs may incur provider charges. The workspace does not send, publish or deploy; the production Node proxy uses team-only Google IAP, with Google sign-in, live brief creation and reload verified.
+The React/Vite founder workspace for AI Idea → Company. New companies use the configured local AgentOS backend; existing and demo companies retain labelled Preview mode. Live Gemini runs may incur provider charges. The workspace does not send, publish or deploy; recorded production Node-proxy revisions used team-only Google IAP, with Google sign-in, live brief creation, and reload verified there rather than for the current source.
 
 ## Run locally
 
@@ -42,7 +42,7 @@ npm run test:sites
 npm run test:server
 ```
 
-The build emits `dist/client/` plus Sites packaging. The Cloud Run container serves these assets through the production Node server and proxies the allowed AgentOS API routes. Static hosting alone cannot provide the authenticated live transport. See [Google Cloud deployment and CI/CD](../docs/gcp-deployment.md) for bootstrap, team access, and acceptance status.
+The build emits `dist/client/` plus Sites packaging. Recorded Cloud Run revisions served these assets through the production Node server and proxied the allowed AgentOS API routes; that history does not show the current source is deployed. Static hosting alone cannot provide the authenticated live transport. See [Google Cloud deployment and CI/CD](../docs/gcp-deployment.md) for bootstrap, team access, and acceptance status.
 
 ## Open-source dependencies
 
@@ -60,7 +60,7 @@ The landing send button opens three required intake pages fetched from the backe
 
 ### Local UI integration — 11 October 2026
 
-New companies use native AgentOS SSE through the Vite server proxy. Configure `AGENTOS_USER_TOKEN` in ignored `frontend/.env.local` and the matching `JWT_VERIFICATION_KEY` in ignored `backend/.env`; restart the backend after changing its configuration. `GEMINI_MODEL` is locked to `gemini-3.5-flash-lite`, with no fallback. The original 2.5 Flash-Lite request returned HTTP 404 for this new account. The user then authorized 3.5 Flash-Lite on 12 October; verify its access separately. Existing and dental-demo companies retain Preview mode. Never call fixture tests proof of successful Gemini research. Local tokens are development-only. Production verifies Google IAP assertions and mints short-lived per-user JWTs server-side; neither signing keys nor bearer tokens belong in `VITE_` variables.
+New companies use native AgentOS SSE through the Vite server proxy. Configure `AGENTOS_USER_TOKEN` in ignored `frontend/.env.local` and the matching `JWT_VERIFICATION_KEY` in ignored `backend/.env`; restart the backend after changing its configuration. `GEMINI_MODEL` is locked to `gemini-3.5-flash-lite`, with no fallback. The original 2.5 Flash-Lite request returned HTTP 404 for this new account. The user then authorized 3.5 Flash-Lite on 12 October; verify its access separately. Existing and dental-demo companies retain Preview mode. Never call fixture tests proof of successful Gemini research. Local tokens are development-only. The intended production proxy verifies Google IAP assertions and mints short-lived per-user JWTs server-side; neither signing keys nor bearer tokens belong in `VITE_` variables.
 
 Team roles expand to show actual workflow start/completion history, retained per company and recovered from scoped backend runs. Missing evidence shows Researcher/Verifier blocked and Strategist waiting. A completed workflow is not proof of customer demand. Research remains insufficient without source evidence; Researcher has native Gemini Search enabled; provider access, quota, and supported source evidence must be checked separately.
 
