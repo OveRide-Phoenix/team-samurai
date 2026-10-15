@@ -735,7 +735,7 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
 
   Commit: YES | Message: `feat(ui): render scoped knowledge provenance` | Files: [frontend/src/App.tsx, frontend/src/styles.css, frontend/src/model.ts, frontend/src/model.test.ts, frontend/src/agentos.ts, frontend/src/agentos.test.ts, frontend/src/GenerativePanelBody.tsx, frontend/src/GenerativePanelBody.test.ts, frontend/src/StandardPanelBody.tsx, frontend/src/LocalPanelPreview.tsx, frontend/src/files.ts, frontend/src/files.test.ts, frontend/BACKEND_CONTRACT.md]
 
-- [ ] 17. Add explicit preference and correction learning records
+- [x] 17. Add explicit preference and correction learning records
 
   What to do: On `Kalyan/founder-platform-t17-learning`, add workspace/user/company-scoped `LearningRecord` kinds `preference` and `correction`, with source company revision, explicit founder text, created-by actor, active/superseded state, and immutable audit hash. Create/list/supersede only through authenticated explicit API actions. Retrieve at most 20 active records for presentation/questions and delimit them as untrusted preference context.
   Must NOT do: Do not auto-extract learning from model/chat, train/update models, treat learning as fact/evidence/approval, share private user preferences to other users by default, or let learning widen tools/policy.
@@ -749,9 +749,9 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
   - Test:     `backend/tests/test_analysis_workflow.py:234` - invalid output must not mutate state
 
   Acceptance criteria (agent-executable only):
-  - [ ] Only the authenticated founder creates/supersedes their personal learning; optional workspace-shared correction requires owner/editor and an explicit `shared=true` action.
-  - [ ] Supersession preserves history/hash and returns only active records by default; company deletion/revocation applies authorization immediately.
-  - [ ] Prompt/tool/evidence contracts are unchanged by hostile learned text.
+  - [x] Only the authenticated founder creates/supersedes their personal learning; optional workspace-shared correction requires owner/editor and an explicit `shared=true` action.
+  - [x] Supersession preserves history/hash and returns only active records by default; company deletion/revocation applies authorization immediately.
+  - [x] Prompt/tool/evidence contracts are unchanged by hostile learned text.
 
   QA scenarios (MANDATORY - task incomplete without these):
   ```
