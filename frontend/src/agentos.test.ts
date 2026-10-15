@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cancelAgentosRun, companyResultSchema, companySnapshotEvents, createAgentosTransport, readAgentosRun, resumeAgentosRun, presentMessages, type AgentosRun } from './agentos';
-import type { Message, WorkEvent } from './model';
+import { loadPortfolio, persistPortfolio, portfolioStorageKey } from './browserStorage';
+import { emptyCompanyView, type Message, type WorkEvent } from './model';
 
 const company = '00000000-0000-4000-8000-000000000001';
 const artifactId = '00000000-0000-4000-8000-000000000002';
@@ -40,6 +41,25 @@ function serve(data: string, split = false) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('AgentOS transport wire boundary', () => {
+  it('rejects hostile HTML before mapping panels and leaves the last saved workspace intact', async () => {
+    const hostile = { ...result, artifacts: [{ ...result.artifacts[0], payload: { ...result.artifacts[0].payload, summary: '<img src=x onerror="alert(1)">' } }] };
+    const script = { ...result, artifacts: [{ ...result.artifacts[0], payload: { ...result.artifacts[0].payload, summary: '<script>alert(1)</script>' } }] };
+    const ordinaryBusinessText = { ...result, artifacts: [{ ...result.artifacts[0], payload: { ...result.artifacts[0].payload, summary: 'Pilot price ₹4,999 < ₹5,499 budget' } }] };
+    expect(companyResultSchema.safeParse(hostile).success).toBe(false);
+    expect(companyResultSchema.safeParse(script).success).toBe(false);
+    expect(companyResultSchema.safeParse(ordinaryBusinessText).success).toBe(true);
+
+    const scope = { kind: 'development' } as const;
+    const saved = new Map<string, string>();
+    const lastValid = { version: 2 as const, mode: 'light' as const, activeId: 'saved-company', companies: [{ id: 'saved-company', name: 'Saved clinic pilot', workspace: emptyCompanyView() }] };
+    const key = portfolioStorageKey(scope);
+    expect(persistPortfolio({ setItem: (storageKey, value) => { saved.set(storageKey, value); } }, key, lastValid)).toBe(true);
+
+    serve(frame(wire('RunStarted')) + frame(wire('RunCompleted', { content: hostile })));
+    await expect(collect(createAgentosTransport('session-1')('Check pricing', new AbortController().signal))).rejects.toThrow('invalid workflow result');
+    expect(loadPortfolio({ getItem: storageKey => saved.get(storageKey) ?? null }, scope)).toEqual(lastValid);
+  });
+
   it('parses adjudicated Research with the existing evidence panel and rejects malformed provenance', async () => {
     const raw = result.artifacts[0];
     const source = raw.sources[0], claim = raw.claims[0];

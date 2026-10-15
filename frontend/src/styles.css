@@ -621,7 +621,8 @@ h1,h2,h3,p { margin: 0; }
 .founder-evidence-gaps li + li { margin-top:5px; }
 .founder-attribution { color:var(--muted-foreground); }
 .founder-attribution a { display:inline-flex; margin-top:8px; color:var(--foreground); font-size:12px; }
-.founder-preview-update { position:fixed; right:20px; bottom:20px; z-index:30; }
+.founder-preview-update { position:fixed; right:20px; bottom:132px; z-index:30; }
+@media(max-width:760px) { .founder-preview-update { right:14px; bottom:148px; max-width:calc(100vw - 28px); } }
 .prospect-reason summary { justify-content:space-between; align-items:flex-start; }
 .prospect-reason summary > div { min-width:0; }
 .prospect-reason summary > svg { flex-shrink:0; margin-top:4px; }

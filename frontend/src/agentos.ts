@@ -4,7 +4,8 @@ import { agents, panelSchema, teamAreaSchema, type BackendRun, type Message, typ
 const base = '/api/agentos/agents/samurai/runs';
 const headers = { 'X-Samurai-Client': '1' } as const;
 const limit = 2_000_000;
-const text = z.string().min(1).max(20_000);
+const htmlTag = /<\/?[a-z][a-z0-9:-]*(?=[\s/>])|<[^>]*\bon[a-z][a-z0-9:-]*\s*=/i;
+const text = z.string().min(1).max(20_000).refine(value => !htmlTag.test(value), 'HTML markup is not allowed in AgentOS text.');
 const strings = z.array(text).max(100);
 const uuid = z.string().uuid();
 const date = z.string().datetime({ offset: true });
