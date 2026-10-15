@@ -1,0 +1,20 @@
+{
+  "limits": {
+    "query_characters": 200,
+    "top_k": 5,
+    "chunks_per_source": 50,
+    "chunk_characters": 2000
+  },
+  "cases": [
+    {
+      "source": "canonical accepted ArtifactEnvelope",
+      "trust_class": "accepted_artifact",
+      "evidence_status": "untrusted_context"
+    },
+    {
+      "source": "ready UTF-8 workspace file",
+      "trust_class": "uploaded_file",
+      "evidence_status": "untrusted_context"
+    }
+  ]
+}

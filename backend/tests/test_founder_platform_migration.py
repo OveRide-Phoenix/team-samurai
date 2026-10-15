@@ -238,7 +238,7 @@ def test_apply_reapply_and_legacy_mirror_are_idempotent(
     # Then the idempotent backfill is byte-equivalent and leaves legacy JSON intact.
     expected = {str(state.context.company_id): canonical_state_hash(state) for state in seeded}
     assert first == second
-    assert counts == (2, 2, 3, 1, 2)
+    assert counts == (2, 2, 3, 2, 2)
     assert quota_counts == ((1, 1), (2, 1))
     assert {str(row.company_id): row.state_sha256 for row in migrated} == expected
     assert all(row.canonical_state.context.company_id == row.company_id for row in migrated)
