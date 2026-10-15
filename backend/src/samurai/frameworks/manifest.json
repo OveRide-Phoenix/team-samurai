@@ -1,0 +1,30 @@
+{
+  "frameworks": [
+    {
+      "id": "founder_truth",
+      "version": "1.0.0",
+      "source_repository": "gvkhosla/founder-skills",
+      "source_revision": "07ea968338cff2ba67ff245671765ea957ce0a0c",
+      "source_url": "https://github.com/gvkhosla/founder-skills/tree/07ea968338cff2ba67ff245671765ea957ce0a0c",
+      "license": "MIT",
+      "attribution": "Adapted from Founder Skills by Geet Khosla.",
+      "allowed_roles": ["intake", "strategist", "verifier"],
+      "sha256": "ba206825fb8ebd15cf911397e55628ff8b5aacf28cbb02b65d20c978bc31e0bb",
+      "review_date": "2026-10-15",
+      "resource": "founder-truth.md"
+    },
+    {
+      "id": "offer_diagnostic",
+      "version": "1.0.0",
+      "source_repository": "mindantic/hormozi",
+      "source_revision": "45ab29ffa1aab417f76b90e49dd97e1007af81f7",
+      "source_url": "https://github.com/mindantic/hormozi/tree/45ab29ffa1aab417f76b90e49dd97e1007af81f7",
+      "license": "MIT",
+      "attribution": "Adapted from the Hormozi skill collection by AgentSeal.",
+      "allowed_roles": ["strategist", "verifier"],
+      "sha256": "866fc5c6e938eedbe8e04dc7bcfba64304a1e049e5b943d556912eac3a503c12",
+      "review_date": "2026-10-15",
+      "resource": "offer-diagnostic.md"
+    }
+  ]
+}

@@ -10,6 +10,13 @@ const uuid = z.string().uuid();
 const date = z.string().datetime({ offset: true });
 const outcome = z.enum(['verified', 'needs_input', 'needs_rework', 'insufficient_evidence', 'draft_only', 'requires_metrics', 'based_on_founder_supplied_metrics']);
 const roles = z.enum(['intake', 'researcher', 'strategist', 'product_manager', 'builder', 'marketer', 'sales', 'analyst', 'verifier']);
+const frameworkMetadata = z.strictObject({
+  id: z.enum(['founder_truth', 'offer_diagnostic']), version: z.string().regex(/^\d+\.\d+\.\d+$/),
+  source_repository: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/), source_revision: z.string().regex(/^[0-9a-f]{40}$/),
+  source_url: z.string().url().refine(value => value.startsWith('https://github.com/')), license: z.literal('MIT'), attribution: text,
+  allowed_roles: z.array(z.enum(['intake', 'strategist', 'verifier'])).min(1).max(3), sha256: z.string().regex(/^[0-9a-f]{64}$/), review_date: z.iso.date(),
+}).refine(value => value.source_url.replace(/\/$/, '') === `https://github.com/${value.source_repository}/tree/${value.source_revision}`
+  && new Set(value.allowed_roles).size === value.allowed_roles.length);
 const brief = z.strictObject({ idea: text, target_customer: text.nullable(), geography: text.nullable(), budget: text.nullable(), founder_skills: text.nullable(), goal: text.nullable(), supplied_context: strings, assumptions: strings, open_questions: strings, next_actions: strings });
 const payload = z.discriminatedUnion('artifact_type', [
   z.strictObject({ artifact_type: z.literal('intake'), brief }),
@@ -41,8 +48,9 @@ const summarySchema = z.strictObject({
   company_id: uuid.nullable(), revision: z.number().int().min(0), artifact_count: z.number().int().min(0), status: z.enum(['active', 'not_started']),
   brief: brief.nullable().default(null), sources: z.array(source).max(100).default([]), evidence_conflicts: strings.default([]),
   verification_findings: z.array(z.strictObject({ code: text, message: text, severity: z.enum(['info', 'warning', 'error']) })).max(100).default([]),
-  next_decision: text.nullable().default(null), artifacts: z.array(artifact).max(20).default([]),
-}).refine(value => value.artifacts.every(item => item.company_id === value.company_id && item.revision <= value.revision));
+  next_decision: text.nullable().default(null), artifacts: z.array(artifact).max(20).default([]), frameworks: z.array(frameworkMetadata).max(2).default([]),
+}).refine(value => value.artifacts.every(item => item.company_id === value.company_id && item.revision <= value.revision)
+  && new Set(value.frameworks.map(item => item.id)).size === value.frameworks.length);
 export const companyResultSchema = z.union([resultSchema, summarySchema]);
 type WorkflowResult = z.infer<typeof companyResultSchema>;
 export const companySnapshotSchema = z.strictObject({ summary: summarySchema, artifacts: z.array(artifact).max(100) }).refine(value => value.summary.company_id !== null && value.artifacts.every(item => item.company_id === value.summary.company_id && item.revision <= value.summary.revision));

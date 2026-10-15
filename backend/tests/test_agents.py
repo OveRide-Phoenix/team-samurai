@@ -1,5 +1,5 @@
 import re
-from typing import cast
+from typing import Never, cast
 
 import pytest
 from agno.agent import Agent
@@ -13,6 +13,7 @@ from samurai.agents import (
 )
 from samurai.config import Settings, create_model
 from samurai.contracts import Role
+from samurai.frameworks import MANIFEST_INVALID, FrameworkValidationError
 
 
 def test_role_catalog_builds_nine_typed_agents_with_fresh_models() -> None:
@@ -62,6 +63,44 @@ def test_role_catalog_builds_nine_typed_agents_with_fresh_models() -> None:
             "action-boundary",
             "role",
         ]
+
+
+def test_intake_and_review_roles_preload_only_their_reviewed_frameworks() -> None:
+    catalog = create_role_catalog(Settings.model_validate({}))
+
+    assert "## Validated skill: company-intake" in catalog[Role.INTAKE].instructions
+    assert "## Founder framework: founder_truth@1.0.0" in catalog[Role.INTAKE].instructions
+    assert "## Founder framework: offer_diagnostic@1.0.0" not in catalog[Role.INTAKE].instructions
+    assert "## Founder framework: founder_truth@1.0.0" in catalog[Role.STRATEGIST].instructions
+    assert "## Founder framework: offer_diagnostic@1.0.0" in catalog[Role.STRATEGIST].instructions
+    assert "## Founder framework: founder_truth@1.0.0" in catalog[Role.VERIFIER].instructions
+    assert "## Founder framework: offer_diagnostic@1.0.0" in catalog[Role.VERIFIER].instructions
+    no_tool_roles = (Role.INTAKE, Role.STRATEGIST, Role.VERIFIER)
+    assert all(catalog[role].agent.skills is None for role in no_tool_roles)
+
+
+def test_invalid_frameworks_fail_before_model_construction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given a framework boundary failure and an observable model factory.
+    model_calls = 0
+
+    def reject_frameworks() -> Never:
+        raise FrameworkValidationError(MANIFEST_INVALID)
+
+    def count_model_calls(_settings: Settings) -> Never:
+        nonlocal model_calls
+        model_calls += 1
+        message = "model construction must not start"
+        raise AssertionError(message)
+
+    monkeypatch.setattr("samurai.agents.load_framework_catalog", reject_frameworks)
+    monkeypatch.setattr("samurai.agents.create_model", count_model_calls)
+
+    # When role construction starts, then it fails before constructing any model.
+    with pytest.raises(FrameworkValidationError, match="manifest_invalid"):
+        _ = create_role_catalog(Settings.model_validate({}))
+    assert model_calls == 0
 
 
 def test_role_catalog_reports_honest_capability_states() -> None:

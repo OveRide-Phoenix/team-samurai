@@ -1,8 +1,11 @@
 import pytest
-from agno.workflow import StepInput
+from agno.agent import Agent
+from agno.db.sqlite import SqliteDb
+from agno.workflow import Step, StepInput
 from pydantic import ValidationError
 
-from samurai.foundation import CompanyBrief, FoundationResult, verify_brief
+from samurai.config import Settings
+from samurai.foundation import CompanyBrief, FoundationResult, create_foundation, verify_brief
 
 
 def test_verified_structure_preserves_unverified_business_claims() -> None:
@@ -33,3 +36,18 @@ def test_verifier_rejects_missing_brief() -> None:
     # When verification runs, then it must fail rather than invent a result.
     with pytest.raises(ValidationError):
         _ = verify_brief(StepInput(previous_step_content=None))
+
+
+def test_foundation_preloads_the_explicit_reviewed_skill_allowlist() -> None:
+    workflow = create_foundation(SqliteDb(db_file=":memory:"), Settings.model_validate({}))
+    steps = workflow.steps
+    assert isinstance(steps, list)
+    draft_step = steps[0]
+    assert isinstance(draft_step, Step)
+    brief_agent = draft_step.agent
+    assert isinstance(brief_agent, Agent)
+    instructions: object = brief_agent.instructions  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
+    assert isinstance(instructions, str)
+
+    assert brief_agent.skills is None
+    assert "## Validated skill: company-intake" in instructions

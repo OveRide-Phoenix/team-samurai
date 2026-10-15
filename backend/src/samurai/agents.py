@@ -24,6 +24,7 @@ from samurai.contracts import (
     StrategyArtifact,
     VerificationArtifact,
 )
+from samurai.frameworks import format_framework_instructions, load_framework_catalog
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -41,6 +42,8 @@ RESEARCH_TOOL_NAMES: Final = ("google_search",)
 PRELOADED_SKILL_ROLES: Final = frozenset(
     {Role.INTAKE, Role.STRATEGIST, Role.PRODUCT_MANAGER, Role.VERIFIER}
 )
+BUSINESS_SKILL_NAMES: Final = ("evidence-discipline", "action-boundaries")
+COMPANY_INTAKE_SKILL_NAME: Final = "company-intake"
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,17 +164,14 @@ def _role_instructions(role: Role) -> str:
     )
 
 
-def _skills() -> Skills:
+def create_reviewed_skills(*skill_names: str) -> Skills:
+    """Load only named, reviewed application skills."""
     skills = RESOURCES / "skills"
-    return Skills(
-        loaders=[
-            LocalSkills(str(skills / "evidence-discipline"), validate=True),
-            LocalSkills(str(skills / "action-boundaries"), validate=True),
-        ]
-    )
+    return Skills(loaders=[LocalSkills(str(skills / name), validate=True) for name in skill_names])
 
 
-def _preloaded_skill_instructions(skills: Skills) -> str:
+def preloaded_skill_instructions(skills: Skills) -> str:
+    """Render validated skill text for agents that receive no skill tools."""
     return "\n\n".join(
         f"## Validated skill: {skill.name}\n{skill.instructions}"
         for skill in skills.get_all_skills()
@@ -180,18 +180,29 @@ def _preloaded_skill_instructions(skills: Skills) -> str:
 
 def create_role_catalog(settings: Settings) -> Mapping[Role, ConfiguredRole]:
     """Build all internal role bases with independent models and validated skills."""
+    frameworks = load_framework_catalog()
     catalog: dict[Role, ConfiguredRole] = {}
     for spec in ROLE_SPECS:
         instructions = _role_instructions(spec.role)
         runtime_skills: Skills | None = None
         if spec.role is not Role.RESEARCHER:
-            validated_skills = _skills()
+            skill_names = (
+                (*BUSINESS_SKILL_NAMES, COMPANY_INTAKE_SKILL_NAME)
+                if spec.role is Role.INTAKE
+                else BUSINESS_SKILL_NAMES
+            )
+            validated_skills = create_reviewed_skills(*skill_names)
             if spec.role in PRELOADED_SKILL_ROLES:
                 instructions = "\n\n".join(
-                    (instructions, _preloaded_skill_instructions(validated_skills))
+                    (instructions, preloaded_skill_instructions(validated_skills))
                 )
             else:
                 runtime_skills = validated_skills
+        role_frameworks = frameworks.for_role(spec.role)
+        if role_frameworks:
+            instructions = "\n\n".join(
+                (instructions, format_framework_instructions(role_frameworks))
+            )
         model = create_model(settings)
         model.search = spec.role is Role.RESEARCHER
         catalog[spec.role] = ConfiguredRole(
