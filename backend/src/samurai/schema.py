@@ -29,7 +29,11 @@ if TYPE_CHECKING:
 
 MIGRATIONS_DIR: Final = Path(__file__).with_name("migrations")
 MIGRATION_NAME: Final = "0001_founder_platform"
-MIGRATION_NAMES: Final = (MIGRATION_NAME, "0002_knowledge_provenance")
+MIGRATION_NAMES: Final = (
+    MIGRATION_NAME,
+    "0002_knowledge_provenance",
+    "0004_schedule_leases",
+)
 SCHEMA_NAME: Final = re.compile(r"^[a-z_][a-z0-9_]*$")
 MIGRATION_FILE: Final = re.compile(r"^(?P<version>\d{4})_[a-z0-9_]+\.sql$")
 UUID_LIST_ADAPTER = TypeAdapter(list[UUID])
