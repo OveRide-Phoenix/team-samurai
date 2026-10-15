@@ -19,6 +19,7 @@ from samurai.company_store_contracts import WorkspaceRole
 from samurai.execution_state import SamuraiPostgresDb
 from samurai.schedule_api import schedule_router
 from samurai.schedules import (
+    LEASE_SECONDS,
     ScheduleCadence,
     ScheduleRun,
     ScheduleStore,
@@ -273,19 +274,64 @@ def test_expired_lease_reclaims_exact_occurrence_and_fences_old_runner(
         payload={},
         created_at=due.timestamp() - 3600,
     )
+    runs = Table(
+        "samurai_schedule_runs",
+        MetaData(schema=schedule_database.db_schema),
+        autoload_with=schedule_database.db_engine,
+    )
+    companies = Table(
+        "samurai_companies",
+        MetaData(schema=schedule_database.db_schema),
+        autoload_with=schedule_database.db_engine,
+    )
+    with schedule_database.db_engine.connect() as connection:
+        state_before = JSON_ADAPTER.validate_python(
+            connection.execute(
+                select(companies.c.canonical_state).where(companies.c.company_id == company_id)
+            ).scalar_one()
+        )
     scheduled_for = int(due.timestamp())
-    following = None if cadence is ScheduleCadence.ONCE else scheduled_for + 86_400
-    _persist_expired_claim(schedule_database, schedule.schedule_id, scheduled_for, following)
+    original_claim = store._claim(  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+        scheduled_for, "old-runner"
+    )
+    assert original_claim is not None
 
-    # When a new runner reclaims after lease expiry and the old runner resumes.
-    recovered_at = due.timestamp() + 301
+    # When the original claimant resumes at and after expiry before replacement.
+    at_expiry = store._execute(  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+        original_claim, scheduled_for + LEASE_SECONDS, "old-runner"
+    )
+    after_expiry = store._execute(  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+        original_claim, scheduled_for + LEASE_SECONDS + 1, "old-runner"
+    )
+    with schedule_database.db_engine.connect() as connection:
+        expired_run = (
+            connection.execute(select(runs).where(runs.c.schedule_id == schedule.schedule_id))
+            .mappings()
+            .one()
+        )
+        state_after_expiry = JSON_ADAPTER.validate_python(
+            connection.execute(
+                select(companies.c.canonical_state).where(companies.c.company_id == company_id)
+            ).scalar_one()
+        )
+    recovered_at = scheduled_for + LEASE_SECONDS + 1
     recovered = store.run_due(datetime.fromtimestamp(recovered_at, UTC), "new-runner")
-    fenced = store.run_due(datetime.fromtimestamp(recovered_at, UTC), "old-runner")
+    fenced = store._execute(  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+        original_claim, recovered_at, "old-runner"
+    )
 
-    # Then only the new owner executes the exact claimed occurrence.
+    # Then expiry fences the original claim and replacement executes exactly once.
+    assert at_expiry is None
+    assert after_expiry is None
+    assert (expired_run["status"], expired_run["result"], expired_run["completed_at"]) == (
+        "claimed",
+        None,
+        None,
+    )
+    assert state_after_expiry == state_before
     assert len(recovered) == 1
-    assert recovered[0].scheduled_for == int(due.timestamp())
-    assert fenced == ()
+    assert recovered[0].scheduled_for == scheduled_for
+    assert fenced is None
     schedules = Table(
         "samurai_schedules",
         MetaData(schema=schedule_database.db_schema),

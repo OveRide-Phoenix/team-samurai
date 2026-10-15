@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 LEASE_SECONDS = 300
 INT_ADAPTER = TypeAdapter(int)
 ROLE_ADAPTER = TypeAdapter(WorkspaceRole)
+UUID_ADAPTER = TypeAdapter(UUID)
 
 
 @unique
@@ -403,18 +404,21 @@ class ScheduleStore:
         schedule = claim.schedule
         with self._engine.begin() as connection:
             self._quota.lock(connection, schedule.workspace_id)
-            lease_owner = connection.execute(
+            valid_lease = connection.execute(
                 self._sql(
                     """SELECT lease_owner FROM "{schema}".samurai_schedule_runs
                     WHERE schedule_id = :schedule_id AND scheduled_for = :scheduled_for
-                    AND status = 'claimed' FOR UPDATE"""
+                    AND status = 'claimed' AND lease_owner = :runner_id
+                    AND lease_expires_at > :now FOR UPDATE"""
                 ),
                 {
                     "schedule_id": schedule.schedule_id,
                     "scheduled_for": claim.scheduled_for,
+                    "runner_id": runner_id,
+                    "now": now,
                 },
             ).scalar_one_or_none()
-            if lease_owner != runner_id:
+            if valid_lease is None:
                 return None
             reason = self._invalid_reason(connection, schedule)
             result = None if reason else self._workspace_review(connection, schedule)
@@ -435,23 +439,28 @@ class ScheduleStore:
                 ).scalar_one_or_none()
                 if disabled is not None:
                     self._quota.release(connection, schedule.workspace_id, QuotaResource.SCHEDULE)
-            _ = connection.execute(
-                self._sql(
-                    """UPDATE "{schema}".samurai_schedule_runs SET status = :status,
+            _ = UUID_ADAPTER.validate_python(
+                connection.execute(
+                    self._sql(
+                        """UPDATE "{schema}".samurai_schedule_runs SET status = :status,
                     result = CAST(:result AS jsonb), error_code = :error_code, completed_at = :now,
                     lease_owner = NULL, lease_expires_at = NULL
                     WHERE schedule_id = :schedule_id AND scheduled_for = :scheduled_for
-                    AND status = 'claimed' AND lease_owner = :runner_id"""
-                ),
-                {
-                    "status": status,
-                    "result": None if result is None else json.dumps(result, separators=(",", ":")),
-                    "error_code": reason,
-                    "now": now,
-                    "schedule_id": schedule.schedule_id,
-                    "scheduled_for": claim.scheduled_for,
-                    "runner_id": runner_id,
-                },
+                    AND status = 'claimed' AND lease_owner = :runner_id
+                    AND lease_expires_at > :now RETURNING schedule_id"""
+                    ),
+                    {
+                        "status": status,
+                        "result": (
+                            None if result is None else json.dumps(result, separators=(",", ":"))
+                        ),
+                        "error_code": reason,
+                        "now": now,
+                        "schedule_id": schedule.schedule_id,
+                        "scheduled_for": claim.scheduled_for,
+                        "runner_id": runner_id,
+                    },
+                ).scalar_one()
             )
             _ = connection.execute(
                 self._sql(
