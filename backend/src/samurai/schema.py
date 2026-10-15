@@ -33,6 +33,7 @@ MIGRATION_NAMES: Final = (
     MIGRATION_NAME,
     "0002_knowledge_provenance",
     "0003_learning_sharing",
+    "0004_schedule_leases",
 )
 SCHEMA_NAME: Final = re.compile(r"^[a-z_][a-z0-9_]*$")
 MIGRATION_FILE: Final = re.compile(r"^(?P<version>\d{4})_[a-z0-9_]+\.sql$")

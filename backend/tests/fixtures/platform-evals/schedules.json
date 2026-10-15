@@ -1,0 +1,6 @@
+{
+  "action_kind": "workspace_review",
+  "provider_calls": 0,
+  "expected_gap": "no_company_artifacts",
+  "canonical_mutation": false
+}
