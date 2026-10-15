@@ -434,7 +434,7 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
 
   Commit: YES | Message: `feat(files): add bounded local object lifecycle` | Files: [backend/src/samurai/file_store.py, backend/src/samurai/file_store_contracts.py, backend/src/samurai/local_object_store.py, backend/src/samurai/file_store_maintenance.py, backend/src/samurai/config.py, backend/tests/test_file_store.py, backend/tests/test_config.py, backend/tests/fixtures/files/, backend/.env.example, .gitignore]
 
-- [ ] 9. Expose authorized file flows and close workspace/file acceptance
+- [x] 9. Expose authorized file flows and close workspace/file acceptance
 
   What to do: On `Kalyan/founder-platform-t09-file-api`, expose multipart upload, list, metadata, authenticated streaming download, delete, and owner-only cleanup endpoints under `/agentos/samurai/workspaces/{workspace_id}` with optional company binding. Add frontend file client/list/upload/download/delete controls using accessible labels; show quarantine/ready/rejected truthfully. Add a loopback smoke script using synthetic principals and a real browser pass. Run OMo/Ponytail exact-commit review before local merge.
   Must NOT do: Do not expose storage paths, serve quarantined/deleted bytes, auto-index PDFs, make public URLs, or claim a live second-account test.
@@ -468,7 +468,7 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
     Evidence: <attemptDir>/task-9-file-api-error.json
   ```
 
-  Commit: YES | Message: `feat(files): expose authorized workspace file flows` | Files: [backend/src/samurai/file_api.py, backend/src/samurai/file_store.py, backend/src/samurai/file_store_contracts.py, backend/src/samurai/file_store_maintenance.py, frontend/server/agentosProxy.mjs, frontend/server/production.mjs, frontend/src/agentosProxy.test.ts, frontend/src/files.test.ts, backend/src/samurai/app.py, backend/scripts/smoke_founder_platform.py, backend/tests/test_file_api.py, frontend/src/files.ts, frontend/src/App.tsx, frontend/src/styles.css, frontend/tests/production-server.test.mjs, docs/local-development.md]
+  Commit: YES | Message: `feat(files): expose authorized workspace file flows` | Files: [backend/src/samurai/file_api.py, backend/src/samurai/file_store.py, backend/src/samurai/file_store_contracts.py, backend/src/samurai/file_store_maintenance.py, backend/src/samurai/local_object_store.py, backend/tests/test_file_store.py, frontend/server/agentosProxy.mjs, frontend/server/production.mjs, frontend/src/agentosProxy.test.ts, frontend/src/files.test.ts, backend/src/samurai/app.py, backend/scripts/smoke_founder_platform.py, backend/tests/test_file_api.py, frontend/src/files.ts, frontend/src/App.tsx, frontend/src/styles.css, frontend/tests/production-server.test.mjs, docs/local-development.md]
 
 - [ ] 10. Add governed pinned founder-framework resources
 
