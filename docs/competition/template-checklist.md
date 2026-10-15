@@ -23,12 +23,13 @@ authenticated submission portal.
 | 12 | Prototype performance or benchmark results | Test counts establish correctness coverage, not latency, throughput, or business impact. Supply measured benchmarks or explicitly state that those metrics have not been measured. |
 | 13 | Optional additional details and future development | Separate deferred cloud rollout and future integrations from accepted local functionality. |
 | 14 | Public repository, three-minute demo, and final product links | Final published links and evaluator access remain pending; do not fill these with inaccessible or historical substitutes. |
-| 15–16 | No text in the exported slide XML | Inspect the rendered slides before deciding whether they are decorative or should be retained. |
+| 15–16 | Spare branded slide and closing artwork | PDF inspection confirms slide 15 has a branded header and slide 16 is the closing graphic; both are retained. |
 
-The existing seven-slide [draft deck](draft-deck/README.md) is not template
-compliant merely because it covers similar topics. Final preparation still needs
-content mapped into the downloaded layout, verified team details,
-rendered visual review, and current cloud evidence for any deployed claims.
+A new [16-slide working draft](template-deck/README.md) now uses the downloaded
+layout and has passed local rendering and package checks. The older seven-slide
+[draft deck](draft-deck/README.md) is historical preparation. Final acceptance
+still needs verified team details, the authorized portal requirements, current
+cloud evidence, video, and public/evaluator links.
 
 ## Download verification
 
