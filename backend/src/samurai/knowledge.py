@@ -19,12 +19,13 @@ from sqlalchemy import text
 
 from samurai.company_store_contracts import WorkspaceRole
 from samurai.company_store_queries import valid_schema
-from samurai.contracts import ArtifactEnvelope, CompanyState
+from samurai.contracts import ArtifactEnvelope, CompanyState, KnowledgeReference
 from samurai.file_store_contracts import FileStoreError, ObjectStore
 from samurai.quota import QuotaResource, WorkspaceQuota, WorkspaceQuotaExceededError
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import Connection, Engine
+    from sqlalchemy.orm import Session as SqlAlchemySession
     from sqlalchemy.sql.elements import TextClause
 
 CHUNK_CHARACTERS: Final = 2000
@@ -37,6 +38,15 @@ WHITESPACE_PATTERN: Final = re.compile(r"\s+")
 SECRET_PATTERN: Final = re.compile(
     r"(?i:-----BEGIN [A-Z ]*PRIVATE KEY-----|(?:api[_-]?key|password|secret|token)[\"']?\s*[:=]\s*[\"']?[A-Za-z0-9_./+=-]{8,}|[a-z][a-z0-9+.-]*://[^\s:/]+:[^\s@]+@)"
 )
+
+
+def _artifact_json(artifact: ArtifactEnvelope) -> str:
+    return json.dumps(
+        artifact.model_dump(mode="json"),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
 
 
 @unique
@@ -137,6 +147,18 @@ class _CandidateRow(BaseModel):
     canonical_state: dict[str, JsonValue] | None
 
 
+class _ReferenceRow(BaseModel):
+    chunk_id: UUID
+    company_id: UUID | None
+    file_id: UUID | None
+    artifact_id: UUID | None
+    source_revision: int
+    ordinal: int
+    content_sha256: str
+    file_state: str | None
+    file_sha256: str | None
+
+
 @dataclass(frozen=True, slots=True)
 class _Source:
     source_id: UUID
@@ -145,6 +167,89 @@ class _Source:
     revision: int
     content_sha256: str
     excerpts: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class KnowledgeAcceptance:
+    """Canonical scope and new references checked in one acceptance transaction."""
+
+    workspace_id: UUID
+    company_id: UUID
+    canonical_state: CompanyState
+    references: tuple[KnowledgeReference, ...]
+
+
+@final
+class KnowledgeReferenceGuard:
+    """Reject changed or inaccessible knowledge before canonical acceptance."""
+
+    def __init__(self, schema: str) -> None:
+        """Bind validation to one migrated founder-platform schema."""
+        if not valid_schema(schema):
+            raise KnowledgeStoreError(KnowledgeIssue.INVALID_SCHEMA)
+        self._schema = schema
+
+    def validate(
+        self, connection: Connection | SqlAlchemySession, acceptance: KnowledgeAcceptance
+    ) -> None:
+        """Validate each new reference using the caller's locked transaction."""
+        for reference in acceptance.references:
+            raw = (
+                connection.execute(
+                    self._sql(
+                        """SELECT k.chunk_id, k.company_id, k.file_id, k.artifact_id,
+                        k.source_revision, k.ordinal, k.content_sha256,
+                        f.state AS file_state, f.content_sha256 AS file_sha256
+                        FROM "{schema}".samurai_knowledge_chunks k
+                        LEFT JOIN "{schema}".samurai_files f ON f.file_id=k.file_id
+                        WHERE k.workspace_id=:workspace_id AND k.chunk_id=:chunk_id
+                        AND (k.company_id IS NULL OR k.company_id=:company_id)"""
+                    ),
+                    {
+                        "workspace_id": acceptance.workspace_id,
+                        "company_id": acceptance.company_id,
+                        "chunk_id": reference.chunk_id,
+                    },
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if raw is None or not self._matches(
+                _ReferenceRow.model_validate(raw), reference, acceptance.canonical_state
+            ):
+                raise KnowledgeStoreError(KnowledgeIssue.CONTENT_CHANGED)
+
+    @staticmethod
+    def _matches(row: _ReferenceRow, reference: KnowledgeReference, state: CompanyState) -> bool:
+        shared = (
+            row.chunk_id == reference.chunk_id
+            and row.source_revision == reference.indexed_revision
+            and row.ordinal == reference.ordinal
+            and row.content_sha256 == reference.content_sha256
+            and row.file_id == reference.file_id
+            and row.artifact_id == reference.artifact_id
+        )
+        if not shared:
+            return False
+        if reference.file_id is not None:
+            return row.file_state == "ready" and row.file_sha256 == reference.content_sha256
+        artifact = next(
+            (
+                item
+                for item in state.artifacts
+                if item.artifact_id == reference.artifact_id
+                and item.revision == reference.indexed_revision
+            ),
+            None,
+        )
+        return (
+            artifact is not None
+            and hashlib.sha256(_artifact_json(artifact).encode()).hexdigest()
+            == reference.content_sha256
+        )
+
+    def _sql(self, source: str) -> TextClause:
+        return text(source.format(schema=self._schema))
 
 
 @final
@@ -194,6 +299,35 @@ class KnowledgeStore:
                     excerpts=self._chunk(canonical),
                 ),
             )
+
+    def current_scope(
+        self, actor_id: str, workspace_id: UUID, company_id: UUID | None
+    ) -> KnowledgeScope:
+        """Resolve the current server-owned membership epoch for one request."""
+        with self._engine.begin() as connection:
+            row = (
+                connection.execute(
+                    self._sql(
+                        """SELECT role, authorization_epoch
+                        FROM "{schema}".samurai_workspace_memberships
+                        WHERE workspace_id=:workspace_id AND user_id=:actor_id AND active"""
+                    ),
+                    {"workspace_id": workspace_id, "actor_id": actor_id},
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if row is None:
+                raise KnowledgeStoreError(KnowledgeIssue.PERMISSION_DENIED)
+            membership = _MembershipRow.model_validate(row)
+            scope = KnowledgeScope(
+                actor_id=actor_id,
+                workspace_id=workspace_id,
+                authorization_epoch=membership.authorization_epoch,
+                company_id=company_id,
+            )
+            self._admit(connection, scope, writable=False)
+            return scope
 
     def index_file(self, scope: KnowledgeScope, file_id: UUID) -> tuple[KnowledgeChunk, ...]:
         """Index one ready UTF-8 file after an atomic state and hash recheck."""
@@ -528,12 +662,7 @@ class KnowledgeStore:
 
     @staticmethod
     def _artifact_json(artifact: ArtifactEnvelope) -> str:
-        return json.dumps(
-            artifact.model_dump(mode="json"),
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
+        return _artifact_json(artifact)
 
     @staticmethod
     def _normalize(value: str) -> str:

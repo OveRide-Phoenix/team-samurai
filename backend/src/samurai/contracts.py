@@ -92,6 +92,33 @@ class SourceReference(Contract):
     excerpt: str = Field(min_length=1, max_length=2000)
 
 
+class KnowledgeReference(Contract):
+    chunk_id: UUID
+    file_id: UUID | None = None
+    artifact_id: UUID | None = None
+    indexed_revision: int = Field(ge=0)
+    ordinal: int = Field(ge=0)
+    content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    trust_class: Literal["accepted_artifact", "uploaded_file"]
+    evidence_status: Literal["untrusted_context"] = "untrusted_context"
+
+    @model_validator(mode="after")
+    def validate_source_identity(self) -> Self:
+        is_file = self.file_id is not None and self.artifact_id is None
+        is_artifact = self.artifact_id is not None and self.file_id is None
+        if not (is_file or is_artifact):
+            raise PydanticCustomError(
+                "knowledge_source_identity",
+                "knowledge references require exactly one file or artifact identity",
+            )
+        if (self.trust_class == "uploaded_file") != is_file:
+            raise PydanticCustomError(
+                "knowledge_trust_class",
+                "knowledge trust class must match its source identity",
+            )
+        return self
+
+
 class SourcedClaim(Contract):
     claim_id: UUID
     text: str = Field(min_length=1)
@@ -453,6 +480,7 @@ class ArtifactEnvelope(Contract):
     payload: ArtifactPayload
     founder_statements: tuple[FounderStatement, ...] = ()
     sources: tuple[SourceReference, ...] = ()
+    knowledge_references: tuple[KnowledgeReference, ...] = Field(default=(), max_length=5)
     claims: tuple[SourcedClaim, ...] = ()
     measurements: tuple[MeasuredResult, ...] = ()
     assumptions: tuple[Assumption, ...]
@@ -465,6 +493,11 @@ class ArtifactEnvelope(Contract):
                 "artifact_type_mismatch", "artifact_type must match payload artifact_type"
             )
         source_ids = {source.source_id for source in self.sources}
+        chunk_ids = tuple(reference.chunk_id for reference in self.knowledge_references)
+        if len(chunk_ids) != len(set(chunk_ids)):
+            raise PydanticCustomError(
+                "duplicate_knowledge_reference", "knowledge chunk references must be unique"
+            )
         if any(not set(claim.source_ids) <= source_ids for claim in self.claims):
             raise PydanticCustomError(
                 "unknown_claim_source", "every claim source must be retained in the artifact"
