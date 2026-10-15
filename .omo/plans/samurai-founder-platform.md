@@ -657,7 +657,7 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
 
   Commit: YES | Message: `feat(knowledge): index scoped artifacts and file text` | Files: [backend/src/samurai/knowledge.py, backend/src/samurai/migrations/0002_knowledge_provenance.sql, backend/src/samurai/schema.py, backend/tests/test_knowledge.py, backend/tests/test_workspace_quota_resources.py, backend/tests/test_founder_platform_migration.py, backend/tests/fixtures/platform-evals/knowledge.json]
 
-- [ ] 15. Integrate bounded knowledge context and provenance into workflows and APIs
+- [x] 15. Integrate bounded knowledge context and provenance into workflows and APIs
 
   What to do: On `Kalyan/founder-platform-t15-knowledge-context`, expose authorized index/search endpoints and strict `KnowledgeReference` fields on artifacts. Before Intake/Strategy/Verifier reasoning, retrieve at most five relevant chunks after membership/revision checks and wrap them as untrusted context. Persist only references actually used; file knowledge is founder/workspace context, never independent market support. Keep Google Search research as the only external retrieval path.
   Must NOT do: Do not let knowledge widen tools/identity/permissions, mark file text as supported market evidence, silently ingest all files, or invoke provider calls in tests.
@@ -909,3 +909,5 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
 - Knowledge is workspace/company scoped, deterministic, provenance-bearing, and non-evidentiary unless the existing claim-support contract independently verifies it; typed UI accepts only allowlisted structured components.
 - Learning is explicit and supersedable; schedules are persisted/deduped/reauthorized and execute real provider-free local handlers; scenarios provide useful deterministic low/base/high analysis with the permanent synthetic label and no canonical advancement.
 - All task QA evidence exists, final F1–F4 approve at the same SHA, task-owned processes/data are removed, local commit history is clean, and the caller gives explicit final acceptance.
+
+Task 15 accepted locally at `c6c455b162d7ae2501549c2034b378563e95e7a0`: real HTTP upload/index, PostgreSQL-backed staged Agno workflow and owner readback retain exact context provenance. Root verified unauthenticated/foreign denial, deleted-source purge/reindex rejection, and combined retrieve-then-revoke dispatch/acceptance denial without canonical mutation or model calls. Independent exact-SHA gate APPROVE; all fourteen merged files match reviewed bytes. This does not establish live provider, browser, or cloud acceptance.
