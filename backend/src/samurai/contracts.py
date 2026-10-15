@@ -109,6 +109,56 @@ class SourcedClaim(Contract):
         return self
 
 
+class SourceAdjudication(Contract):
+    research_artifact_id: UUID
+    research_revision: int = Field(ge=1)
+    claim_id: UUID
+    claim_text: str = Field(min_length=1)
+    source_id: UUID
+    source_url: HttpUrl
+    attempted_at: AwareDatetime
+    fetched_at: AwareDatetime | None = None
+    final_url: HttpUrl | None = None
+    content_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    media_type: str | None = Field(default=None, min_length=1, max_length=200)
+    evidence_quote: str = Field(max_length=500)
+    verdict: Literal["supported", "contradicted", "insufficient", "inaccessible"]
+    rationale: str = Field(min_length=1, max_length=2000)
+
+    @model_validator(mode="after")
+    def validate_fetched_provenance(self) -> Self:
+        fetched_fields = (
+            self.fetched_at,
+            self.final_url,
+            self.content_sha256,
+            self.media_type,
+        )
+        has_fetched_provenance = all(fetched_fields)
+        has_no_fetched_provenance = not any(fetched_fields)
+        if self.fetched_at is not None and self.fetched_at < self.attempted_at:
+            raise PydanticCustomError("adjudication_time", "fetched_at cannot precede attempted_at")
+        match self.verdict:
+            case "inaccessible":
+                if not has_no_fetched_provenance or self.evidence_quote:
+                    raise PydanticCustomError(
+                        "inaccessible_provenance",
+                        "inaccessible adjudications require no fetched provenance or quote",
+                    )
+            case "insufficient":
+                if not has_fetched_provenance or self.evidence_quote:
+                    raise PydanticCustomError(
+                        "insufficient_provenance",
+                        "insufficient adjudications require fetched provenance and no quote",
+                    )
+            case "supported" | "contradicted":
+                if not has_fetched_provenance or not self.evidence_quote.strip():
+                    raise PydanticCustomError(
+                        "adjudication_provenance",
+                        "supported and contradicted adjudications require a fetched quote",
+                    )
+        return self
+
+
 class FounderMetricInput(Contract):
     name: str = Field(min_length=1)
     value: float
@@ -276,6 +326,36 @@ class ResearchArtifact(Contract):
     artifact_type: Literal[ArtifactType.RESEARCH] = ArtifactType.RESEARCH
     summary: str = Field(min_length=1)
     conflicts: tuple[str, ...]
+    adjudicated_from_artifact_id: UUID | None = None
+    adjudicated_from_revision: int | None = Field(default=None, ge=1)
+    adjudications: tuple[SourceAdjudication, ...] = ()
+
+    @property
+    def is_adjudicated(self) -> bool:
+        return self.adjudicated_from_artifact_id is not None
+
+    @model_validator(mode="after")
+    def validate_adjudication_reference(self) -> Self:
+        has_reference = self.adjudicated_from_artifact_id is not None
+        has_revision = self.adjudicated_from_revision is not None
+        has_adjudications = bool(self.adjudications)
+        if not has_reference and not has_revision and not has_adjudications:
+            return self
+        if not has_reference or not has_revision:
+            raise PydanticCustomError(
+                "incomplete_adjudication_reference",
+                "adjudicated research requires both original artifact ID and revision",
+            )
+        if any(
+            adjudication.research_artifact_id != self.adjudicated_from_artifact_id
+            or adjudication.research_revision != self.adjudicated_from_revision
+            for adjudication in self.adjudications
+        ):
+            raise PydanticCustomError(
+                "adjudication_reference_mismatch",
+                "every adjudication must bind the referenced original research revision",
+            )
+        return self
 
 
 class StrategyArtifact(Contract):
@@ -389,9 +469,113 @@ class ArtifactEnvelope(Contract):
             raise PydanticCustomError(
                 "unknown_claim_source", "every claim source must be retained in the artifact"
             )
+        if error := _adjudication_payload_error(self):
+            raise PydanticCustomError("invalid_adjudication", "{error}", {"error": error})
         if error := _artifact_evidence_error(self):
             raise PydanticCustomError("invalid_artifact_evidence", "{error}", {"error": error})
         return self
+
+
+type FetchedProvenance = tuple[AwareDatetime | None, HttpUrl | None, str | None, str | None]
+
+
+def _research_payload(artifact: ArtifactEnvelope) -> ResearchArtifact | None:
+    match artifact.payload:
+        case ResearchArtifact() as research:
+            return research
+        case (
+            IntakeArtifact()
+            | StrategyArtifact()
+            | ProductPlanArtifact()
+            | BuilderDraftArtifact()
+            | MarketingDraftArtifact()
+            | SalesDraftArtifact()
+            | AnalysisArtifact()
+            | VerificationArtifact()
+        ):
+            return None
+
+
+def _adjudication_payload_error(artifact: ArtifactEnvelope) -> str | None:
+    research = _research_payload(artifact)
+    if research is None or not research.is_adjudicated:
+        return None
+    return _research_adjudication_error(research, artifact)
+
+
+def _research_adjudication_error(
+    research: ResearchArtifact, artifact: ArtifactEnvelope
+) -> str | None:
+    source_by_id = {source.source_id: source for source in artifact.sources}
+    claim_by_id = {claim.claim_id: claim for claim in artifact.claims}
+    if len(source_by_id) != len(artifact.sources) or len(claim_by_id) != len(artifact.claims):
+        return "adjudicated research requires unique claim and source IDs"
+    expected_pairs = {
+        (claim.claim_id, source_id) for claim in artifact.claims for source_id in claim.source_ids
+    }
+    actual_pairs = tuple(
+        (adjudication.claim_id, adjudication.source_id) for adjudication in research.adjudications
+    )
+    if len(actual_pairs) != len(set(actual_pairs)) or set(actual_pairs) != expected_pairs:
+        return "adjudications must contain one decision for every retained claim-source pair"
+    return _adjudication_decision_error(research, source_by_id, claim_by_id)
+
+
+def _adjudication_decision_error(
+    research: ResearchArtifact,
+    source_by_id: dict[UUID, SourceReference],
+    claim_by_id: dict[UUID, SourcedClaim],
+) -> str | None:
+    fetched_provenance: dict[UUID, FetchedProvenance] = {}
+    for adjudication in research.adjudications:
+        claim = claim_by_id.get(adjudication.claim_id)
+        source = source_by_id.get(adjudication.source_id)
+        if claim is None or source is None:
+            return "adjudication references an unknown retained claim or source"
+        if (
+            adjudication.claim_text != claim.text
+            or adjudication.source_url != source.url
+            or adjudication.source_id not in claim.source_ids
+        ):
+            return "adjudication claim and source bindings must match retained research"
+        provenance: FetchedProvenance = (
+            adjudication.fetched_at,
+            adjudication.final_url,
+            adjudication.content_sha256,
+            adjudication.media_type,
+        )
+        previous = fetched_provenance.get(adjudication.source_id)
+        if previous is not None and previous != provenance:
+            return "adjudications for one source must retain identical fetched provenance"
+        fetched_provenance[adjudication.source_id] = provenance
+        match adjudication.verdict:
+            case "supported" | "contradicted":
+                if adjudication.evidence_quote not in source.excerpt:
+                    return (
+                        "supported and contradicted quotes must be retained in the source excerpt"
+                    )
+            case "insufficient" | "inaccessible":
+                pass
+    for claim in claim_by_id.values():
+        verdicts = tuple(
+            adjudication.verdict
+            for adjudication in research.adjudications
+            if adjudication.claim_id == claim.claim_id
+        )
+        expected_status = _verification_status_for_verdicts(verdicts)
+        if claim.verification_status != expected_status:
+            return "claim verification status must match its source adjudication verdicts"
+    return None
+
+
+def _verification_status_for_verdicts(
+    verdicts: tuple[str, ...],
+) -> Literal["unverified", "supported", "contradicted"]:
+    if "contradicted" in verdicts:
+        return "contradicted"
+    if "supported" in verdicts:
+        return "supported"
+    return "unverified"
 
 
 def _artifact_evidence_error(artifact: ArtifactEnvelope) -> str | None:
@@ -420,6 +604,72 @@ def _artifact_evidence_error(artifact: ArtifactEnvelope) -> str | None:
     return error
 
 
+def _adjudication_transition_error(
+    accepted_artifacts: tuple[ArtifactEnvelope, ...], artifact: ArtifactEnvelope
+) -> str | None:
+    research = _research_payload(artifact)
+    if research is None or not research.is_adjudicated:
+        return None
+    return _research_transition_error(accepted_artifacts, artifact, research)
+
+
+def _research_transition_error(
+    accepted_artifacts: tuple[ArtifactEnvelope, ...],
+    artifact: ArtifactEnvelope,
+    research: ResearchArtifact,
+) -> str | None:
+    if not accepted_artifacts:
+        return "adjudicated research requires an accepted raw research revision"
+    previous = accepted_artifacts[-1]
+    raw = _research_payload(previous)
+    if raw is None or raw.is_adjudicated:
+        return "adjudicated research must append immediately from raw research"
+    if (
+        research.adjudicated_from_artifact_id != previous.artifact_id
+        or research.adjudicated_from_revision != previous.revision
+    ):
+        return "adjudicated research must reference the immediately preceding raw revision"
+    return _raw_adjudication_match_error(accepted_artifacts, previous, artifact, raw, research)
+
+
+def _raw_adjudication_match_error(
+    accepted_artifacts: tuple[ArtifactEnvelope, ...],
+    raw_artifact: ArtifactEnvelope,
+    adjudicated_artifact: ArtifactEnvelope,
+    raw: ResearchArtifact,
+    research: ResearchArtifact,
+) -> str | None:
+    if research.summary != raw.summary or research.conflicts != raw.conflicts:
+        return "adjudicated research must preserve raw summary and conflicts"
+    raw_claims = {claim.claim_id: (claim.text, claim.source_ids) for claim in raw_artifact.claims}
+    next_claims = {
+        claim.claim_id: (claim.text, claim.source_ids) for claim in adjudicated_artifact.claims
+    }
+    raw_sources = {source.source_id: source.url for source in raw_artifact.sources}
+    next_sources = {source.source_id: source.url for source in adjudicated_artifact.sources}
+    if raw_claims != next_claims or raw_sources != next_sources:
+        return "adjudicated research must preserve raw claim and source bindings"
+    if _is_replayed_adjudication(accepted_artifacts, raw_artifact):
+        return "an accepted raw research revision cannot be adjudicated twice"
+    return None
+
+
+def _is_replayed_adjudication(
+    accepted_artifacts: tuple[ArtifactEnvelope, ...],
+    raw_artifact: ArtifactEnvelope,
+) -> bool:
+    for candidate in accepted_artifacts:
+        candidate_research = _research_payload(candidate)
+        if (
+            candidate_research is not None
+            and candidate_research.is_adjudicated
+            and candidate_research.adjudicated_from_artifact_id == raw_artifact.artifact_id
+            and candidate_research.adjudicated_from_revision == raw_artifact.revision
+        ):
+            return True
+    return False
+
+
 class CompanyState(Contract):
     context: CompanyContext
     current_revision: int = Field(ge=0)
@@ -428,7 +678,7 @@ class CompanyState(Contract):
     @model_validator(mode="after")
     def validate_canonical_lineage(self) -> Self:
         revision = 0
-        for artifact in self.artifacts:
+        for index, artifact in enumerate(self.artifacts):
             if artifact.company_id != self.context.company_id:
                 raise PydanticCustomError("company_mismatch", "artifact belongs to another company")
             if artifact.input_revision != revision or artifact.revision != revision + 1:
@@ -439,11 +689,19 @@ class CompanyState(Contract):
                 raise PydanticCustomError(
                     "rejected_canonical_state", "canonical state accepts accepted artifacts only"
                 )
+            if error := _adjudication_payload_error(artifact):
+                raise PydanticCustomError(
+                    "invalid_adjudication", "{error}", {"error": error}
+                )
             if error := _artifact_evidence_error(artifact):
                 raise PydanticCustomError(
                     "invalid_artifact_evidence",
                     "{error}",
                     {"error": error},
+                )
+            if error := _adjudication_transition_error(self.artifacts[:index], artifact):
+                raise PydanticCustomError(
+                    "invalid_adjudication_transition", "{error}", {"error": error}
                 )
             revision = artifact.revision
         if self.current_revision != revision:
@@ -586,7 +844,11 @@ def accept_artifact(
         )
     if any(finding.severity == "error" for finding in artifact.verification_findings):
         raise InvalidArtifactTransitionError("accepted artifacts cannot contain error findings")
+    if error := _adjudication_payload_error(artifact):
+        raise InvalidArtifactTransitionError(error)
     if error := _artifact_evidence_error(artifact):
+        raise InvalidArtifactTransitionError(error)
+    if error := _adjudication_transition_error(state.artifacts, artifact):
         raise InvalidArtifactTransitionError(error)
     accepted_artifact = artifact.model_copy(update={"acceptance_status": "accepted"})
     return CompanyState(

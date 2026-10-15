@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cancelAgentosRun, companySnapshotEvents, createAgentosTransport, readAgentosRun, resumeAgentosRun, presentMessages, type AgentosRun } from './agentos';
+import { cancelAgentosRun, companyResultSchema, companySnapshotEvents, createAgentosTransport, readAgentosRun, resumeAgentosRun, presentMessages, type AgentosRun } from './agentos';
 import type { Message, WorkEvent } from './model';
 
 const company = '00000000-0000-4000-8000-000000000001';
@@ -40,6 +40,36 @@ function serve(data: string, split = false) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('AgentOS transport wire boundary', () => {
+  it('parses adjudicated Research with the existing evidence panel and rejects malformed provenance', async () => {
+    const raw = result.artifacts[0];
+    const source = raw.sources[0], claim = raw.claims[0];
+    const decision = {
+      research_artifact_id: raw.artifact_id, research_revision: raw.revision, claim_id: claim.claim_id, claim_text: claim.text, source_id: source.source_id, source_url: source.url,
+      attempted_at: '2026-10-12T00:00:00Z', fetched_at: '2026-10-12T00:00:01Z', final_url: source.url, content_sha256: 'a'.repeat(64), media_type: 'text/html', evidence_quote: 'A limited sample', verdict: 'supported', rationale: 'The retained excerpt supports the claim.',
+    };
+    const adjudicated = {
+      ...result, revision: 2, artifacts: [{
+        ...raw, artifact_id: '00000000-0000-4000-8000-000000000005', revision: 2, input_revision: 1,
+        claims: [{ ...claim, verification_status: 'supported' },],
+        payload: { ...raw.payload, adjudicated_from_artifact_id: raw.artifact_id, adjudicated_from_revision: raw.revision, adjudications: [decision] },
+      }],
+    };
+
+    const parsed = companyResultSchema.safeParse(adjudicated);
+    expect(parsed.success).toBe(true);
+    serve(frame(wire('RunStarted')) + frame(wire('RunCompleted', { content: adjudicated })));
+    const events = await collect(createAgentosTransport('session-1')('Research', new AbortController().signal));
+    expect(events[0]).toMatchObject({ type: 'message', panel: { kind: 'evidence', title: 'Research evidence' } });
+
+    const malformed = {
+      ...adjudicated,
+      artifacts: [{ ...adjudicated.artifacts[0], payload: { ...adjudicated.artifacts[0]?.payload, adjudications: [{ ...decision, content_sha256: 'not-a-sha' }] } }],
+    };
+    expect(companyResultSchema.safeParse(malformed).success).toBe(false);
+    const forgedStatus = { ...adjudicated, artifacts: [{ ...adjudicated.artifacts[0], claims: [claim] }] };
+    expect(companyResultSchema.safeParse(forgedStatus).success).toBe(false);
+  });
+
   it('parses additive founder truth and exact framework provenance in Intake snapshots', () => {
     const framework = { id: 'founder_truth', version: '1.0.0', source_repository: 'gvkhosla/founder-skills', source_revision: '07ea968338cff2ba67ff245671765ea957ce0a0c', source_url: 'https://github.com/gvkhosla/founder-skills/tree/07ea968338cff2ba67ff245671765ea957ce0a0c', license: 'MIT', attribution: 'Adapted from Founder Skills by Geet Khosla.', allowed_roles: ['intake', 'strategist', 'verifier'], sha256: 'ba206825fb8ebd15cf911397e55628ff8b5aacf28cbb02b65d20c978bc31e0bb', review_date: '2026-10-15' };
     const truth = { known: [{ text: 'Python', basis: 'founder_context', context_key: 'founder_skills', evidence_ids: [] }], believed: ['Clinics may lose bookings'], hoped: ['A clinic will pay'], evidence_gaps: ['No interviews'], bottleneck: 'Validate the pain', next_decision: 'Choose a clinic segment' };

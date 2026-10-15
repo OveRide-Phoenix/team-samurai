@@ -32,9 +32,30 @@ const founderTruth = z.strictObject({
   return statements.length === new Set(statements).size;
 });
 const brief = z.strictObject({ idea: text, target_customer: text.nullable(), geography: text.nullable(), budget: text.nullable(), founder_skills: text.nullable(), goal: text.nullable(), supplied_context: strings, assumptions: strings, open_questions: strings, next_actions: strings });
+const publicUrl = z.string().url().refine(value => /^https?:\/\//.test(value));
+const sourceAdjudication = z.strictObject({
+  research_artifact_id: uuid, research_revision: z.number().int().min(1), claim_id: uuid, claim_text: text, source_id: uuid, source_url: publicUrl,
+  attempted_at: date, fetched_at: date.nullable().default(null), final_url: publicUrl.nullable().default(null), content_sha256: z.string().regex(/^[0-9a-f]{64}$/).nullable().default(null), media_type: z.string().min(1).max(200).nullable().default(null),
+  evidence_quote: z.string().max(500), verdict: z.enum(['supported', 'contradicted', 'insufficient', 'inaccessible']), rationale: z.string().min(1).max(2000),
+}).refine(value => {
+  const fetched = [value.fetched_at, value.final_url, value.content_sha256, value.media_type];
+  const hasFetched = fetched.every(Boolean), hasNoFetched = fetched.every(value => value === null);
+  if (value.fetched_at !== null && new Date(value.fetched_at).getTime() < new Date(value.attempted_at).getTime()) return false;
+  if (value.verdict === 'inaccessible') return hasNoFetched && value.evidence_quote === '';
+  if (value.verdict === 'insufficient') return hasFetched && value.evidence_quote === '';
+  return hasFetched && value.evidence_quote.trim().length > 0;
+});
+const researchPayload = z.strictObject({
+  artifact_type: z.literal('research'), summary: text, conflicts: strings,
+  adjudicated_from_artifact_id: uuid.nullable().optional(), adjudicated_from_revision: z.number().int().min(1).nullable().optional(), adjudications: z.array(sourceAdjudication).max(100).optional(),
+}).refine(value => {
+  const adjudications = value.adjudications ?? [];
+  const hasAdjudication = value.adjudicated_from_artifact_id !== undefined && value.adjudicated_from_artifact_id !== null || value.adjudicated_from_revision !== undefined && value.adjudicated_from_revision !== null || adjudications.length > 0;
+  return !hasAdjudication || (value.adjudicated_from_artifact_id !== undefined && value.adjudicated_from_artifact_id !== null && value.adjudicated_from_revision !== undefined && value.adjudicated_from_revision !== null && adjudications.every(item => item.research_artifact_id === value.adjudicated_from_artifact_id && item.research_revision === value.adjudicated_from_revision));
+});
 const payload = z.discriminatedUnion('artifact_type', [
   z.strictObject({ artifact_type: z.literal('intake'), brief, founder_truth: founderTruth.optional(), frameworks: z.array(frameworkMetadata).max(2).optional() }),
-  z.strictObject({ artifact_type: z.literal('research'), summary: text, conflicts: strings }),
+  researchPayload,
   z.strictObject({ artifact_type: z.literal('strategy'), ideal_customer_profile: text, positioning: text, offer: text, pricing_assumptions: strings, offer_diagnostic: offerDiagnostic.nullable().optional() }),
   z.strictObject({ artifact_type: z.literal('product_plan'), minimum_viable_offering: strings, delivery_requirements: strings, user_stories: strings, roadmap: strings }),
   z.strictObject({ artifact_type: z.literal('builder_draft'), architecture: strings, database_schema: strings, apis: strings, user_interface: strings, deployment_configuration: strings }),
@@ -44,7 +65,7 @@ const payload = z.discriminatedUnion('artifact_type', [
   z.strictObject({ artifact_type: z.literal('verification'), checked_artifact_ids: z.array(uuid).min(1).max(100), outcome: z.enum(['verified', 'needs_input', 'needs_rework']) }),
 ]).refine(value => value.artifact_type !== 'intake' || value.frameworks === undefined || (value.frameworks.length === 1
   && value.frameworks[0]?.id === 'founder_truth' && value.frameworks[0].allowed_roles.includes('intake')));
-const source = z.strictObject({ source_id: uuid, url: z.string().url().refine(value => /^https?:\/\//.test(value)), title: text, retrieved_at: date, search_query: text, excerpt: z.string().min(1).max(2000) });
+const source = z.strictObject({ source_id: uuid, url: publicUrl, title: text, retrieved_at: date, search_query: text, excerpt: z.string().min(1).max(2000) });
 const metric = z.strictObject({ metric_id: uuid, name: text, value: z.number().finite(), unit: text, window_start: date, window_end: date, source_label: text, collected_at: date, provenance: z.enum(['connected_measurement', 'founder_supplied', 'demo_fixture']), trusted_connector_receipt: text.nullable().default(null) }).refine(value => Date.parse(value.window_end) > Date.parse(value.window_start) && ((value.provenance === 'connected_measurement') === Boolean(value.trusted_connector_receipt)));
 const artifact = z.strictObject({
   artifact_id: uuid, company_id: uuid, artifact_type: text, revision: z.number().int().min(1), input_revision: z.number().int().min(0), producer: roles,
@@ -57,6 +78,24 @@ const artifact = z.strictObject({
   if (value.payload.artifact_type !== 'analysis') return true;
   const ids = value.payload.metric_ids;
   return value.payload.basis === 'based_on_founder_supplied_metrics' && value.status === 'based_on_founder_supplied_metrics' && ids.length === new Set(ids).size && value.measurements.length === ids.length && new Set(value.measurements.map(item => item.metric_id)).size === ids.length && value.measurements.every(item => ids.includes(item.metric_id) && item.provenance === 'founder_supplied');
+}).refine(value => {
+  if (value.payload.artifact_type !== 'research') return true;
+  const research = value.payload;
+  if (research.adjudicated_from_artifact_id === null || research.adjudicated_from_artifact_id === undefined) return true;
+  const adjudications = research.adjudications ?? [];
+  const claims = new Map(value.claims.map(claim => [claim.claim_id, claim]));
+  const sources = new Map(value.sources.map(entry => [entry.source_id, entry]));
+  const expected = new Set(value.claims.flatMap(claim => claim.source_ids.map(sourceId => `${claim.claim_id}:${sourceId}`)));
+  const actual = adjudications.map(item => `${item.claim_id}:${item.source_id}`);
+  return actual.length === new Set(actual).size && actual.length === expected.size && actual.every(pair => expected.has(pair)) && adjudications.every(item => {
+    const claim = claims.get(item.claim_id), source = sources.get(item.source_id);
+    const sameFetch = adjudications.filter(other => other.source_id === item.source_id).every(other => other.fetched_at === item.fetched_at && other.final_url === item.final_url && other.content_sha256 === item.content_sha256 && other.media_type === item.media_type);
+    return claim?.text === item.claim_text && claim.source_ids.includes(item.source_id) && source?.url === item.source_url && sameFetch && (item.verdict === 'supported' || item.verdict === 'contradicted' ? source.excerpt.includes(item.evidence_quote) : true);
+  }) && value.claims.every(claim => {
+    const verdicts = adjudications.filter(item => item.claim_id === claim.claim_id).map(item => item.verdict);
+    const expectedStatus = verdicts.includes('contradicted') ? 'contradicted' : verdicts.includes('supported') ? 'supported' : 'unverified';
+    return claim.verification_status === expectedStatus;
+  });
 });
 const resultSchema = z.strictObject({ company_id: uuid, revision: z.number().int().min(0), outcome, artifacts: z.array(artifact).max(100).default([]), questions: z.array(z.string().min(1).max(200)).max(100).default([]) }).refine(value => (value.outcome === 'needs_input') === (value.questions.length > 0) && value.artifacts.every(item => item.company_id === value.company_id && item.revision <= value.revision));
 const summarySchema = z.strictObject({
