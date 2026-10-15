@@ -91,6 +91,8 @@ class _TlsReply:
     payload: bytes
     chunk_size: int = 0
     delay_seconds: float = 0.0
+    immediate_bytes: int = 0
+    before_seconds: float = 0.0
 
 
 @final
@@ -154,8 +156,14 @@ class _TlsServer:
                             break
                         request.extend(chunk)
                     self.requests.append(bytes(request))
+                    time.sleep(reply.before_seconds)
                     if reply.chunk_size:
-                        for index in range(0, len(reply.payload), reply.chunk_size):
+                        connection.sendall(reply.payload[: reply.immediate_bytes])
+                        for index in range(
+                            reply.immediate_bytes,
+                            len(reply.payload),
+                            reply.chunk_size,
+                        ):
                             connection.sendall(reply.payload[index : index + reply.chunk_size])
                             time.sleep(reply.delay_seconds)
                     else:
@@ -444,6 +452,43 @@ def test_parent_sends_only_bounded_protocol_fields(tmp_path: Path) -> None:
     assert len(request_path.read_bytes()) <= 16 * 1024
 
 
+def test_parent_remaining_budget_is_computed_after_spawn(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request_path = tmp_path / "request.json"
+    launcher = tmp_path / "capture_delayed_request.py"
+    body = "".join(
+        (
+            _load_helper_source(),
+            "raw=module.sys.stdin.buffer.read(module._MAX_INPUT_BYTES+1)\n",
+            f"open({json.dumps(str(request_path))},'wb').write(raw)\n",
+            "module.sys.stdout.buffer.write(module._run(raw))\n",
+            "raise SystemExit(0)\n",
+        ),
+    )
+    original_open_process = anyio.open_process
+
+    async def delayed_open_process(
+        command: Sequence[str], **options: Unpack[_OpenProcessOptions]
+    ) -> Process:
+        await anyio.sleep(0.2)
+        return await original_open_process(command, **options)
+
+    monkeypatch.setattr(anyio, "open_process", delayed_open_process)
+
+    _ = anyio.run(
+        lambda: fetch_sources(
+            ("http://127.0.0.1/",),
+            _limits=_TestProcessLimits(total_seconds=0.6),
+            _command_factory=lambda _directory: _launcher(launcher, body),
+        ),
+    )
+    request = _ParentRequest.model_validate_json(request_path.read_bytes())
+
+    assert 0 < request.remaining_budget_ms < 500
+
+
 def test_parent_rejects_more_than_five_urls_before_spawn() -> None:
     urls = tuple(f"https://source-{index}.test/" for index in range(6))
 
@@ -471,6 +516,62 @@ def test_parent_rejects_non_strict_helper_response(tmp_path: Path) -> None:
     )
 
     assert result == (SourceFetchFailure(original_url="https://source.test/"),)
+
+
+@pytest.mark.parametrize("version", [True, 1.0])
+def test_helper_rejects_non_integer_request_version(version: object) -> None:
+    request = json.dumps(
+        {
+            "version": version,
+            "urls": ["https://source.test/"],
+            "remaining_budget_ms": 1000,
+        },
+        separators=(",", ":"),
+    ).encode()
+
+    completed = anyio.run(
+        lambda: anyio.run_process(
+            [sys.executable, "-I", "-S", str(_HELPER_PATH)],
+            input=request,
+            env={},
+            check=False,
+        ),
+    )
+
+    assert completed.returncode == 2
+    assert completed.stdout == b""
+    assert completed.stderr == b""
+
+
+def test_helper_attempts_only_one_validated_sockaddr_per_hop(tmp_path: Path) -> None:
+    attempts_path = tmp_path / "attempts.json"
+    launcher = tmp_path / "single_address.py"
+    body = _load_helper_source() + (
+        "import json, socket\n"
+        "attempts=[]\n"
+        "def resolve(hostname, port, deadline):\n"
+        " return (module._Resolved(socket.AF_INET,socket.SOCK_STREAM,socket.IPPROTO_TCP,"
+        "('93.184.216.34',80)),module._Resolved(socket.AF_INET,socket.SOCK_STREAM,"
+        "socket.IPPROTO_TCP,('1.1.1.1',80)))\n"
+        "def connect(resolved, deadline):\n"
+        " attempts.append(resolved.sockaddr[0])\n"
+        f" path={json.dumps(str(attempts_path))}\n"
+        " open(path,'w',encoding='utf-8').write(json.dumps(attempts))\n"
+        " raise OSError\n"
+        "module._resolve=resolve\n"
+        "module._connect=connect\n"
+        "raise SystemExit(module.main())\n"
+    )
+
+    result = anyio.run(
+        lambda: fetch_sources(
+            ("http://source.test/",),
+            _command_factory=lambda _directory: _launcher(launcher, body),
+        ),
+    )
+
+    assert result == (SourceFetchFailure(original_url="http://source.test/"),)
+    assert TypeAdapter(list[str]).validate_json(attempts_path.read_bytes()) == ["93.184.216.34"]
 
 
 def test_cancellation_during_spawn_waits_for_handle_then_reaps_child(
@@ -900,3 +1001,72 @@ def test_slow_drip_headers_obey_absolute_read_cap(tmp_path: Path) -> None:
 
     assert time.monotonic() - started < 1
     assert result == (SourceFetchFailure(original_url="https://source.test/"),)
+
+
+def test_local_tls_slow_body_obeys_absolute_read_cap(tmp_path: Path) -> None:
+    certificate_path, key_path = _certificate(tmp_path, "source.test")
+    payload = _response("200 OK", b"slow-body-evidence")
+    header_end = payload.index(b"\r\n\r\n") + 4
+    reply = _TlsReply(
+        payload,
+        chunk_size=1,
+        delay_seconds=0.03,
+        immediate_bytes=header_end,
+    )
+    launcher = tmp_path / "slow_body.py"
+    started = time.monotonic()
+
+    with _TlsServer(certificate_path, key_path, (reply,)) as server:
+        result = anyio.run(
+            lambda: fetch_sources(
+                ("https://source.test/",),
+                _limits=_TestProcessLimits(total_seconds=1),
+                _command_factory=lambda _directory: _tls_launcher(
+                    launcher,
+                    port=server.port,
+                    certificate_path=certificate_path,
+                    read_seconds=0.15,
+                ),
+            ),
+        )
+
+    assert time.monotonic() - started < 1
+    assert result == (SourceFetchFailure(original_url="https://source.test/"),)
+
+
+def test_local_tls_remaining_budget_spans_redirect_and_slow_body(tmp_path: Path) -> None:
+    certificate_path, key_path = _certificate(tmp_path, "source.test")
+    redirect = _TlsReply(
+        _response(
+            "302 Found",
+            headers=(("Location", "https://source.test/final"),),
+        ),
+        before_seconds=0.15,
+    )
+    payload = _response("200 OK", b"bounded-body-evidence")
+    header_end = payload.index(b"\r\n\r\n") + 4
+    slow_body = _TlsReply(
+        payload,
+        chunk_size=1,
+        delay_seconds=0.04,
+        immediate_bytes=header_end,
+    )
+    launcher = tmp_path / "remaining_budget.py"
+    started = time.monotonic()
+
+    with _TlsServer(certificate_path, key_path, (redirect, slow_body)) as server:
+        result = anyio.run(
+            lambda: fetch_sources(
+                ("https://source.test/start",),
+                _limits=_TestProcessLimits(total_seconds=0.45),
+                _command_factory=lambda _directory: _tls_launcher(
+                    launcher,
+                    port=server.port,
+                    certificate_path=certificate_path,
+                ),
+            ),
+        )
+
+    assert time.monotonic() - started < 1
+    assert result == (SourceFetchFailure(original_url="https://source.test/start"),)
+    assert len(server.requests) == 2

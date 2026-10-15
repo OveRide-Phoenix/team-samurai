@@ -382,26 +382,19 @@ def _create_tls_context() -> ssl.SSLContext:
 
 def _open_connection(target: _Target, deadline: float) -> socket.socket:
     resolved = _resolve(target.hostname, target.port, deadline)
-    last_error: OSError | None = None
-    for address in resolved:
+    connection = _connect(resolved[0], deadline)
+    if target.scheme == "https":
         try:
-            connection = _connect(address, deadline)
-        except OSError as error:
-            last_error = error
-            continue
-        if target.scheme == "https":
-            try:
-                with _stage_timeout(deadline, _STAGE_SECONDS) as timeout:
-                    connection.settimeout(timeout)
-                    return _create_tls_context().wrap_socket(
-                        connection,
-                        server_hostname=target.hostname,
-                    )
-            except OSError, ssl.SSLError, _FetchError:
-                connection.close()
-                raise
-        return connection
-    raise _FetchError from last_error
+            with _stage_timeout(deadline, _STAGE_SECONDS) as timeout:
+                connection.settimeout(timeout)
+                return _create_tls_context().wrap_socket(
+                    connection,
+                    server_hostname=target.hostname,
+                )
+        except OSError, ssl.SSLError, _FetchError:
+            connection.close()
+            raise
+    return connection
 
 
 def _request(
@@ -527,7 +520,8 @@ def _parse_request(raw_request: bytes) -> tuple[tuple[str, ...], float]:
     decoded = _JsonReader(raw_request.decode("utf-8")).parse()
     if not isinstance(decoded, dict) or set(decoded) != {"version", "urls", "remaining_budget_ms"}:
         raise _FetchError
-    if decoded["version"] != _PROTOCOL_VERSION:
+    version = decoded["version"]
+    if not isinstance(version, int) or isinstance(version, bool) or version != _PROTOCOL_VERSION:
         raise _FetchError
     urls = decoded["urls"]
     budget = decoded["remaining_budget_ms"]

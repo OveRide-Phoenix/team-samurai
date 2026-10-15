@@ -148,17 +148,6 @@ async def fetch_sources(
     response: bytes | None = None
     failed = False
     try:
-        remaining_ms = max(1, int((deadline - anyio.current_time()) * 1000))
-        request = json.dumps(
-            {
-                "version": _PROTOCOL_VERSION,
-                "urls": list(retained_urls),
-                "remaining_budget_ms": remaining_ms,
-            },
-            separators=(",", ":"),
-        ).encode()
-        if len(request) > _limits.stdin_bytes:
-            return _failures(retained_urls)
         command = tuple(_command_factory(temporary_directory))
         with anyio.CancelScope(shield=True):
             with anyio.fail_after(max(0.0, deadline - anyio.current_time())):
@@ -175,6 +164,17 @@ async def fetch_sources(
                 process = started_process
         started_process = _require_started_process(process)
         stdin, stdout_stream, stderr_stream = _require_process_streams(started_process)
+        remaining_seconds = _remaining_before_deadline(deadline)
+        request = json.dumps(
+            {
+                "version": _PROTOCOL_VERSION,
+                "urls": list(retained_urls),
+                "remaining_budget_ms": max(1, int(remaining_seconds * 1000)),
+            },
+            separators=(",", ":"),
+        ).encode()
+        if len(request) > _limits.stdin_bytes:
+            return _failures(retained_urls)
         with anyio.fail_after(max(0.0, deadline - anyio.current_time())):
             await stdin.send(request)
             await stdin.aclose()
@@ -221,6 +221,13 @@ def _require_process_streams(
     if process.stdin is None or process.stdout is None or process.stderr is None:
         raise _ProtocolError
     return process.stdin, process.stdout, process.stderr
+
+
+def _remaining_before_deadline(deadline: float) -> float:
+    remaining = deadline - anyio.current_time()
+    if remaining <= 0:
+        raise TimeoutError
+    return remaining
 
 
 def _require_started_process(process: Process | None) -> Process:
