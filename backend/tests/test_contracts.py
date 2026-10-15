@@ -15,7 +15,10 @@ from samurai.contracts import (
     CompanyBrief,
     CompanyMismatchError,
     CompanyState,
+    FounderKnownFact,
     FounderMetricInput,
+    FounderTruth,
+    FrameworkReference,
     IntakeArtifact,
     InvalidArtifactTransitionError,
     MeasuredResult,
@@ -45,6 +48,66 @@ def _brief() -> CompanyBrief:
         open_questions=["Which clinics feel this pain most?"],
         next_actions=["Interview five clinic owners"],
     )
+
+
+def test_founder_truth_legacy_default_and_provenance_round_trip() -> None:
+    # Given a legacy Intake payload and one exact reviewed framework reference.
+    legacy = IntakeArtifact.model_validate({"brief": _brief().model_dump(mode="json")})
+    revision = "07ea968338cff2ba67ff245671765ea957ce0a0c"
+    reference = FrameworkReference(
+        id="founder_truth",
+        version="1.0.0",
+        source_repository="gvkhosla/founder-skills",
+        source_revision=revision,
+        source_url=HttpUrl(f"https://github.com/gvkhosla/founder-skills/tree/{revision}"),
+        license="MIT",
+        attribution="Adapted from Founder Skills by Geet Khosla.",
+        allowed_roles=(Role.INTAKE, Role.STRATEGIST, Role.VERIFIER),
+        sha256="ba206825fb8ebd15cf911397e55628ff8b5aacf28cbb02b65d20c978bc31e0bb",
+        review_date="2026-10-15",
+    )
+
+    # When a new Intake artifact is serialized and restored.
+    truth = FounderTruth(
+        known=(
+            FounderKnownFact(
+                text="Python",
+                basis="founder_context",
+                context_key="founder_skills",
+            ),
+        ),
+        believed=("Clinics lose bookings from missed calls.",),
+        hoped=("A clinic will pay for a pilot.",),
+        evidence_gaps=("No retained willingness-to-pay evidence.",),
+        bottleneck="Validate a painful missed-call workflow.",
+        next_decision="Choose whether to interview clinic owners first.",
+    )
+    restored = IntakeArtifact.model_validate_json(
+        IntakeArtifact(
+            brief=_brief(), founder_truth=truth, frameworks=(reference,)
+        ).model_dump_json()
+    )
+
+    # Then legacy input stays loadable and new truth/provenance round-trip exactly.
+    assert legacy.founder_truth == FounderTruth()
+    assert legacy.frameworks == ()
+    assert restored.founder_truth == truth
+    assert restored.frameworks == (reference,)
+
+
+def test_founder_truth_rejects_contradictory_categories() -> None:
+    # Given one statement classified as both known and believed.
+    with pytest.raises(ValidationError, match="truth categories must be disjoint"):
+        _ = FounderTruth(
+            known=(
+                FounderKnownFact(
+                    text="Customers will pay.",
+                    basis="retained_evidence",
+                    evidence_ids=(uuid4(),),
+                ),
+            ),
+            believed=("Customers will pay.",),
+        )
 
 
 def _artifact(state: CompanyState, *, input_revision: int | None = None) -> ArtifactEnvelope:

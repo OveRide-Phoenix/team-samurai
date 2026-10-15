@@ -1,0 +1,9 @@
+{
+  "fixture_kind": "local_synthetic_founder_truth_eval",
+  "cases": [
+    "missing_context",
+    "contradictory_categories",
+    "injected_skill_instructions",
+    "stale_revision"
+  ]
+}

@@ -6,12 +6,12 @@ import hashlib
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar, Final, Literal, Self
+from typing import ClassVar, Final, Self
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from pydantic_core import PydanticCustomError
 
-from samurai.contracts import Role
+from samurai.contracts import FrameworkReference, Role
 
 FRAMEWORK_MANIFEST: Final = Path(__file__).with_name("frameworks") / "manifest.json"
 FRAMEWORK_ROLES: Final = frozenset({Role.INTAKE, Role.STRATEGIST, Role.VERIFIER})
@@ -33,20 +33,10 @@ class FrameworkValidationError(RuntimeError):
     """A reviewed framework resource failed its trust-boundary checks."""
 
 
-class FrameworkMetadata(BaseModel):
+class FrameworkMetadata(FrameworkReference):
     """Public provenance for one loaded framework without local file paths."""
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
-    id: Literal["founder_truth", "offer_diagnostic"]
-    version: str
-    source_repository: str
-    source_revision: str
-    source_url: HttpUrl
-    license: Literal["MIT"]
-    attribution: str
-    allowed_roles: tuple[Role, ...]
-    sha256: str
-    review_date: str = Field(pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 
 
 class _ManifestEntry(FrameworkMetadata):

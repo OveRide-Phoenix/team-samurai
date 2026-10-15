@@ -20,7 +20,10 @@ from samurai.contracts import (
     CompanyBrief,
     CompanyMismatchError,
     CompanyState,
+    FounderKnownFact,
     FounderStatement,
+    FounderTruth,
+    FrameworkReference,
     IntakeArtifact,
     ProductPlanArtifact,
     ResearchArtifact,
@@ -36,6 +39,7 @@ from samurai.contracts import (
     WorkflowResult,
     accept_artifact,
 )
+from samurai.frameworks import load_framework_catalog
 from samurai.research import ResearchAgent, ResearchResult, run_research
 from samurai.workflow_state import WorkflowContextError, load_company_state, save_company_state
 
@@ -58,6 +62,7 @@ QUESTIONS = {
     "goal": "What outcome and timeframe define success?",
 }
 UNRESOLVED_RESEARCH = "retained research conflicts and factual claims remain unresolved."
+EVIDENCE_DECISION = "What retained evidence supports the claimed known facts?"
 JOURNEY_TYPES = (
     ArtifactType.INTAKE,
     ArtifactType.RESEARCH,
@@ -101,6 +106,7 @@ class CompanyJourneyFailure(BaseModel):
 
 class _IntakeDraft(BaseModel):
     brief: CompanyBrief
+    founder_truth: FounderTruth = FounderTruth()
 
 
 class _StrategyDraft(BaseModel):
@@ -274,6 +280,70 @@ def _brief(request: CompanyJourneyRequest, existing: CompanyBrief | None) -> Com
     )
 
 
+def _context_fact_is_retained(fact: FounderKnownFact, brief: CompanyBrief) -> bool:
+    if fact.basis != "founder_context" or fact.context_key is None:
+        return False
+    match fact.context_key:
+        case "idea":
+            values = (brief.idea,)
+        case "target_customer":
+            values = (brief.target_customer,)
+        case "geography":
+            values = (brief.geography,)
+        case "budget":
+            values = (brief.budget,)
+        case "founder_skills":
+            values = (brief.founder_skills,)
+        case "goal":
+            values = (brief.goal,)
+        case "supplied_context":
+            values = tuple(brief.supplied_context)
+    return any(item is not None and str(item).casefold() == fact.text.casefold() for item in values)
+
+
+def _verified_founder_truth(
+    proposed: FounderTruth, brief: CompanyBrief
+) -> tuple[FounderTruth, tuple[str, ...]]:
+    known = tuple(fact for fact in proposed.known if _context_fact_is_retained(fact, brief))
+    unsupported = tuple(fact.text for fact in proposed.known if fact not in known)
+    believed = tuple(dict.fromkeys((*proposed.believed, *unsupported)))
+    gaps = tuple(
+        dict.fromkeys(
+            (
+                *proposed.evidence_gaps,
+                *(f"Retained evidence is missing for: {text}" for text in unsupported),
+            )
+        )
+    )
+    if unsupported:
+        next_decision = EVIDENCE_DECISION
+    elif proposed.bottleneck is None:
+        next_decision = None
+    else:
+        next_decision = proposed.next_decision
+    return (
+        FounderTruth.model_validate(
+            {
+                **proposed.model_dump(),
+                "known": known,
+                "believed": believed,
+                "evidence_gaps": gaps,
+                "bottleneck": None if unsupported else proposed.bottleneck,
+                "next_decision": next_decision,
+            }
+        ),
+        unsupported,
+    )
+
+
+def _intake_frameworks() -> tuple[FrameworkReference, ...]:
+    return tuple(
+        FrameworkReference.model_validate(resource.metadata.model_dump())
+        for resource in load_framework_catalog().for_role(Role.INTAKE)
+        if resource.metadata.id == "founder_truth"
+    )
+
+
 def _research_lineage(state: CompanyState) -> ArtifactEnvelope:
     research = _latest(state, ArtifactType.RESEARCH)
     if research is None:
@@ -366,18 +436,40 @@ class _Journey:
             brief.model_dump_json(),
             _IntakeDraft,
         )
+        founder_truth, unsupported_known = _verified_founder_truth(proposed.founder_truth, brief)
         missing = tuple(name for name in REQUIRED_CONTEXT if getattr(brief, name) is None)
         brief = brief.model_copy(
             update={
                 "open_questions": [QUESTIONS[name] for name in missing],
-                "next_actions": proposed.brief.next_actions,
+                "next_actions": []
+                if unsupported_known or founder_truth.next_decision is None
+                else proposed.brief.next_actions,
             }
         )
-        finding = VerificationFinding(
-            code="founder_context_retained",
-            message="Founder input retained without treating it as market evidence.",
-            severity="info",
-        )
+        findings = [
+            VerificationFinding(
+                code="founder_context_retained",
+                message="Founder input retained without treating it as market evidence.",
+                severity="info",
+            )
+        ]
+        if unsupported_known:
+            findings.append(
+                VerificationFinding(
+                    code="unsupported_known_claim",
+                    message="Claims without retained context or evidence remain beliefs.",
+                    severity="warning",
+                )
+            )
+        truth_incomplete = founder_truth.bottleneck is None or founder_truth.next_decision is None
+        if truth_incomplete:
+            findings.append(
+                VerificationFinding(
+                    code="founder_decision_missing",
+                    message="The current bottleneck and one next founder decision are required.",
+                    severity="warning",
+                )
+            )
         statements = tuple(
             FounderStatement(statement_id=uuid4(), text=value)
             for value in (brief.idea, *(getattr(brief, name) for name in REQUIRED_CONTEXT))
@@ -386,15 +478,20 @@ class _Journey:
         envelope = _envelope(
             state,
             _ArtifactCandidate(
-                payload=IntakeArtifact(brief=brief),
+                payload=IntakeArtifact(
+                    brief=brief,
+                    founder_truth=founder_truth,
+                    frameworks=_intake_frameworks(),
+                ),
                 producer=Role.INTAKE,
                 status="needs_input"
-                if any(getattr(brief, name) is None for name in REQUIRED_CONTEXT)
+                if missing or unsupported_known or truth_incomplete
                 else "complete",
-                findings=(finding,),
+                findings=tuple(findings),
                 founder_statements=statements,
                 assumptions=tuple(
-                    Assumption(assumption_id=uuid4(), text=text) for text in brief.assumptions
+                    Assumption(assumption_id=uuid4(), text=text)
+                    for text in (*brief.assumptions, *unsupported_known)
                 ),
             ),
         )
@@ -406,14 +503,37 @@ class _Journey:
     ) -> StepOutput:
         state = _state(_context(run_context))
         intake = _latest(state, ArtifactType.INTAKE)
-        brief = IntakeArtifact.model_validate(intake.payload if intake is not None else None).brief
+        payload = IntakeArtifact.model_validate(intake.payload if intake is not None else None)
+        brief = payload.brief
         missing = tuple(name for name in REQUIRED_CONTEXT if getattr(brief, name) is None)
-        if missing:
+        truth_questions = tuple(
+            question
+            for present, question in (
+                (
+                    payload.founder_truth.bottleneck is not None,
+                    "What uncertainty is the current bottleneck?",
+                ),
+                (
+                    payload.founder_truth.next_decision is not None,
+                    "What one founder decision should come next?",
+                ),
+                (
+                    intake is not None
+                    and not any(
+                        finding.code == "unsupported_known_claim"
+                        for finding in intake.verification_findings
+                    ),
+                    EVIDENCE_DECISION,
+                ),
+            )
+            if not present
+        )
+        if missing or truth_questions:
             return _step_output(
                 _result(
                     state,
                     "needs_input",
-                    questions=tuple(QUESTIONS[name] for name in missing),
+                    questions=(*tuple(QUESTIONS[name] for name in missing), *truth_questions),
                 ),
                 stop=True,
             )
@@ -621,6 +741,7 @@ class _Journey:
         upstream = tuple(_latest(state, artifact_type) for artifact_type in JOURNEY_TYPES[:-1])
         accepted = tuple(artifact for artifact in upstream if artifact is not None)
         research = ResearchArtifact.model_validate(accepted[1].payload)
+        intake_truth = IntakeArtifact.model_validate(accepted[0].payload).founder_truth
         strategy = StrategyArtifact.model_validate(accepted[2].payload)
         supported_text = " ".join(claim.text for claim in accepted[1].claims)
         numbers: set[str] = {
@@ -672,6 +793,16 @@ class _Journey:
                 ),
             }
             findings.append(fallback[outcome])
+        if any((intake_truth.known, intake_truth.believed, intake_truth.hoped)):
+            findings.append(
+                VerificationFinding(
+                    code="founder_truth_distinction_retained",
+                    message=(
+                        "Known, believed, and hoped statements retained their Intake categories."
+                    ),
+                    severity="info",
+                )
+            )
         envelope = _envelope(
             state,
             _ArtifactCandidate(

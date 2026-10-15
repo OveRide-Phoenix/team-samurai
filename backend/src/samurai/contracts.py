@@ -147,9 +147,109 @@ class VerificationFinding(Contract):
     severity: Literal["info", "warning", "error"]
 
 
+type FounderContextKey = Literal[
+    "idea",
+    "target_customer",
+    "geography",
+    "budget",
+    "founder_skills",
+    "goal",
+    "supplied_context",
+]
+type FounderTruthText = Annotated[str, Field(min_length=1)]
+
+
+class FounderKnownFact(Contract):
+    text: str = Field(min_length=1)
+    basis: Literal["founder_context", "retained_evidence"]
+    context_key: FounderContextKey | None = None
+    evidence_ids: tuple[UUID, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_basis(self) -> Self:
+        context_bound = self.context_key is not None and not self.evidence_ids
+        evidence_bound = self.context_key is None and bool(self.evidence_ids)
+        if (self.basis == "founder_context") != context_bound or (
+            self.basis == "retained_evidence"
+        ) != evidence_bound:
+            raise PydanticCustomError(
+                "founder_known_basis",
+                "known facts require exactly one matching context or evidence basis",
+            )
+        if len(self.evidence_ids) != len(set(self.evidence_ids)):
+            raise PydanticCustomError("founder_known_evidence", "known evidence IDs must be unique")
+        return self
+
+
+class FounderTruth(Contract):
+    known: tuple[FounderKnownFact, ...] = ()
+    believed: tuple[FounderTruthText, ...] = ()
+    hoped: tuple[FounderTruthText, ...] = ()
+    evidence_gaps: tuple[FounderTruthText, ...] = ()
+    bottleneck: FounderTruthText | None = None
+    next_decision: FounderTruthText | None = None
+
+    @model_validator(mode="after")
+    def validate_categories(self) -> Self:
+        categories = (
+            tuple(item.text for item in self.known),
+            self.believed,
+            self.hoped,
+        )
+        normalized = tuple(tuple(text.casefold() for text in category) for category in categories)
+        if any(len(category) != len(set(category)) for category in normalized) or any(
+            set(normalized[left]) & set(normalized[right])
+            for left, right in ((0, 1), (0, 2), (1, 2))
+        ):
+            raise PydanticCustomError("founder_truth_overlap", "truth categories must be disjoint")
+        return self
+
+
+class FrameworkReference(Contract):
+    id: Literal["founder_truth", "offer_diagnostic"]
+    version: str = Field(pattern=r"^[0-9]+\.[0-9]+\.[0-9]+$")
+    source_repository: str = Field(pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+    source_revision: str = Field(pattern=r"^[0-9a-f]{40}$")
+    source_url: HttpUrl
+    license: Literal["MIT"]
+    attribution: str = Field(min_length=1)
+    allowed_roles: tuple[Role, ...] = Field(min_length=1)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    review_date: str = Field(pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+
+    @model_validator(mode="after")
+    def validate_provenance(self) -> Self:
+        expected_url = f"https://github.com/{self.source_repository}/tree/{self.source_revision}"
+        if str(self.source_url).rstrip("/") != expected_url:
+            raise PydanticCustomError(
+                "framework_source_url", "source_url does not match framework provenance"
+            )
+        if len(self.allowed_roles) != len(set(self.allowed_roles)):
+            raise PydanticCustomError("framework_roles", "allowed framework roles must be unique")
+        if any(
+            role not in {Role.INTAKE, Role.STRATEGIST, Role.VERIFIER} for role in self.allowed_roles
+        ):
+            raise PydanticCustomError("framework_roles", "framework role is not reviewed")
+        return self
+
+
 class IntakeArtifact(Contract):
     artifact_type: Literal[ArtifactType.INTAKE] = ArtifactType.INTAKE
     brief: CompanyBrief
+    founder_truth: FounderTruth = FounderTruth()
+    frameworks: tuple[FrameworkReference, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_frameworks(self) -> Self:
+        if self.frameworks and (
+            len(self.frameworks) != 1
+            or self.frameworks[0].id != "founder_truth"
+            or Role.INTAKE not in self.frameworks[0].allowed_roles
+        ):
+            raise PydanticCustomError(
+                "intake_frameworks", "Intake accepts one reviewed founder_truth reference"
+            )
+        return self
 
 
 class ResearchArtifact(Contract):

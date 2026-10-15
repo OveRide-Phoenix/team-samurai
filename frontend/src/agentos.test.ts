@@ -40,6 +40,16 @@ function serve(data: string, split = false) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('AgentOS transport wire boundary', () => {
+  it('parses additive founder truth and exact framework provenance in Intake snapshots', () => {
+    const framework = { id: 'founder_truth', version: '1.0.0', source_repository: 'gvkhosla/founder-skills', source_revision: '07ea968338cff2ba67ff245671765ea957ce0a0c', source_url: 'https://github.com/gvkhosla/founder-skills/tree/07ea968338cff2ba67ff245671765ea957ce0a0c', license: 'MIT', attribution: 'Adapted from Founder Skills by Geet Khosla.', allowed_roles: ['intake', 'strategist', 'verifier'], sha256: 'ba206825fb8ebd15cf911397e55628ff8b5aacf28cbb02b65d20c978bc31e0bb', review_date: '2026-10-15' };
+    const truth = { known: [{ text: 'Python', basis: 'founder_context', context_key: 'founder_skills', evidence_ids: [] }], believed: ['Clinics may lose bookings'], hoped: ['A clinic will pay'], evidence_gaps: ['No interviews'], bottleneck: 'Validate the pain', next_decision: 'Choose a clinic segment' };
+    const intake = { ...result.artifacts[0], artifact_type: 'intake', producer: 'intake', sources: [], claims: [], payload: { artifact_type: 'intake', brief: { idea: 'AI receptionist', target_customer: 'Clinics', geography: 'India', budget: 'INR 50000', founder_skills: 'Python', goal: 'Validate demand', supplied_context: [], assumptions: [], open_questions: [], next_actions: [] }, founder_truth: truth, frameworks: [framework] } };
+    const snapshot = { summary: { company_id: company, revision: 1, artifact_count: 1, status: 'active', brief: intake.payload.brief, founder_truth: truth, sources: [], evidence_conflicts: [], verification_findings: [], next_decision: truth.next_decision, artifacts: [intake], frameworks: [framework] }, artifacts: [intake] };
+
+    const events = companySnapshotEvents(snapshot, company);
+
+    expect(events.some(event => event.type === 'message' && event.panel?.provenance && 'founder_truth' in event.panel.provenance)).toBe(true);
+  });
   it('hydrates matching canonical summary and strategy/product artifacts without a run', () => {
     const strategy = { ...result.artifacts[0], artifact_id: '00000000-0000-4000-8000-000000000005', artifact_type: 'strategy', producer: 'strategist', claims: [], sources: [], payload: { artifact_type: 'strategy', ideal_customer_profile: 'Independent clinics', positioning: 'Reduce missed calls', offer: 'Receptionist trial', pricing_assumptions: [] } };
     const plan = { ...result.artifacts[0], artifact_id: '00000000-0000-4000-8000-000000000006', artifact_type: 'product_plan', producer: 'product_manager', claims: [], sources: [], payload: { artifact_type: 'product_plan', minimum_viable_offering: ['Call routing'], delivery_requirements: ['Founder approves trial'], user_stories: [], roadmap: ['Collect feedback'] } };
