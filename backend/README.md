@@ -10,6 +10,14 @@ Owns the server-side behavior for **AI Idea → Company**. Read the root [AGENTS
 - Persist work status, approvals, results, and business measurements, and expose structured data to the frontend.
 - Execute authorized integrations and jobs with observable success and failure outcomes.
 
+## Current local acceptance boundary
+
+The founder-platform integration includes the locally accepted offer diagnostic at source commit `928ce5e085ff9b0d73e97ce878199c1235ef56ee`. Strategy requires mapped, supported research with retained evidence and no unresolved contradiction before calling the Strategist. Its offer remains `draft_only`; generated offer text, pricing, and purchasing power remain assumptions. Matching numbers elsewhere in research do not verify a generated price. Numeric strategy assumptions currently require `needs_rework` because they have no explicit evidence binding.
+
+Ordinary Gemini research retains grounding segments and marks claims unverified. It cannot yet satisfy this Strategy gate. The [source-adjudication plan](../.omo/plans/samurai-source-adjudication.md) adds independent page retrieval and source-bound semantic assessment before Strategy; that implementation is in progress. A manually supported fixture is only gate coverage, not proof of an ordinary research-to-offer journey.
+
+Task 12 acceptance covered 98 provider-free backend tests, static checks, and real Agno workflow execution with fresh SQLite readback. Adversarial cases kept distinct generated prices as assumptions even when unrelated supported or unverified research contained matching numbers. The founder-framework UI remains pending in [the founder-platform plan](../.omo/plans/samurai-founder-platform.md). These changes have not been accepted through a live provider/browser/cloud journey or deployed. The earlier onboarding and cloud results below describe their named historical revisions, not this integration revision.
+
 ## Selected stack and status
 
 Python 3.14, Agno AgentOS, Gemini, Pydantic, and PostgreSQL. See [the architecture decision](../docs/architecture.md) and [backend contributor instructions](AGENTS.md). Exact versions are pinned in `pyproject.toml` and `uv.lock`.
