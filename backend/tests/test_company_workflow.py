@@ -46,6 +46,7 @@ from samurai.contracts import (
     WorkflowResult,
 )
 from samurai.research import ResearchAgent, ResearchResult
+from samurai.team_areas import HANDOFF_MARKER, journey_handoff
 from samurai.workflow_state import WorkflowContextError, load_company_state, save_company_state
 from scripts.smoke_company_journey import SmokeArguments, SmokeError, run_smoke
 
@@ -783,3 +784,63 @@ def test_approved_stages_resume_the_same_retained_company(
         )
     assert result.outcome == "verified"
     assert result.revision == 5
+
+
+@pytest.mark.parametrize(
+    ("prior_stage", "outcome"), [("brief", "needs_input"), ("plan", "verified")]
+)
+def test_verification_area_reviews_existing_artifacts_without_upstream_runs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    prior_stage: JourneyStage,
+    outcome: str,
+) -> None:
+    catalog, models = _catalog()
+
+    def catalog_factory(_settings: Settings) -> Mapping[Role, ConfiguredRole]:
+        return catalog
+
+    research_calls = 0
+
+    async def research_once(agent: ResearchAgent, brief: CompanyBrief) -> ResearchResult:
+        nonlocal research_calls
+        research_calls += 1
+        return await _complete_research(agent, brief)
+
+    monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
+    monkeypatch.setattr("samurai.company_workflow.run_research", research_once)
+    database = SqliteDb(db_file=str(tmp_path / "verification-area.db"))
+    first = create_company_workflow(database, _settings(), stage=prior_stage)
+    state: dict[str, JsonValue] = {}
+    initial = anyio.run(partial(_run_workflow, first, _complete_request(), state))
+    before = WorkflowResult.model_validate(initial.content)
+    if prior_stage == "brief":
+        handoff = journey_handoff(
+            "strategy", "strategy", CompanyState.model_validate(state["company"])
+        )
+        assert handoff is not None
+        redirect = TypeAdapter(dict[str, JsonValue]).validate_json(handoff[len(HANDOFF_MARKER) :])
+        assert redirect["area"] == "research"
+        assert redirect["prerequisite"] is True
+    calls = {role: model.calls for role, model in models.items()}
+    prior_research_calls = research_calls
+    request = _complete_request().model_copy(
+        update={"company_id": before.company_id, "expected_revision": before.revision}
+    )
+    review = create_company_workflow(database, _settings(), stage="verify")
+    output = anyio.run(partial(_run_workflow, review, request, state))
+    result = WorkflowResult.model_validate(output.content)
+    assert result.company_id == before.company_id
+    assert result.outcome == outcome
+    assert research_calls == prior_research_calls
+    assert all(
+        models[role].calls == count for role, count in calls.items() if role is not Role.VERIFIER
+    )
+    assert {
+        item.artifact_id for item in before.artifacts if item.artifact_type.value != "verification"
+    } <= {item.artifact_id for item in result.artifacts}
+    retained = CompanyState.model_validate(state["company"])
+    assert {item.artifact_id for item in before.artifacts} <= {
+        item.artifact_id for item in retained.artifacts
+    }
+    assert result.revision == before.revision + (1 if prior_stage == "plan" else 0)

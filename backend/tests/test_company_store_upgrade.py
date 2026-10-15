@@ -86,9 +86,7 @@ def test_legacy_context_upgrade_preserves_json_and_hash(postgres_url: str) -> No
         with database.db_engine.connect() as connection:
             original_updated_at = TypeAdapter(int).validate_python(
                 connection.execute(
-                    select(sessions.c.updated_at).where(
-                        sessions.c.session_id == "legacy-child"
-                    )
+                    select(sessions.c.updated_at).where(sessions.c.session_id == "legacy-child")
                 ).scalar_one()
             )
         with patch(
@@ -100,9 +98,7 @@ def test_legacy_context_upgrade_preserves_json_and_hash(postgres_url: str) -> No
                     session_id="legacy-child",
                     user_id="legacy-owner",
                     workflow_id="company-journey",
-                    session_data={
-                        "session_state": {"company": parsed.model_dump(mode="json")}
-                    },
+                    session_data={"session_state": {"company": parsed.model_dump(mode="json")}},
                 )
             )
         second = FounderPlatformMigrator(database.db_engine, schema=schema).apply()
@@ -127,9 +123,7 @@ def test_legacy_context_upgrade_preserves_json_and_hash(postgres_url: str) -> No
             )
             mirror_updated_at = TypeAdapter(int).validate_python(
                 connection.execute(
-                    select(sessions.c.updated_at).where(
-                        sessions.c.session_id == "legacy-child"
-                    )
+                    select(sessions.c.updated_at).where(sessions.c.session_id == "legacy-child")
                 ).scalar_one()
             )
         canonical = TypeAdapter(dict[str, JsonValue]).validate_python(row["canonical_state"])

@@ -18,13 +18,13 @@ Open http://127.0.0.1:4173. The former Next.js `/api/health` scaffold has been r
 - Hark-inspired atmospheric workspace, frosted Home panels, floating navigation, and top blur.
 - assistant-ui conversation runtime, message primitives, composer, cancellation, and custom tool rendering.
 - Interactive prospect filtering and shortlisting, offer review, pricing views, and pinning to Home.
-- Company view, local search (Cmd/Ctrl+K), light/dark modes, and accessible Radix dialogs.
+- Company view, light/dark modes, and accessible Radix dialogs.
 - Fresh landing and empty-company states, with an always-present preview team.
 - Multiple companies with isolated conversations, pinned panels, shortlists, and draft reviews.
 - Browser-local persistence; local preview retains the original dental-preview migration. Production caches use a SHA-256 namespace for the verified Google user before React mounts, without importing the legacy shared cache. Refresh after switching Google accounts; already-open tabs retain their loaded state until reload.
-- Inline search focused by Cmd/Ctrl+K, and subtle reduced-motion-aware transitions.
+- Subtle reduced-motion-aware transitions.
 - Be UI is used selectively for the sliding tab indicator; the core controls keep Samurai styling.
-- `liquid-glass-react` adds actual backdrop refraction to the navigation, search and composer without filtering their content. Safari and Firefox support is partial; local verification used Chromium.
+- `liquid-glass-react` adds actual backdrop refraction to the navigation and composer without filtering their content. Safari and Firefox support is partial; local verification used Chromium.
 - Responsive mobile layout and reduced-motion support.
 
 ## Backend handoff
@@ -48,7 +48,7 @@ The build emits `dist/client/` plus Sites packaging. The Cloud Run container ser
 
 React, Vite, TypeScript, Tailwind CSS, assistant-ui, Radix UI, Lucide, Zod, and Vitest use permissive open-source licenses. Inter is distributed under the SIL Open Font License. No assistant-cloud account or paid UI service is required. Package versions are recorded in `package-lock.json`.
 
-Panels expand inside Home. Use Company or the expand control at the top of the left pane to open the full-width dashboard; Chat with Samurai returns to the retained conversation draft and scroll position. Search opens panels inline, with the full dashboard used on mobile. Settings use a themed dropdown; panel creation choices use a dialog.
+Panels expand inside Home. Use Company or the expand control at the top of the left pane to open the full-width dashboard; Chat with Samurai returns to the retained conversation draft and scroll position. Settings use a themed dropdown; panel creation choices use a dialog.
 
 Generative UI catalog: offer, prospects, pricing, evidence review, and launch plan. Use Add a panel → Evidence review or Launch plan, or ask “Show sample validation evidence” / “Show sample launch plan”. Preview streams demonstrate template components; live streams render validated backend artifacts. Launch task checkmarks persist per company.
 
@@ -63,3 +63,9 @@ The landing send button opens three required intake pages fetched from the backe
 New companies use native AgentOS SSE through the Vite server proxy. Configure `AGENTOS_USER_TOKEN` in ignored `frontend/.env.local` and the matching `JWT_VERIFICATION_KEY` in ignored `backend/.env`; restart the backend after changing its configuration. `GEMINI_MODEL` is locked to `gemini-3.5-flash-lite`, with no fallback. The original 2.5 Flash-Lite request returned HTTP 404 for this new account. The user then authorized 3.5 Flash-Lite on 12 October; verify its access separately. Existing and dental-demo companies retain Preview mode. Never call fixture tests proof of successful Gemini research. Local tokens are development-only. Production verifies Google IAP assertions and mints short-lived per-user JWTs server-side; neither signing keys nor bearer tokens belong in `VITE_` variables.
 
 Team roles expand to show actual workflow start/completion history, retained per company and recovered from scoped backend runs. Missing evidence shows Researcher/Verifier blocked and Strategist waiting. A completed workflow is not proof of customer demand. Research remains insufficient without source evidence; Researcher has native Gemini Search enabled; provider access, quota, and supported source evidence must be checked separately.
+
+### CopilotKit generative UI
+Live companies now use the self-hosted CopilotKit runtime through Agno AG-UI, with the original assistant-ui chat and native run recovery/cancellation retained. The entry-form Company brief and later research, offer/pricing, delivery and prospect panels render through the decided declarative catalog. Composed views and sandboxed custom components use Samurai's typography and themes. See [the contract](../docs/generative-ui.md) for stages, architecture, validation and local-only verification limits. No cloud UI account or additional provider key is needed.
+
+### Inspect the interactive panels locally
+With the dev server running, open [all panels](http://127.0.0.1:4173/?preview=panels) or [fresh intake](http://127.0.0.1:4173/?preview=intake). The catalog uses the actual declarative renderers plus a sandboxed custom revenue scenario, with clearly labelled sample data and isolated preview storage. Review/shortlist/checklist changes persist locally. The fresh form shows only the Company brief until a founder action asks for the next sample stage. These routes make no AgentOS or Gemini requests and are excluded from production. The normal local route remains connected to CopilotKit/Agno.

@@ -1,33 +1,42 @@
 import { TransitionGrain } from './TransitionGrain';
 import { Atmosphere } from './Atmosphere';
-import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, lazy, Suspense } from 'react';
 import {
   AssistantRuntimeProvider, ComposerPrimitive, MessagePrimitive, ThreadPrimitive,
   useAuiState, useExternalStoreRuntime, type AppendMessage, type ThreadMessageLike, type ToolCallMessagePartComponent,
 } from '@assistant-ui/react';
+import { motion, useReducedMotion } from 'motion/react';
+import { pageRevealFrames, pageRevealTiming, usePanelLayout } from './panelLayout';
 import { LiquidBackdrop } from './LiquidBackdrop';
 import { Tabs, TabsList, TabsTrigger } from './components/beui/tabs';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { TeamPanel, SearchBar, ModeToggle, type Activity } from './ShellParts';
+import { TeamNavigation } from './TeamNavigation';
+import { areaForPanel, conversationArea, messagesForArea, panelsForAreas, selectedWorkflowAreas, toggleWorkflowArea, teamAreas } from './teamAreas';
+import { TeamPanel, ModeToggle, type Activity } from './ShellParts';
 import {
   ArrowDown, ArrowRight, ArrowUp, Check, CheckCheck, CircleHelp,
   Compass, GripVertical, Home, Leaf, LoaderCircle, Maximize2, Minimize2, MessageCircle, Pin,
-  Moon, Sun, Plus, Search, ShieldCheck, SlidersHorizontal, Square, Users, X,
+  Download, FileText, Moon, Sun, Plus, ShieldCheck, SlidersHorizontal, Square, Trash2, Upload, Users, X,
 } from 'lucide-react';
 import { GenerativePanelBody } from './GenerativePanelBody';
 import { demoTransport, onboardingPreview } from './demo';
-import { presentMessages, createAgentosTransport, resumeAgentosRun, cancelAgentosRun, type AgentosApproval, type AgentosRun } from './agentos';
-import { beginBackendRun, finishActivities, hasActiveBackendRun, isCancellableBackendRun, nextJourneyApproval, toggleSavedSelection, applyBackendEvent, recordBackendRun, initialCompanyPrompt, eventSchema, panelSchema, latestPanels, orderedPanels, movePanel, type Agent, type CompanyView, type Message, type Panel, type Portfolio, type Transport, type WorkEvent }  from './model';
+import { presentMessages, createAgentosTransport, readAgentosRun, cancelAgentosRun, type AgentosRun } from './agentos';
+import { finishActivities, hasActiveBackendRun, toggleSavedSelection, applyBackendEvent, recordBackendRun, initialCompanyPrompt, eventSchema, panelSchema, latestPanels, orderedPanels, movePanel, type TeamArea, type WorkflowArea, type Agent, type Message, type Panel, type Workspace, type Portfolio, type Transport, type WorkEvent }  from './model';
+import { deleteWorkspaceFile, downloadWorkspaceFile, listWorkspaceFiles, uploadWorkspaceFile, type WorkspaceFile } from './files';
 
 type WorkspaceContextValue = {
-  workspace: CompanyView;
-  readOnly: boolean;
+  workspace: Workspace;
+  mode: 'light' | 'dark';
   pin: (panel: Panel) => void;
   shortlist: (id: string) => void;
   approve: (id: string) => void;
   completeTask: (id: string) => void;
   open: (panel: Panel | null) => void;
+  discuss: (prompt: string, panel?: Panel) => void;
+  selectArea: (area: TeamArea, draft?: string) => void;
+  area: TeamArea;
+  grouped: boolean;
 };
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 function useWorkspace() {
@@ -36,9 +45,12 @@ function useWorkspace() {
   return value;
 }
 
-function BusinessPanel({ panel, compact = false, expanded = false, expandable = false }: { panel: Panel; compact?: boolean; expanded?: boolean; expandable?: boolean }) {
-  const { workspace, readOnly, pin, shortlist, approve, completeTask, open } = useWorkspace();
-  const [filter, setFilter] = useState('All');
+const KnownPanel = lazy(() => import('./KnownPanel'));
+function BusinessPanel(props: { panel: Panel; compact?: boolean; expanded?: boolean; expandable?: boolean }) {
+  return props.panel.kind === 'custom' || props.panel.kind === 'declarative' ? <BusinessPanelContent {...props} /> : <Suspense fallback={<BusinessPanelContent {...props} />}><KnownPanel {...props} render={BusinessPanelContent} /></Suspense>;
+}
+function BusinessPanelContent({ panel, compact = false, expanded = false, expandable = false }: { panel: Panel; compact?: boolean; expanded?: boolean; expandable?: boolean }) {
+  const { workspace, mode, pin, shortlist, approve, completeTask, open, discuss } = useWorkspace();
   const pinned = workspace.pinned.some(item => item.id === panel.id);
   const approved = workspace.approvedOffers.includes(panel.id);
   return (
@@ -46,27 +58,12 @@ function BusinessPanel({ panel, compact = false, expanded = false, expandable = 
       <div className="panel-heading">
         <div className="panel-title"><span className="panel-icon">{panel.kind === 'prospects' ? <Users size={16} /> : panel.kind === 'offer' ? <Compass size={16} /> : panel.kind === 'evidence' ? <ShieldCheck size={16} /> : panel.kind === 'launch-plan' ? <CheckCheck size={16} /> : <SlidersHorizontal size={16} />}</span><h3>{panel.title}</h3></div>
         <div className="panel-tools">
-          <button className={`icon-button ${pinned ? 'is-pinned' : ''}`} onClick={() => pin(panel)} disabled={readOnly} aria-label={`${pinned ? 'Unpin' : 'Pin'} ${panel.title}`} title={pinned ? 'Unpin panel' : 'Keep on Home'}><Pin size={15} /></button>
+          <button className={`icon-button ${pinned ? 'is-pinned' : ''}`} onClick={() => pin(panel)} aria-label={`${pinned ? 'Unpin' : 'Pin'} ${panel.title}`} title={pinned ? 'Unpin panel' : 'Keep on Home'}><Pin size={15} /></button>
           {expandable && <button className="icon-button" onClick={() => open(expanded ? null : panel)} aria-expanded={expanded} aria-label={`${expanded ? 'Collapse' : 'Expand'} ${panel.title}`}>{expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}</button>}
         </div>
       </div>
-      {panel.kind === 'offer' && <>
-        <p className="eyebrow">{panel.customer}</p>
-        <p className="offer-promise">{panel.promise}</p>
-        {(!compact || expanded) && <ul className="offer-includes">{panel.includes.map(item => <li key={item}><Check size={14} />{item}</li>)}</ul>}
-        <div className="offer-footer"><span><strong>{panel.price}</strong></span><button className={`soft-button ${approved ? 'approved-button' : ''}`} onClick={() => approve(panel.id)} disabled={readOnly} aria-pressed={approved}>{approved ? <><CheckCheck size={15} /> Reviewed</> : <>Review draft <ArrowRight size={14} /></>}</button></div>
-      </>}
-      {panel.kind === 'prospects' && <>
-        <div className="panel-filter"><span>{compact ? `${workspace.shortlist.length} shortlisted` : 'Start with a conversation.'}</span><select aria-label="Filter prospects" value={filter} onChange={event => setFilter(event.target.value)}>{["All", "High fit", "Shortlisted"].map(value => <option key={value}>{value}</option>)}</select></div>
-        <div className="prospect-list">{panel.rows.filter(row => filter === 'All' || (filter === 'High fit' ? row.fit === 'High' : workspace.shortlist.includes(row.id))).map(row => <div className="prospect-row" key={row.id}><div><strong>{row.name}</strong><span>{row.area} · {row.fit} fit</span>{(!compact || expanded) && <p>{row.reason}</p>}</div><button className={`shortlist-button ${workspace.shortlist.includes(row.id) ? 'selected' : ''}`} onClick={() => shortlist(row.id)} disabled={readOnly} aria-label={`${workspace.shortlist.includes(row.id) ? 'Remove' : 'Shortlist'} ${row.name}`} aria-pressed={workspace.shortlist.includes(row.id)}>{workspace.shortlist.includes(row.id) ? <Check size={16} /> : <Plus size={16} />}</button></div>)}</div>
-        {filter === 'Shortlisted' && !panel.rows.some(row => workspace.shortlist.includes(row.id)) && <p className="empty-note">Choose a clinic with the + button to start your shortlist.</p>}
-      </>}
-      {panel.kind === 'pricing' && <div className="pricing-options">{(() => {
-        const render = (option: typeof panel.options[number]) => <div key={option.name}><span>{option.name}</span><strong>{option.price}</strong>{(!compact || expanded) && option.description && <p>{option.description}</p>}</div>;
-        return <>{panel.options.slice(0, 3).map(render)}{panel.options.length > 3 && <details className="panel-details"><summary>More options ({panel.options.length - 3})</summary>{panel.options.slice(3).map(render)}</details>}</>;
-      })()}</div>}
-      <GenerativePanelBody panel={panel} compact={compact && !expanded} completedTasks={workspace.completedTasks} onComplete={completeTask} readOnly={readOnly} />
-      {!panel.provenance && panel.note && <p className="panel-note"><CircleHelp size={12} />{panel.note}</p>}
+      <GenerativePanelBody mode={mode} panel={panel} compact={compact && !expanded} completedTasks={workspace.completedTasks} onComplete={completeTask} shortlisted={workspace.shortlist} onShortlist={shortlist} approved={approved} onApprove={() => approve(panel.id)} onDiscuss={prompt => discuss(prompt, panel)} />
+      {!panel.provenance && panel.note && <details className="panel-note panel-note-details"><summary><CircleHelp size={12} />{panel.kind === 'custom' || panel.kind === 'declarative' ? 'Working assumptions' : workspace.executionMode === 'preview' ? 'Sample data' : 'Draft notes'}</summary><p>{panel.note}</p></details>}
       {panel.provenance && panel.kind !== 'evidence' && <p className="panel-note">Draft · Review before acting</p>}
     </section>
   );
@@ -78,7 +75,10 @@ const BusinessPanelTool: ToolCallMessagePartComponent = ({ result }) => {
 };
 function AssistantMessage() {
   const id = useAuiState(state => state.message.id);
-  return <MessagePrimitive.Root className="assistant-message" data-message-id={id}><div className="message-author"><span className="author-mark"><Leaf size={12} /></span>Samurai</div><MessagePrimitive.Parts components={{ tools: { by_name: { business_panel: BusinessPanelTool } } }} /></MessagePrimitive.Root>;
+  const { workspace, selectArea, area, grouped } = useWorkspace();
+  const message = workspace.messages.find(item => item.id === id);
+  const name = teamAreas.find(item => item.id === area)!.name;
+  return <MessagePrimitive.Root className="assistant-message" data-message-id={id}><div className="message-author"><span className="author-mark"><Leaf size={12} /></span>{grouped ? name : 'Samurai'}</div><MessagePrimitive.Parts components={{ tools: { by_name: { business_panel: BusinessPanelTool } } }} />{message?.handoff && <button className="soft-button team-handoff" onClick={() => selectArea(message.handoff!, message.handoffPrerequisite ? message.handoff === 'overview' ? 'Start my company' : teamAreas.find(item => item.id === message.handoff)!.prompt : workspace.messages.slice(0, workspace.messages.indexOf(message)).reverse().find(item => item.role === 'user' && item.area === message.area)?.text)}>Open {teamAreas.find(item => item.id === message.handoff)!.name}<ArrowRight size={14} /></button>}</MessagePrimitive.Root>;
 }
 function UserMessage() {
   const id = useAuiState(state => state.message.id);
@@ -95,52 +95,96 @@ function convertMessage(message: Message): ThreadMessageLike {
 }
 
 type CompanyProps = {
-  company: Portfolio['companies'][number]; workspace: CompanyView;
-  setWorkspace: (update: CompanyView | ((current: CompanyView) => CompanyView)) => void;
-  persistWorkspace: (update: CompanyView | ((current: CompanyView) => CompanyView)) => boolean;
+  company: Portfolio['companies'][number]; workspace: Workspace;
+  setWorkspace: (update: Workspace | ((current: Workspace) => Workspace)) => void;
+  persistWorkspace?: (update: Workspace | ((current: Workspace) => Workspace)) => boolean;
+  initialView?: 'chat' | 'company';
   mode: 'light' | 'dark'; toggleMode: () => void; onOpen: (id: string | null) => void; storageError: boolean; readOnly?: boolean;
 };
-export function CompanyWorkspace({ company, workspace, setWorkspace, persistWorkspace, mode, toggleMode, onOpen, storageError, readOnly = false }: CompanyProps) {
+function FilePanel({ workspaceId, companyId, readOnly }: { workspaceId?: string; companyId?: string; readOnly: boolean }) {
+  const [files, setFiles] = useState<WorkspaceFile[]>([]);
+  const [status, setStatus] = useState('');
+  const [pending, setPending] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const refresh = async () => {
+    if (!workspaceId) return;
+    setLoaded(false); setStatus('');
+    try { setFiles(await listWorkspaceFiles(workspaceId)); setLoaded(true); }
+    catch { setFiles([]); setStatus('Files could not be loaded.'); setLoaded(true); }
+  };
+  useEffect(() => { void refresh(); }, [workspaceId]);
+  if (!workspaceId) return null;
+  const upload = async (file: File | undefined) => {
+    if (!file || readOnly || pending) return;
+    setPending(true); setStatus('Uploading file…');
+    try { const saved = await uploadWorkspaceFile(workspaceId, file, companyId); setFiles(current => [saved, ...current]); setStatus(`${saved.display_name} is ${saved.state}.`); }
+    catch { setStatus('File upload failed.'); }
+    finally { setPending(false); }
+  };
+  const download = async (file: WorkspaceFile) => {
+    setPending(true); setStatus(`Downloading ${file.display_name}…`);
+    try {
+      const response = await downloadWorkspaceFile(workspaceId, file.file_id);
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement('a'); link.href = url; link.download = file.display_name; link.click(); URL.revokeObjectURL(url);
+      setStatus(`${file.display_name} downloaded.`);
+    } catch { setStatus('File download failed.'); }
+    finally { setPending(false); }
+  };
+  const remove = async (file: WorkspaceFile) => {
+    if (readOnly || pending) return;
+    setPending(true); setStatus(`Deleting ${file.display_name}…`);
+    try { await deleteWorkspaceFile(workspaceId, file.file_id); setFiles(current => current.filter(item => item.file_id !== file.file_id)); setStatus(`${file.display_name} deleted.`); }
+    catch { setStatus('File deletion failed.'); }
+    finally { setPending(false); }
+  };
+  return <section className="business-panel file-panel" aria-label="Workspace files">
+    <div className="panel-heading"><div className="panel-title"><span className="panel-icon"><FileText size={16} /></span><h3>Workspace files</h3></div>{!readOnly && <label className="soft-button file-upload"><Upload size={14} />Upload company file<input type="file" onChange={event => { void upload(event.currentTarget.files?.[0]); event.currentTarget.value = ''; }} disabled={pending} /></label>}</div>
+    {readOnly && <p className="panel-note">Viewer access can download ready files.</p>}
+    {status && <p className="file-status" role="status">{status}</p>}
+    {!loaded ? <p className="empty-note">Loading files…</p> : status === 'Files could not be loaded.' ? null : files.length === 0 ? <p className="empty-note">No files have been uploaded.</p> : <ul className="file-list">{files.map(file => <li key={file.file_id}><div><strong>{file.display_name}</strong><span>{file.state} · {file.byte_size.toLocaleString()} bytes · {file.content_sha256.slice(0, 12)}</span></div><div className="file-actions">{file.state === 'ready' && <button className="icon-button" onClick={() => void download(file)} disabled={pending} aria-label={`Download ${file.display_name}`}><Download size={15} /></button>}<button className="icon-button" onClick={() => void remove(file)} disabled={readOnly || pending} aria-label={`Delete ${file.display_name}`}><Trash2 size={15} /></button></div></li>)}</ul>}
+  </section>;
+}
+const CopilotCompany = lazy(() => import('./CopilotCompany'));
+export function CompanyWorkspace(props: CompanyProps) {
+  return props.workspace.executionMode === 'live' ? <Suspense fallback={<CompanyWorkspaceContent {...props} />}><CopilotCompany companyId={props.company.id}>{(start, error) => <CompanyWorkspaceContent {...props} copilotStart={start} connectionError={error} />}</CopilotCompany></Suspense> : <CompanyWorkspaceContent {...props} />;
+}
+function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWorkspace, initialView, mode, toggleMode, onOpen, storageError, readOnly = false, copilotStart, connectionError }: CompanyProps & { copilotStart?: (input: string, signal: AbortSignal, area?: TeamArea) => Promise<Response>; connectionError?: string }) {
   const live = workspace.executionMode === 'live';
   const recoveringRef = useRef(live && Boolean(workspace.backendRun));
   const [recovering, setRecovering] = useState(recoveringRef.current);
   const [isRunning, setRunning] = useState(recoveringRef.current);
   const [activities, setActivities] = useState<Partial<Record<Agent, Activity>>>(() => Object.fromEntries(workspace.activityLog.map(activity => [activity.agent, activity])));
-  const [view, setView] = useState<'chat' | 'company'>('chat');
+  const [view, setView] = useState<'chat' | 'company'>(initialView ?? 'chat');
+  const selectedAreas = selectedWorkflowAreas(workspace);
+  const area = view === 'company' ? conversationArea(selectedAreas) : 'overview';
+  const reduceMotion = useReducedMotion();
+  const panelTransition = reduceMotion ? { duration: 0 } : { type: 'spring' as const, stiffness: 240, damping: 23, mass: .85 };
+  const focused = view === 'company' && area !== 'overview';
+  const team = teamAreas.find(item => item.id === area)!;
+  const [conversationOpen, setConversationOpen] = useState(false);
   const [dialog, setDialog] = useState<'panels' | null>(null);
   const [editingOrder, setEditingOrder] = useState(false);
-  useEffect(() => { if (view === 'chat') setEditingOrder(false); }, [view]);
+  useEffect(() => { if (view === 'chat') { setEditingOrder(false); setConversationOpen(false); } }, [view]);
   const [expandedPanel, setExpandedPanel] = useState<Panel | null>(null);
   const [runError, setRunError] = useState('');
   const controllerRef = useRef<AbortController | null>(null);
   const backendRunRef = useRef(workspace.backendRun);
   const messagesRef = useRef(workspace.messages);
   messagesRef.current = workspace.messages;
-  const transportRef = useRef<ReturnType<typeof createAgentosTransport> | null>(null);
-  const approvalRef = useRef<AgentosApproval | undefined>(undefined);
+  const transportRef = useRef<Transport | null>(null);
   const backendRunning = () => hasActiveBackendRun(backendRunRef.current);
   const completionRef = useRef<Promise<void> | null>(null);
-  const recordRun = (run: AgentosRun): boolean => {
-    if (run.status === 'submitting') {
-      if (!run.submissionId) return false;
-      if (backendRunRef.current?.status === 'submitting' && backendRunRef.current.submissionId === run.submissionId) return true;
-      let saved: CompanyView['backendRun'];
-      const persisted = persistWorkspace(current => {
-        const next = beginBackendRun(current, run.submissionId!);
-        saved = next.backendRun;
-        return { ...next, activityLog: [] };
-      });
-      if (!persisted || !saved) return false;
-      backendRunRef.current = saved;
-      return true;
-    }
+  const recordRun = (run: AgentosRun) => {
     const checked = recordBackendRun({ ...workspace, backendRun: backendRunRef.current }, run);
     backendRunRef.current = checked.backendRun;
-    setWorkspace(current => ({ ...recordBackendRun(current, run), activityLog: finishActivities(current.activityLog, run.status) }));
+    const update = (current: Workspace) => ({ ...recordBackendRun(current, run), activityLog: finishActivities(current.activityLog, run.status) });
+    if (run.status === 'submitting' && persistWorkspace && !persistWorkspace(update)) return false;
+    setWorkspace(update);
     if (!hasActiveBackendRun(run)) setActivities(current => Object.fromEntries(finishActivities(Object.values(current).filter((activity): activity is Activity => Boolean(activity)), run.status).map(activity => [activity.agent, activity])));
     return true;
   };
-  if (live && !transportRef.current) transportRef.current = createAgentosTransport(company.id, recordRun, () => messagesRef.current);
+  if (live && copilotStart && !transportRef.current) transportRef.current = createAgentosTransport(company.id, recordRun, () => messagesRef.current, copilotStart);
   const viewportRef = useRef<HTMLDivElement>(null);
   const homeRef = useRef<HTMLElement>(null);
   const chatRef = useRef<HTMLElement>(null);
@@ -149,25 +193,27 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, persistWork
     if (previousView.current === view) return;
     previousView.current = view;
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    const frames = [{ opacity: 0, filter: 'blur(10px)', transform: 'translateY(6px)' }, { opacity: 1, filter: 'blur(0px)', transform: 'translateY(0)' }];
-    const animations = [homeRef.current, ...(view === 'chat' ? [chatRef.current] : [])].flatMap(element => element ? [element.animate(frames, { duration: 850, easing: 'ease-in-out' })] : []);
+    const animations = [homeRef.current, ...(view === 'chat' ? [chatRef.current] : [])].flatMap(element => element ? [element.animate(pageRevealFrames, pageRevealTiming)] : []);
     return () => animations.forEach(animation => animation.cancel());
   }, [view]);
+  useLayoutEffect(() => {
+    if (view !== 'company' || !conversationOpen || reduceMotion) return;
+    const animation = chatRef.current?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300, easing: 'ease-out' });
+    return () => animation?.cancel();
+  }, [conversationOpen, area, view, reduceMotion]);
 
   useEffect(() => () => controllerRef.current?.abort(), []);
 
-  const append = (message: Message) => setWorkspace(current => ({ ...current, messages: [...current.messages, message].slice(-200), pinned: message.panel ? current.pinned.map(panel => panel.id === message.panel!.id ? message.panel! : panel) : current.pinned }));
+  const append = (message: Message) => setWorkspace(current => ({ ...current, messages: [...current.messages, { ...message, area: message.area || area }].slice(-200), pinned: message.panel ? current.pinned.map(panel => panel.id === message.panel!.id ? message.panel! : panel) : current.pinned }));
   const onNew = async (message: AppendMessage) => {
     const input = message.content.filter(part => part.type === 'text').map(part => part.text).join('\n').trim();
-    const approval = approvalRef.current;
-    approvalRef.current = undefined;
     if (readOnly || !input || recoveringRef.current || controllerRef.current || completionRef.current || backendRunning()) return;
     const controller = new AbortController();
     controllerRef.current = controller;
     let finish: (() => void) | undefined;
     completionRef.current = new Promise<void>(resolve => { finish = resolve; });
     setRunning(true); setRunError(''); setActivities({});
-    setWorkspace(current => ({ ...current, activityLog: [] }));
+    setWorkspace(current => ({ ...current, activityLog: [], drafts: { ...current.drafts, [area]: '' } }));
     append({ id: crypto.randomUUID(), role: 'user', text: input });
     if (!live && workspace.messages.length === 0 && !workspace.brief && !/sample/i.test(input)) {
       append({ id: crypto.randomUUID(), role: 'assistant', text: 'This preview can explore sample dental customers, offers, pricing, evidence and launch plans. Start a new company from Home for a live workflow.' });
@@ -179,8 +225,8 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, persistWork
       if (live) {
         const transport = transportRef.current;
         if (!transport) throw new Error('The live backend transport is unavailable.');
-        events = transport(initial ? initialCompanyPrompt(initial) : input, controller.signal, initial ? undefined : approval);
-      } else events = initial ? onboardingPreview(initial, controller.signal) : demoTransport(input, controller.signal);
+        events = transport(initial ? initialCompanyPrompt(initial) : input, controller.signal, initial ? 'overview' : area);
+      } else events = initial ? onboardingPreview(initial, controller.signal) : demoTransport(input, controller.signal, area);
       for await (const raw of events) {
         if (controller.signal.aborted && !live) break;
         const event = eventSchema.parse(raw);
@@ -193,19 +239,29 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, persistWork
           if (!runId) throw new Error('The backend omitted the run identity.');
           setWorkspace(current => applyBackendEvent(current, runId, event));
         }
-        else append({ id: crypto.randomUUID(), role: 'assistant', text: event.text, panel: event.panel });
+        else append({ id: crypto.randomUUID(), role: 'assistant', text: event.text, panel: event.panel, handoff: event.handoff, handoffPrerequisite: event.handoffPrerequisite });
       }
       if (live && backendRunRef.current?.status === 'cancelled') append({ id: crypto.randomUUID(), role: 'assistant', text: 'The backend confirmed cancellation.' });
     } catch (error) {
       if (!live && controller.signal.aborted) append({ id: crypto.randomUUID(), role: 'assistant', text: 'Stopped the preview. Nothing was sent or published.' });
       else setRunError(error instanceof Error ? error.message : 'Samurai could not complete this request.');
-    } finally { controllerRef.current = null; if (live && backendRunRef.current) recordRun(backendRunRef.current); setRunning(live && backendRunning()); finish?.(); completionRef.current = null; }
+    } finally {
+      controllerRef.current = null;
+      if (live && backendRunRef.current) recordRun(backendRunRef.current);
+      if (!live) {
+        const status = controller.signal.aborted ? 'cancelled' : 'completed';
+        setWorkspace(current => ({ ...current, activityLog: finishActivities(current.activityLog, status, 'preview') }));
+        setActivities(current => Object.fromEntries(finishActivities(Object.values(current).filter((item): item is Activity => Boolean(item)), status, 'preview').map(item => [item.agent, item])));
+      }
+      setRunning(live && backendRunning()); finish?.(); completionRef.current = null;
+    }
   };
   const onCancel = async () => {
+    if (recoveringRef.current) return;
     if (controllerRef.current) { controllerRef.current.abort(); await completionRef.current; return; }
     if (completionRef.current) { await completionRef.current; return; }
     const saved = backendRunRef.current;
-    if (live && isCancellableBackendRun(saved)) {
+    if (live && saved?.runId && hasActiveBackendRun(saved)) {
       const runId = saved.runId;
       setRunError('');
       const stopping = cancelAgentosRun(company.id, runId, messagesRef.current).then(recovered => {
@@ -220,31 +276,31 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, persistWork
     }
   };
   const chatMessages = presentMessages(workspace.messages);
-  const runtime = useExternalStoreRuntime({ messages: chatMessages, convertMessage, isRunning, onNew, onCancel });
+  const areaMessages = messagesForArea({ ...workspace, messages: chatMessages }, area).filter(message => view !== 'company' || message.text || message.handoff);
+  const runtime = useExternalStoreRuntime({ messages: view === 'company' ? areaMessages.map(message => ({ ...message, panel: undefined })) : areaMessages, convertMessage, isRunning: isRunning || (live && !copilotStart && !connectionError), onNew, onCancel });
   useEffect(() => {
     const saved = backendRunRef.current;
-    if (!live || !saved) return;
+    if (!live || !saved?.runId) return;
+    const runId = saved.runId;
     const controller = new AbortController();
     const timer = setTimeout(() => {
       setRunning(true);
-      void (async () => {
-        for await (const event of resumeAgentosRun(company.id, saved, controller.signal, recordRun, messagesRef.current)) {
-          if (controller.signal.aborted) return;
-          if (event.type === 'activity') {
-            setActivities(current => ({ ...current, [event.agent]: event }));
-            setWorkspace(current => ({ ...current, activityLog: [...current.activityLog, event].slice(-100) }));
-          } else {
-            const runId = backendRunRef.current?.runId;
-            if (!runId) throw new Error('The work receipt omitted the run identity.');
-            setWorkspace(current => applyBackendEvent(current, runId, event));
-          }
-        }
-        const status = backendRunRef.current?.status;
-        setRunning(hasActiveBackendRun(backendRunRef.current));
-        if (status === 'failed') setRunError(backendRunRef.current?.failureReason || 'The saved backend run failed. You can send a new request.');
-      })().catch(error => {
+      void readAgentosRun(company.id, runId, controller.signal, messagesRef.current).then(recovered => {
         if (controller.signal.aborted) return;
-        setRunning(hasActiveBackendRun(backendRunRef.current)); setRunError(error instanceof Error ? error.message : 'Saved results could not be recovered.');
+        // Check authoritative company binding before applying any recovered artifact.
+        recordRun(recovered.run);
+        const history = recovered.events.filter((event): event is Activity => event.type === 'activity');
+        if (history.length) {
+          setActivities(Object.fromEntries(finishActivities(history, recovered.run.status).map(activity => [activity.agent, activity])));
+          setWorkspace(current => ({ ...current, activityLog: finishActivities(history, recovered.run.status) }));
+        }
+        for (const event of recovered.events) if (event.type === 'message') setWorkspace(current => applyBackendEvent(current, runId, event));
+        setRunning(hasActiveBackendRun(recovered.run));
+        if (hasActiveBackendRun(recovered.run)) setRunError('The saved backend run is still running. Stop it or reopen this company later to check its saved result.');
+        if (recovered.run.status === 'failed') setRunError('The saved backend run failed. You can send a new request.');
+      }).catch(error => {
+        if (controller.signal.aborted) return;
+        setRunning(hasActiveBackendRun(saved)); setRunError(error instanceof Error ? error.message : 'Saved results could not be recovered.');
       }).finally(() => {
         if (controller.signal.aborted) return;
         recoveringRef.current = false; setRecovering(false);
@@ -253,98 +309,132 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, persistWork
     return () => { clearTimeout(timer); controller.abort(); };
   }, []);
   useEffect(() => {
-    if (!workspace.brief || workspace.messages.length || workspace.backendRun) return;
+    if (!workspace.brief || workspace.messages.length || workspace.backendRun || (live && !copilotStart)) return;
     // Deferring lets StrictMode cancel its first mount without starting a duplicate run.
     const timer = setTimeout(() => { runtime.thread.composer.setText('Start my company'); runtime.thread.composer.send(); }, 0);
     return () => clearTimeout(timer);
-  }, []);
-  const ask = (text: string, approval?: AgentosApproval) => {
+  }, [Boolean(copilotStart)]);
+  const selectArea = (next: TeamArea, draft?: string) => {
+    const currentDraft = runtime.thread.composer.getState().text;
+    setWorkspace(current => ({ ...current, selectedArea: next, selectedAreas: next === 'overview' ? [] : [next], drafts: { ...current.drafts, [area]: currentDraft, ...(draft !== undefined ? { [next]: draft } : {}) } }));
+    setView('company');
+    setConversationOpen(draft !== undefined || (view === 'company' && conversationOpen));
+    if (next === area && draft !== undefined) runtime.thread.composer.setText(draft);
+    setEditingOrder(false); setDialog(null);
+    if (draft !== undefined) requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('.composer-input')?.focus());
+  };
+  const toggleArea = (next: WorkflowArea) => {
+    const draft = runtime.thread.composer.getState().text;
+    setWorkspace(current => {
+      const selectedAreas = toggleWorkflowArea(selectedWorkflowAreas(current), next);
+      return { ...current, selectedAreas, selectedArea: conversationArea(selectedAreas), drafts: { ...current.drafts, [area]: draft } };
+    });
+    setEditingOrder(false);
+  };
+  useEffect(() => { runtime.thread.composer.setText(workspace.drafts[area] || ''); }, [area, view]);
+  const ask = (text: string) => {
     if (readOnly || isRunning) return;
-    approvalRef.current = approval;
-    setView('chat'); setDialog(null);
+    if (!focused) setView('chat');
+    setDialog(null); setConversationOpen(focused);
     runtime.thread.composer.setText(text); runtime.thread.composer.send();
   };
-  const pin = (panel: Panel) => { if (!readOnly) setWorkspace(current => ({ ...current, pinned: current.pinned.some(item => item.id === panel.id) ? current.pinned.filter(item => item.id !== panel.id) : [...current.pinned, panel].slice(-12) })); };
+  const discuss = (prompt: string, panel?: Panel) => {
+    selectArea(panel ? areaForPanel(panel, workspace) : area, prompt);
+  };
+  const pin = (panel: Panel) => {
+    if (!readOnly) setWorkspace(current => ({
+      ...current,
+      pinned: current.pinned.some(item => item.id === panel.id)
+        ? current.pinned.filter(item => item.id !== panel.id)
+        : [...current.pinned, panel].slice(-12),
+    }));
+  };
   const shortlist = (id: string) => { if (!readOnly) setWorkspace(current => ({ ...current, shortlist: toggleSavedSelection(current.shortlist, id, 100) })); };
   const approve = (id: string) => { if (!readOnly) setWorkspace(current => ({ ...current, approvedOffers: toggleSavedSelection(current.approvedOffers, id, 20) })); };
   const completeTask = (id: string) => { if (!readOnly) setWorkspace(current => ({ ...current, completedTasks: current.completedTasks.includes(id) ? current.completedTasks.filter(item => item !== id) : [...current.completedTasks, id].slice(-400) })); };
   const panels = latestPanels({ ...workspace, messages: chatMessages });
-  const journeyApproval = nextJourneyApproval(workspace);
-  const approveJourney = journeyApproval ? {
-    label: `Approve ${journeyApproval.stage}`,
-    prompt: journeyApproval.stage === 'research' ? 'Research our market and stop before strategy.' : journeyApproval.stage === 'strategy' ? 'Create our strategy and stop before product planning.' : 'Create our product and delivery plan and stop there.',
-    approval: { operation: 'journey', ...journeyApproval } satisfies AgentosApproval,
-  } : undefined;
+  const nextStage = panels.some(panel => panel.provenance?.artifact_type === "product_plan" || (!live && panel.kind === "launch-plan")) ? { label: "Review next steps", prompt: "Help me choose the next step from our existing plan." } : panels.some(panel => panel.provenance?.artifact_type === "strategy" || (!live && panel.kind === "offer")) ? { label: "Plan first version", prompt: 'Prepare the product and delivery plan.' } : panels.some(panel => panel.provenance?.artifact_type === "research" || (!live && panel.kind === "evidence" && panel.title !== "Company brief")) ? { label: "Shape offer", prompt: 'Shape our offer and positioning. Stop before creating the product plan.' } : { label: "Research market", prompt: 'Research our market. Stop before shaping the offer.' };
   const currentPanel = (panel: Panel) => panels.find(item => item.id === panel.id) || panel;
   const dashboardPanels = orderedPanels([...panels, ...(expandedPanel && !panels.some(panel => panel.id === expandedPanel.id) ? [expandedPanel] : [])], workspace.panelOrder);
-  const reorder = (id: string, target: string) => setWorkspace(current => ({ ...current, panelOrder: movePanel(orderedPanels(latestPanels({ ...current, messages: presentMessages(current.messages) }), current.panelOrder), id, target) }));
+  const visiblePanels = panelsForAreas(dashboardPanels, workspace, selectedAreas);
+  const renderedPanels = view === 'company' ? panelsForAreas(dashboardPanels, workspace, []) : [...workspace.pinned, ...(expandedPanel && !workspace.pinned.some(panel => panel.id === expandedPanel.id) ? [expandedPanel] : [])];
+  const visiblePanelIds = new Set(visiblePanels.map(panel => panel.id));
+  const panelLayout = usePanelLayout(visiblePanels.map(panel => panel.id), renderedPanels.map(panel => panel.id), view === 'company', Boolean(reduceMotion));
+  const displayedPanelIds = new Set(panelLayout.displayedIds);
+  const reorder = (id: string, target: string) => setWorkspace(current => {
+    const panels = orderedPanels(latestPanels({ ...current, messages: presentMessages(current.messages) }), current.panelOrder);
+    const source = panels.find(panel => panel.id === id), destination = panels.find(panel => panel.id === target);
+    if (!source || !destination || (selectedWorkflowAreas(current).length && areaForPanel(source, current) !== areaForPanel(destination, current))) return current;
+    return { ...current, panelOrder: movePanel(panels, id, target) };
+  });
   const openPanel = (panel: Panel | null) => {
     setExpandedPanel(panel);
-    if (panel && window.matchMedia('(max-width: 760px)').matches) setView('company');
+    if (panel && (view === 'company' || window.matchMedia('(max-width: 760px)').matches)) selectArea(areaForPanel(panel, workspace));
     if (panel) requestAnimationFrame(() => document.getElementById(`home-panel-${panel.id}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
   };
   const workingAgent = Object.values(activities).find(activity => activity?.state === 'working');
-  const durableMessage = backendRunRef.current?.status === 'submitting' ? 'Saving the recovery receipt before submission…'
-    : backendRunRef.current?.status === 'queued' ? 'Queued for the backend…'
-      : backendRunRef.current?.status === 'recovering' ? 'Reconnecting to the saved backend run…'
-        : backendRunRef.current?.status === 'paused' ? 'The backend run is paused.'
-          : recovering ? 'Recovering the saved backend run…' : 'Waiting for the backend…';
   const [conversationAtBottom, setConversationAtBottom] = useState(true);
   const previousMessageCount = useRef(workspace.messages.length);
   useEffect(() => {
     if (previousMessageCount.current === workspace.messages.length) return;
     previousMessageCount.current = workspace.messages.length;
-    if (conversationAtBottom && view === 'chat') viewportRef.current?.scrollTo({ top: viewportRef.current.scrollHeight, behavior: 'smooth' });
-  }, [workspace.messages.length, view, conversationAtBottom]);
+    if (conversationAtBottom && (view === 'chat' || conversationOpen)) viewportRef.current?.scrollTo({ top: viewportRef.current.scrollHeight, behavior: 'smooth' });
+  }, [workspace.messages.length, view, conversationOpen, conversationAtBottom]);
 
-  return <WorkspaceContext.Provider value={{ workspace, readOnly, pin, shortlist, approve, completeTask, open: openPanel }}><AssistantRuntimeProvider runtime={runtime}>
-    <div className={`workspace company-workspace ${view === 'company' ? 'dashboard-open' : ''}`}>
+  return <WorkspaceContext.Provider value={{ workspace, mode, pin, shortlist, approve, completeTask, open: openPanel, discuss, selectArea, area, grouped: focused }}><AssistantRuntimeProvider runtime={runtime}>
+    <div className={['workspace company-workspace', view === 'company' ? 'dashboard-open grouped-company' : '', conversationOpen ? 'conversation-open' : ''].join(' ')}>
       <Atmosphere mode={mode} /><TransitionGrain key={view} /><div className="bottom-blur" aria-hidden="true" />
       <header className="topbar">
         <div className="topbar-brand"><button className="home-button" onClick={() => onOpen(null)} aria-label="All companies"><Home size={19} /></button><span className="wordmark">Samurai</span></div>
-        <Tabs className="view-switch" value={view} onValueChange={value => setView(value as 'chat' | 'company')}><LiquidBackdrop /><TabsList aria-label="Workspace view"><TabsTrigger value="chat">Chat</TabsTrigger><TabsTrigger value="company">Company</TabsTrigger></TabsList></Tabs>
-        <div className="topbar-actions"><SearchBar items={chatMessages.map(message => ({ id: message.id, title: message.panel?.title || message.text, detail: message.text }))} onSelect={id => {
-          const message = chatMessages.find(item => item.id === id);
-          if (message?.panel) openPanel(message.panel);
-          else { setView('chat'); requestAnimationFrame(() => document.querySelector(`[data-message-id="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })); }
-        }} /><ModeToggle mode={mode} onToggle={toggleMode} /><DropdownMenu.Root><DropdownMenu.Trigger asChild><button className="account-button" aria-label="Workspace settings"><SlidersHorizontal size={17} /></button></DropdownMenu.Trigger><DropdownMenu.Portal><DropdownMenu.Content className="workspace-menu" align="end" sideOffset={8} collisionPadding={14}>
-          <DropdownMenu.Item className="workspace-menu-item" disabled={readOnly || !dashboardPanels.length} onSelect={() => { setView('company'); setEditingOrder(!editingOrder); }}><GripVertical size={16} />{editingOrder ? 'Done editing' : 'Edit card order'}</DropdownMenu.Item>
+        <Tabs className="view-switch" value={view} onValueChange={value => { setView(value as 'chat' | 'company'); setConversationOpen(false); }}><LiquidBackdrop /><TabsList aria-label="Workspace view"><TabsTrigger value="chat">Chat</TabsTrigger><TabsTrigger value="company">Company</TabsTrigger></TabsList></Tabs>
+        <div className="topbar-actions"><ModeToggle mode={mode} onToggle={toggleMode} /><DropdownMenu.Root><DropdownMenu.Trigger asChild><button className="account-button" aria-label="Workspace settings"><SlidersHorizontal size={17} /></button></DropdownMenu.Trigger><DropdownMenu.Portal><DropdownMenu.Content className="workspace-menu" align="end" sideOffset={8} collisionPadding={14}>
+          <DropdownMenu.Item className="workspace-menu-item" disabled={!(view === 'company' ? visiblePanels : dashboardPanels).length} onSelect={() => { setView('company'); setEditingOrder(!editingOrder); }}><GripVertical size={16} />{editingOrder ? 'Done editing' : 'Edit card order'}</DropdownMenu.Item>
           <DropdownMenu.Item className="workspace-menu-item" onSelect={toggleMode}>{mode === 'light' ? <Moon size={16} /> : <Sun size={16} />}Switch to {mode === 'light' ? 'dark' : 'light'} mode</DropdownMenu.Item>
         </DropdownMenu.Content></DropdownMenu.Portal></DropdownMenu.Root></div>
       </header>
 
-      <aside ref={homeRef} className="home-pane" aria-label={view === 'company' ? 'Company dashboard' : 'Company Home'}>
-        <div className="home-heading"><div className="home-selector-row"><h1 className={`company-name ${view === 'company' ? 'dashboard-title' : ''}`}>{company.name}</h1>{view === 'company' && <div className="panel-tools">{editingOrder && <button className="soft-button order-done" onClick={() => setEditingOrder(false)}><Check size={14} />Done</button>}<button className="icon-button" onClick={() => setDialog('panels')} disabled={readOnly} aria-label="Add a business panel"><Plus size={17} /></button></div>}<button className="icon-button" onClick={() => setView(view === 'company' ? 'chat' : 'company')} aria-expanded={view === 'company'} aria-label={view === 'company' ? 'Collapse company dashboard' : 'Expand company dashboard'}>{view === 'company' ? <Minimize2 size={17} /> : <Maximize2 size={17} />}</button></div></div>
+      {view === 'company' && <div className="company-team-header">
+        <div className="home-heading"><div className="home-selector-row"><h1 className={`company-name ${view === 'company' ? 'dashboard-title' : ''}`}>{company.name}</h1>{view === 'company' && <div className="panel-tools">{editingOrder && <button className="soft-button order-done" onClick={() => setEditingOrder(false)}><Check size={14} />Done</button>}<button className="icon-button" onClick={() => setDialog('panels')} aria-label="Add a business panel"><Plus size={17} /></button></div>}<button className="icon-button" onClick={() => { if (conversationOpen) { setConversationOpen(false); requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('.dashboard-chat')?.focus()); } else setView('chat'); }} aria-label={conversationOpen ? 'Close team conversation' : 'Collapse company dashboard'}>{conversationOpen ? <X size={17} /> : <Minimize2 size={17} />}</button></div></div>
+        <TeamNavigation areas={selectedAreas} onToggle={toggleArea} activities={activities} executionMode={workspace.executionMode} />
+        <div className="area-focus"><p aria-hidden={!focused}>{focused ? team.goal : "\u00a0"}</p></div>
+      </div>}
+
+      <aside id="team-area-content" ref={homeRef} className="home-pane" aria-label={view === 'company' ? 'Company dashboard' : 'Company Home'}>
+        {view === 'chat' && <div className="home-heading"><div className="home-selector-row"><h1 className="company-name">{company.name}</h1><button className="icon-button" onClick={() => setView('company')} aria-label="Expand company dashboard"><Maximize2 size={17} /></button></div></div>}
         {view === 'chat' && workspace.messages.length > 0 && <div className="action-stack">
           {panels.some(panel => panel.kind === 'offer') && <button className="action-card" onClick={() => openPanel(panels.find(panel => panel.kind === 'offer')!)}><Compass size={18} /><span>Review offer</span><ArrowRight size={16} className="action-arrow" /></button>}
-          {(!live || approveJourney) && <button className="action-card" onClick={() => live && approveJourney ? ask(approveJourney.prompt, approveJourney.approval) : ask('Show sample dental customer prospects')} disabled={readOnly || isRunning}><Users size={18} /><span>{live ? approveJourney?.label : 'Explore sample customers'}</span><ArrowRight size={16} className="action-arrow" /></button>}
+          <button className="action-card" onClick={() => ask(live ? 'Research our target customers and qualification criteria' : 'Show sample dental customer prospects')} disabled={isRunning}><Users size={18} /><span>{live ? 'Research customers' : 'Explore sample customers'}</span><ArrowRight size={16} className="action-arrow" /></button>
         </div>}
-        <TeamPanel activities={activities} history={workspace.activityLog} expanded={view === 'company'} executionMode={workspace.executionMode} />
-        {view === 'chat' && <div className="pinned-label"><span>Pinned</span><button className="icon-button" onClick={() => setDialog('panels')} disabled={readOnly} aria-label="Add a business panel"><Plus size={17} /></button></div>}
-        <div className="home-panels">{(view === 'company' ? dashboardPanels : [...workspace.pinned, ...(expandedPanel && !workspace.pinned.some(panel => panel.id === expandedPanel.id) ? [expandedPanel] : [])]).map((panel, index) => <div className="home-panel-item" id={`home-panel-${panel.id}`} key={panel.id} onDragOver={event => { if (view === 'company' && editingOrder) event.preventDefault(); }} onDrop={event => { if (view !== 'company' || !editingOrder) return; event.preventDefault(); reorder(event.dataTransfer.getData('text/plain'), panel.id); }}>
-          {view === 'company' && editingOrder && <div className="panel-reorder"><button className="icon-button drag-handle" draggable onDragStart={event => { event.dataTransfer.setData('text/plain', panel.id); event.dataTransfer.effectAllowed = 'move'; }} aria-label={`Drag ${panel.title} to reorder`}><GripVertical size={15} /></button><span /><button className="icon-button" disabled={index === 0} aria-label={`Move ${panel.title} earlier`} onClick={() => reorder(panel.id, dashboardPanels[index - 1].id)}><ArrowUp size={14} /></button><button className="icon-button" disabled={index === dashboardPanels.length - 1} aria-label={`Move ${panel.title} later`} onClick={() => reorder(panel.id, dashboardPanels[index + 1].id)}><ArrowDown size={14} /></button></div>}
-          <BusinessPanel panel={currentPanel(panel)} compact={view === 'chat'} expandable={view === 'chat'} expanded={expandedPanel?.id === panel.id} /></div>)}</div>
-        {(view === 'company' ? dashboardPanels : workspace.pinned).length === 0 && !expandedPanel && <div className="company-empty"><Compass size={24} /><h3>No panels yet.</h3>{view === 'company' && <button className="soft-button" onClick={() => setView('chat')}>Start a conversation<ArrowRight size={15} /></button>}</div>}
-        {view === 'chat' && <button className="create-panel" onClick={() => setDialog('panels')} disabled={readOnly}><Plus size={15} />Add a panel<ArrowRight size={14} /></button>}
+        {view === 'chat' && <TeamPanel activities={activities} history={workspace.activityLog} executionMode={workspace.executionMode} onSelect={selectArea} />}
+        {view === 'chat' && <div className="pinned-label"><span>Pinned</span><button className="icon-button" onClick={() => setDialog('panels')} aria-label="Add a business panel"><Plus size={17} /></button></div>}
+        {view === 'company' && <FilePanel key={`${company.workspaceId ?? ''}:${company.companyId ?? ''}`} workspaceId={company.workspaceId} companyId={company.companyId} readOnly={readOnly} />}
+        <div ref={panelLayout.container} className="home-panels" style={view === 'company' ? { height: panelLayout.height } : undefined}>{renderedPanels.map(panel => { const index = visiblePanels.findIndex(item => item.id === panel.id); const sameGroup = (other?: Panel) => Boolean(other && (!selectedAreas.length || areaForPanel(other, workspace) === areaForPanel(panel, workspace))); const slot = panelLayout.positions[panel.id]; const order = panelLayout.displayedIds.indexOf(panel.id); return <motion.div data-panel-id={panel.id} style={{ order, ...{ '--panel-order': order } }} hidden={view === 'company' && !displayedPanelIds.has(panel.id)} inert={view === 'company' && !visiblePanelIds.has(panel.id)} aria-hidden={view === 'company' && !visiblePanelIds.has(panel.id)} animate={view === 'company' && slot ? { x: slot.x, y: slot.y, width: slot.width || '100%' } : { x: 0, y: 0, width: 'auto' }} transition={panelLayout.enteringIds.has(panel.id) ? { duration: 0 } : panelTransition} className="home-panel-item" id={`home-panel-${panel.id}`} key={panel.id} onDragOver={event => { if (view === 'company' && editingOrder) event.preventDefault(); }} onDrop={event => { if (view !== 'company' || !editingOrder) return; event.preventDefault(); reorder(event.dataTransfer.getData('text/plain'), panel.id); }}>
+          {view === 'company' && editingOrder && visiblePanelIds.has(panel.id) && <div className="panel-reorder"><button className="icon-button drag-handle" draggable onDragStart={event => { event.dataTransfer.setData('text/plain', panel.id); event.dataTransfer.effectAllowed = 'move'; }} aria-label={`Drag ${panel.title} to reorder`}><GripVertical size={15} /></button><span /><button className="icon-button" disabled={!sameGroup(visiblePanels[index - 1])} aria-label={`Move ${panel.title} earlier`} onClick={() => reorder(panel.id, visiblePanels[index - 1].id)}><ArrowUp size={14} /></button><button className="icon-button" disabled={!sameGroup(visiblePanels[index + 1])} aria-label={`Move ${panel.title} later`} onClick={() => reorder(panel.id, visiblePanels[index + 1].id)}><ArrowDown size={14} /></button></div>}
+          <div className="panel-reveal"><BusinessPanel panel={currentPanel(panel)} compact={view === 'chat'} expandable={view === 'chat'} expanded={expandedPanel?.id === panel.id} /></div></motion.div>; })}</div>
+        {(view === 'company' ? visiblePanels : workspace.pinned).length === 0 && !expandedPanel && <div className="company-empty"><Compass size={24} /><h3>{focused ? 'No ' + team.name.toLowerCase() + ' results yet.' : 'Your company brief starts here.'}</h3>{view === 'company' && <button className="soft-button" onClick={() => discuss(team.prompt)}>{focused ? 'Talk with ' + team.name : 'Start a conversation'}<ArrowRight size={15} /></button>}</div>}
+        {focused && <button className="soft-button team-start" disabled={isRunning} onClick={() => ask(team.prompt)}>{area === 'research' ? 'Research market' : area === 'strategy' ? 'Shape offer' : area === 'verification' ? 'Review existing checks' : 'Qualify prospects'}<ArrowRight size={15} /></button>}
+        {focused && area === 'strategy' && visiblePanels.some(panel => panel.kind === 'offer') && <button className="soft-button team-start" disabled={isRunning} onClick={() => ask('Prepare only our delivery plan using stage=plan from the existing research and strategy.')}>Plan delivery<ArrowRight size={15} /></button>}
+        {focused && area === 'verification' && panels.some(panel => panel.kind === 'launch-plan') && <button className="soft-button team-start" disabled={isRunning} onClick={() => ask('Verify our existing company artifacts using stage=verify. Do not rerun the upstream stages.')}>Run verification<ArrowRight size={15} /></button>}
+        {focused && team.agent && workspace.activityLog.some(item => item.agent === team.agent) && <details className="team-area-history"><summary>Activity</summary>{workspace.activityLog.filter(item => item.agent === team.agent).map((item, index) => <p key={index}>{item.detail}</p>)}</details>}
         {view === 'company' && <p className="company-footnote">{live ? 'Live backend workflow · Review evidence before acting.' : 'Preview workspace · Sample data.'}</p>}
       </aside>
-      {view === 'company' && <button className="dashboard-chat" onClick={() => { setView('chat'); requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('.composer-input')?.focus()); }}><MessageCircle size={18} /><span>Chat with Samurai</span><ArrowRight size={16} /></button>}
+      {view === 'company' && !conversationOpen && <button className="dashboard-chat" aria-expanded={false} aria-controls="team-conversation" onClick={() => { setConversationOpen(true); setEditingOrder(false); requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('.composer-input')?.focus()); }}><MessageCircle size={18} /><span>Chat with {focused ? team.name : 'Samurai'}</span><ArrowRight size={16} /></button>}
 
-      <main ref={chatRef} className="main-pane" hidden={view === 'company'}>
+      <main id="team-conversation" ref={chatRef} className="main-pane" aria-label={focused ? team.name + ' conversation' : 'Company conversation'} hidden={view === 'company' && !conversationOpen}>
         <ThreadPrimitive.Root className="conversation">
           <ThreadPrimitive.Viewport className="conversation-scroll" ref={viewportRef} autoScroll={false} scrollToBottomOnInitialize={false} scrollToBottomOnThreadSwitch={false} scrollToBottomOnRunStart={false} onScroll={() => {
             const element = viewportRef.current;
             if (element) setConversationAtBottom(element.scrollHeight - element.scrollTop - element.clientHeight < 100);
           }}>
-            <div className="conversation-content">{workspace.messages.length === 0 && <div className="conversation-intro empty-conversation"><span className="empty-company-name">{company.name}</span><h2>Start with<br />your idea.</h2><p>What do you want this company to do?</p></div>}
+            <div className="conversation-content">{areaMessages.length === 0 && <div className="conversation-intro empty-conversation">{view === 'chat' && <span className="empty-company-name">{company.name}</span>}<h2>{focused ? { research: 'What should we research?', strategy: 'What should the offer be?', verification: 'What needs checking?', sales: 'Who should we talk to?', overview: '' }[area] : view === 'company' ? 'What’s our next move?' : <>Start with<br />your idea.</>}</h2><p>{focused ? 'Work with ' + team.name + ' using your shared company context.' : 'What do you want this company to do?'}</p></div>}
               <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage }} />
-              {isRunning && <div className="working-message" role="status"><LoaderCircle size={15} className="spin" />{workingAgent?.detail || (live ? durableMessage : 'Preparing the preview…')}</div>}
-              {runError && <div className="error-note" role="alert">{live ? 'Backend status: ' : 'Preview status: '}{runError}</div>}
-              {workspace.messages.length > 0 && <div className="suggestions">{live && approveJourney ? <button onClick={() => ask(approveJourney.prompt, approveJourney.approval)} disabled={readOnly || isRunning}>{approveJourney.label} <ArrowRight size={13} /></button> : !live ? <><button onClick={() => ask('Show sample dental customer prospects')} disabled={readOnly || isRunning}>Sample customers <ArrowRight size={13} /></button><button onClick={() => ask('Is this pricing viable?')} disabled={readOnly || isRunning}>Sample pricing <ArrowRight size={13} /></button></> : null}</div>}
+              {isRunning && <div className="working-message" role="status"><LoaderCircle size={15} className="spin" />{workingAgent?.detail || (recovering ? 'Recovering the saved backend run…' : live ? 'Waiting for the backend…' : 'Preparing the preview…')}</div>}
+              {(runError || connectionError) && <div className="error-note" role="alert">{live ? 'Backend status: ' : 'Preview status: '}{runError || connectionError}</div>}
+              {!focused && workspace.messages.length > 0 && <div className="suggestions"><button onClick={() => ask(nextStage.prompt)} disabled={isRunning}>{nextStage.label} <ArrowRight size={13} /></button>{!live && <button onClick={() => ask('Is this pricing viable?')} disabled={isRunning}>Sample pricing <ArrowRight size={13} /></button>}</div>}
             </div>
           </ThreadPrimitive.Viewport>
           <div className="composer-dock">{!conversationAtBottom && <button className="scroll-bottom" onClick={() => { setConversationAtBottom(true); viewportRef.current?.scrollTo({ top: viewportRef.current.scrollHeight, behavior: 'smooth' }); }} aria-label="Scroll to latest message"><ArrowDown size={16} /></button>}
-            <ComposerPrimitive.Root className="composer"><LiquidBackdrop /><button type="button" className="composer-plus icon-button" onClick={() => setDialog('panels')} disabled={readOnly} aria-label="Explore business panels"><Plus size={20} /></button><ComposerPrimitive.Input className="composer-input" placeholder={readOnly ? 'Viewer access is read-only' : 'What’s our next move?'} aria-label="Message Samurai" disabled={readOnly} maxLength={4000} />{!isRunning && <ComposerPrimitive.Send asChild><button className="send-button" disabled={readOnly} aria-label="Send message"><ArrowUp size={19} /></button></ComposerPrimitive.Send>}{isRunning && <ComposerPrimitive.Cancel asChild><button className="send-button stop-button" disabled={readOnly} aria-label={live ? 'Stop backend run' : 'Stop preview'}><Square size={14} fill="currentColor" /></button></ComposerPrimitive.Cancel>}</ComposerPrimitive.Root>
+            <ComposerPrimitive.Root className="composer"><LiquidBackdrop /><button type="button" className="composer-plus icon-button" onClick={() => setDialog('panels')} aria-label="Explore business panels"><Plus size={20} /></button><ComposerPrimitive.Input className="composer-input" placeholder={focused ? "Ask " + team.name + "…" : "What’s our next move?"} aria-label={focused ? "Message " + team.name : "Message Samurai"} onChange={event => { const value = event.currentTarget.value; setWorkspace(current => ({ ...current, drafts: { ...current.drafts, [area]: value } })); }} maxLength={4000} />{!isRunning && <ComposerPrimitive.Send asChild><button className="send-button" aria-label="Send message"><ArrowUp size={19} /></button></ComposerPrimitive.Send>}{isRunning && <ComposerPrimitive.Cancel asChild><button className="send-button stop-button" disabled={recovering} aria-label={live ? 'Stop backend run' : 'Stop preview'}><Square size={14} fill="currentColor" /></button></ComposerPrimitive.Cancel>}</ComposerPrimitive.Root>
             <div className="preview-caption">{live ? 'Live Samurai workflow · Generated artifacts need review' : 'Preview agents · Sample data · No external actions'}</div>
             {storageError && <p role="status" className="storage-warning">Browser storage is unavailable. This session won’t be saved.</p>}
           </div>
@@ -352,7 +442,7 @@ export function CompanyWorkspace({ company, workspace, setWorkspace, persistWork
       </main>
 
       <Dialog.Root open={!!dialog} onOpenChange={open => { if (!open) setDialog(null); }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><Dialog.Content className="dialog-content"><Dialog.Title className="sr-only">Business panels</Dialog.Title><Dialog.Description className="sr-only">Manage this company workspace.</Dialog.Description><div className="dialog-heading"><h2>What would you like to see?</h2><button className="icon-button" aria-label="Close dialog" onClick={() => setDialog(null)}><X size={19} /></button></div><p className="dialog-description">Ask for a view, then pin it to keep it on Home.</p>
-        {dialog === 'panels' && <div className="panel-choices">{[{ title: 'Customer pipeline', detail: 'Find and shortlist your first prospects', prompt: 'Show sample dental customer prospects', icon: Users }, { title: 'Offer & positioning', detail: 'Shape a clear promise for your customers', prompt: 'Show sample dental offer', icon: Compass }, { title: 'Pricing exploration', detail: 'Compare hypotheses before testing demand', prompt: 'Show sample dental pricing', icon: SlidersHorizontal }, { title: 'Evidence review', detail: 'Separate assumptions from supported claims', prompt: 'Show sample validation evidence', icon: ShieldCheck }, { title: 'Launch plan', detail: 'Track the next steps towards a pilot', prompt: 'Show sample launch plan', icon: CheckCheck }].map(choice => <button key={choice.title} onClick={() => ask(live ? ({ 'Customer pipeline': 'Research target customers and qualification criteria', 'Offer & positioning': 'Develop our offer and positioning', 'Pricing exploration': 'Review our pricing assumptions', 'Evidence review': 'Review evidence and verification findings', 'Launch plan': 'Develop our minimum offering and delivery plan' }[choice.title] || choice.title) : choice.prompt)} disabled={readOnly || isRunning}><choice.icon size={21} /><span><strong>{choice.title}</strong><small>{choice.detail}</small></span><ArrowRight size={16} /></button>)}</div>}
+        {dialog === 'panels' && <div className="panel-choices">{[{ title: 'Customer pipeline', detail: 'Find and shortlist your first prospects', prompt: 'Show sample dental customer prospects', icon: Users }, { title: 'Offer & positioning', detail: 'Shape a clear promise for your customers', prompt: 'Show sample dental offer', icon: Compass }, { title: 'Pricing exploration', detail: 'Compare hypotheses before testing demand', prompt: 'Show sample dental pricing', icon: SlidersHorizontal }, { title: 'Evidence review', detail: 'Separate assumptions from supported claims', prompt: 'Show sample validation evidence', icon: ShieldCheck }, { title: 'Custom view', detail: 'Create your own interactive calculator or component', prompt: 'Help me describe a custom interactive business view', icon: SlidersHorizontal }, { title: 'Launch plan', detail: 'Track the next steps towards a pilot', prompt: 'Show sample launch plan', icon: CheckCheck }].filter(choice => live || choice.title !== 'Custom view').map(choice => <button key={choice.title} onClick={() => selectArea(choice.title === 'Customer pipeline' ? 'sales' : choice.title === 'Evidence review' ? 'verification' : choice.title === 'Custom view' ? area : 'strategy', live ? ({ 'Customer pipeline': 'Research target customers and qualification criteria', 'Offer & positioning': 'Develop our offer and positioning', 'Pricing exploration': 'Review our pricing assumptions', 'Evidence review': 'Review evidence and verification findings', 'Custom view': 'I want to create my own custom interactive business component. Ask what it should show and do before creating it.', 'Launch plan': 'Develop our minimum offering and delivery plan' }[choice.title] || choice.title) : choice.prompt)} disabled={isRunning}><choice.icon size={21} /><span><strong>{choice.title}</strong><small>{choice.detail}</small></span><ArrowRight size={16} /></button>)}</div>}
       </Dialog.Content></Dialog.Portal></Dialog.Root>
     </div>
   </AssistantRuntimeProvider></WorkspaceContext.Provider>;

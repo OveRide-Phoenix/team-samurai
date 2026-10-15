@@ -24,6 +24,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.formparsers import MultiPartException
 from starlette.requests import Request
 
+from samurai.agui import SamuraiAGUI
 from samurai.company_store import CompanyStore
 from samurai.company_store_contracts import WorkspaceRole
 from samurai.config import Settings, create_queue_config
@@ -38,6 +39,7 @@ from samurai.execution_state import (
     WorkOperation,
     WorkReceipt,
 )
+from samurai.file_api import file_router
 from samurai.intake import INTAKE_PAGES, IntakePage
 from samurai.parent import (
     PARENT_AGENT_ID,
@@ -94,6 +96,8 @@ class _QueueReadiness(BaseModel):
 
 
 def _input_fields_for_path(path: str) -> tuple[str, ...] | None:
+    if path == "/agentos/agents/samurai/agui":
+        return ()
     if path == RUN_PATH:
         return ("message",)
     run_id = path[len(RUN_CONTINUE_PREFIX) : -len(RUN_CONTINUE_SUFFIX)]
@@ -293,7 +297,7 @@ class _ParentInputBoundary:
     app: ASGIApp
     max_input_chars: int
 
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:  # noqa: PLR0911 - HTTP boundary exits.
         if scope["type"] != "http" or scope["method"] != "POST":
             await self.app(scope, receive, send)
             return
@@ -324,6 +328,9 @@ class _ParentInputBoundary:
                 return
             more_body = message.more_body
         payload = bytes(body)
+        if not input_fields:
+            await self.app(scope, _replay_body_once(payload, receive), send)
+            return
 
         try:
             headers = cast("list[tuple[bytes, bytes]]", scope.get("headers", []))
@@ -550,6 +557,7 @@ def create_app(
     runtime_base = FastAPI(docs_url=None, redoc_url=None)
     if isinstance(runtime_db, SamuraiPostgresDb):
         runtime_base.include_router(workspace_router(runtime_db))
+        runtime_base.include_router(file_router(runtime_db, settings.storage_root))
     runtime_base.add_middleware(
         _DurableRunBoundary,
         enabled=settings.queue_enabled,
@@ -583,6 +591,9 @@ def create_app(
         db=runtime_db,
         agents=[parent] if api_key or parent_model_factory is not None else [],
         workflows=[],
+        interfaces=[SamuraiAGUI(runtime_db, settings, parent_model_factory)]
+        if api_key or parent_model_factory is not None
+        else [],
         config=AgentOSConfig(chat=ChatConfig(quick_prompts={PARENT_AGENT_ID: STARTER_PROMPTS})),
         settings=AgnoAPISettings(os_security_key=settings.os_security_key.get_secret_value()),
         authorization=Authorization(

@@ -1,7 +1,9 @@
 import fs from 'node:fs';
+import { sandboxPolicy, serveCopilot } from './copilotkit.mjs';
 import { parseEnv } from 'node:util';
 import { URL } from 'node:url';
 import { Readable } from 'node:stream';
+import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
 const BACKEND = 'http://127.0.0.1:8000';
@@ -15,6 +17,102 @@ const WORKSPACES = /^\/api\/agentos\/samurai\/workspaces$/;
 const MEMBERS = new RegExp(`^/api/agentos/samurai/workspaces/(${UUID})/members/([A-Za-z0-9._:@-]{1,200})$`);
 const COMPANIES = new RegExp(`^/api/agentos/samurai/workspaces/(${UUID})/companies$`);
 const OPEN_COMPANY = new RegExp(`^/api/agentos/samurai/workspaces/(${UUID})/companies/(${UUID})/open$`);
+const FILES = new RegExp(`^/api/agentos/samurai/workspaces/(${UUID})/files(?:/(${UUID})(/download)?)?$`);
+const FILE_CLEANUP = new RegExp(`^/api/agentos/samurai/workspaces/(${UUID})/files/cleanup$`);
+const FILE_BODY_LIMIT = 10 * 1024 * 1024 + 24 * 1024;
+const FILE_SIZE_LIMIT = 10 * 1024 * 1024;
+const MULTIPART_HEADER_LIMIT = 16 * 1024;
+
+export class MultipartFileError extends Error {
+  constructor(status, message) { super(message); this.status = status; }
+}
+function multipartBoundary(contentType) {
+  const match = /^multipart\/form-data; boundary=([A-Za-z0-9'()+_,.\/:=?-]{1,70})$/.exec(contentType ?? '');
+  if (!match) throw new MultipartFileError(415, 'Multipart form data required.');
+  return Buffer.from(match[1], 'ascii');
+}
+export function multipartFileBody(req) {
+  const boundary = multipartBoundary(req.headers['content-type']);
+  if (Number(req.headers['content-length'] ?? 0) > FILE_BODY_LIMIT) throw new MultipartFileError(413, 'File upload too large.');
+  const opening = Buffer.concat([Buffer.from('--'), boundary, Buffer.from('\r\n')]);
+  const separator = Buffer.concat([Buffer.from('\r\n--'), boundary]);
+  let buffered = Buffer.alloc(0), state = 'opening', current, received = 0, fileBytes = 0, finished = false;
+  const seen = new Set();
+  const fail = (status, message) => { throw new MultipartFileError(status, message); };
+  const validateHeaders = value => {
+    const lines = value.toString('latin1').split('\r\n');
+    const disposition = lines.filter(line => /^content-disposition:/i.test(line));
+    if (disposition.length !== 1 || lines.some(line => !/^content-disposition:|^content-type:/i.test(line))) fail(400, 'Invalid file upload fields.');
+    const match = /^content-disposition:\s*form-data;\s*name="(file|company_id)"(?:;\s*filename="[^"\r\n]*")?$/i.exec(disposition[0]);
+    if (!match || seen.has(match[1])) fail(400, 'Invalid file upload fields.');
+    const field = match[1];
+    if ((field === 'file') !== /;\s*filename="[^"\r\n]*"$/i.test(disposition[0]) || (field === 'file' && lines.filter(line => /^content-type:/i.test(line)).length !== 1)) fail(400, 'Invalid file upload fields.');
+    seen.add(field);
+    current = field;
+  };
+  return req.pipe(new Transform({
+    transform(chunk, _encoding, callback) {
+      try {
+        received += chunk.length;
+        if (received > FILE_BODY_LIMIT) fail(413, 'File upload too large.');
+        buffered = Buffer.concat([buffered, chunk]);
+        while (true) {
+          if (state === 'opening') {
+            if (buffered.length < opening.length) break;
+            if (!buffered.subarray(0, opening.length).equals(opening)) fail(400, 'Invalid multipart form data.');
+            this.push(buffered.subarray(0, opening.length)); buffered = buffered.subarray(opening.length); state = 'headers'; continue;
+          }
+          if (state === 'headers') {
+            const end = buffered.indexOf('\r\n\r\n');
+            if (end < 0) { if (buffered.length > MULTIPART_HEADER_LIMIT) fail(400, 'Invalid multipart form data.'); break; }
+            validateHeaders(buffered.subarray(0, end));
+            this.push(buffered.subarray(0, end + 4)); buffered = buffered.subarray(end + 4); state = 'body'; continue;
+          }
+          if (state === 'body') {
+            const end = buffered.indexOf(separator);
+            if (end < 0) {
+              const keep = separator.length - 1;
+              if (current === 'company_id' && buffered.length > 36 + keep) fail(400, 'Invalid company binding.');
+              if (current === 'file' && buffered.length > keep) {
+                const value = buffered.subarray(0, buffered.length - keep);
+                fileBytes += value.length;
+                if (fileBytes > FILE_SIZE_LIMIT) fail(413, 'File upload too large.');
+                this.push(value); buffered = buffered.subarray(buffered.length - keep);
+              }
+              break;
+            }
+            const value = buffered.subarray(0, end);
+            if (current === 'file') {
+              fileBytes += value.length;
+              if (fileBytes > FILE_SIZE_LIMIT) fail(413, 'File upload too large.');
+            }
+            if (current === 'company_id' && (!UUID || !new RegExp(`^${UUID}$`, 'i').test(value.toString('ascii')))) fail(400, 'Invalid company binding.');
+            this.push(value); buffered = buffered.subarray(end); state = 'separator'; continue;
+          }
+          if (state === 'separator') {
+            if (buffered.length < separator.length + 2) break;
+            if (!buffered.subarray(0, separator.length).equals(separator)) fail(400, 'Invalid multipart form data.');
+            const suffix = buffered.subarray(separator.length, separator.length + 2).toString('ascii');
+            if (suffix === '--') {
+              if (buffered.length < separator.length + 4 || buffered.subarray(separator.length + 2, separator.length + 4).toString('ascii') !== '\r\n') break;
+              this.push(buffered.subarray(0, separator.length + 4)); buffered = buffered.subarray(separator.length + 4); state = 'done'; finished = true; continue;
+            }
+            if (suffix !== '\r\n') fail(400, 'Invalid multipart form data.');
+            this.push(buffered.subarray(0, separator.length + 2)); buffered = buffered.subarray(separator.length + 2); state = 'headers'; continue;
+          }
+          if (state === 'done') { if (buffered.length) fail(400, 'Invalid multipart form data.'); break; }
+        }
+        callback();
+      } catch (error) { callback(error); }
+    },
+    flush(callback) {
+      try {
+        if (!finished || buffered.length || !seen.has('file')) fail(400, 'Invalid file upload fields.');
+        callback();
+      } catch (error) { callback(error); }
+    },
+  }));
+}
 
 function envFile(path) {
   try { return parseEnv(fs.readFileSync(path, 'utf8')); } catch { return {}; }
@@ -60,7 +158,9 @@ async function directoryBody(req, kind) {
 
 export function agentosProxy(root, fetchImpl = fetch) {
   return async (req, res, next) => {
-    if (!req.url?.startsWith('/api/agentos/')) return next();
+    res.setHeader('Content-Security-Policy', sandboxPolicy);
+    const copilot = req.url === '/api/copilotkit' && req.method === 'POST';
+    if (!copilot && !req.url?.startsWith('/api/agentos/')) return next();
     if (req.headers['x-samurai-client'] !== '1' || req.headers.authorization) return reject(res, 403, 'invalid local client');
     const host = String(req.headers.host ?? '').split(':')[0];
     const origin = req.headers.origin;
@@ -73,7 +173,16 @@ export function agentosProxy(root, fetchImpl = fetch) {
       return res.end(JSON.stringify({ backend: BACKEND, configured, auth: 'jwt' }));
     }
     if (!configured) return reject(res, 503, 'Samurai AgentOS is not configured.');
+    if (copilot) {
+      const controller = new AbortController();
+      res.once('close', () => { if (!res.writableFinished) controller.abort(); });
+      try { return await serveCopilot(req, res, { backend: BACKEND, token, origin: `http://${req.headers.host}`, signal: controller.signal, fetchImpl }); }
+      catch { if (!res.headersSent) return reject(res, 502, 'Samurai AgentOS is unavailable.'); return res.destroy(); }
+    }
     const isIntake = url.pathname === '/api/agentos/intake' && req.method === 'GET' && !url.search;
+    const fileRoute = !url.search ? FILES.exec(url.pathname) : null;
+    const cleanupRoute = !url.search ? FILE_CLEANUP.exec(url.pathname) : null;
+    const fileKind = fileRoute ? (!fileRoute[2] && req.method === 'GET' ? 'file_list' : !fileRoute[2] && req.method === 'POST' ? 'file_upload' : fileRoute[2] && !fileRoute[3] && req.method === 'GET' ? 'file_metadata' : fileRoute[2] && fileRoute[3] && req.method === 'GET' ? 'file_download' : fileRoute[2] && !fileRoute[3] && req.method === 'DELETE' ? 'file_delete' : undefined) : cleanupRoute && req.method === 'POST' ? 'file_cleanup' : undefined;
     const directoryKind = !url.search && WORKSPACES.test(url.pathname) ? (req.method === 'GET' ? 'workspace_list' : req.method === 'POST' ? 'workspace_create' : undefined)
       : !url.search && MEMBERS.test(url.pathname) ? (req.method === 'PUT' ? 'member_update' : req.method === 'DELETE' ? 'member_delete' : undefined)
         : !url.search && COMPANIES.test(url.pathname) ? (req.method === 'GET' ? 'company_list' : req.method === 'POST' ? 'company_create' : undefined)
@@ -82,9 +191,9 @@ export function agentosProxy(root, fetchImpl = fetch) {
     const isRun = RUN.test(url.pathname) && req.method === 'POST';
     const isRead = RUN_ID.test(url.pathname) && req.method === 'GET';
     const isCancel = CANCEL.test(url.pathname) && req.method === 'POST';
-    if (!isIntake && !directoryKind && (!match || (!isRun && !isRead && !isCancel))) return reject(res, 404, 'route not available');
+    if (!isIntake && !directoryKind && !fileKind && (!match || (!isRun && !isRead && !isCancel))) return reject(res, 404, 'route not available');
     const sessions = url.searchParams.getAll('session_id');
-    if ([...url.searchParams.keys()].some(key => key !== 'session_id') || (isRun && url.search) || (!directoryKind && !isRun && !isIntake && (sessions.length !== 1 || !/^[A-Za-z0-9_-]{1,200}$/.test(sessions[0])))) return reject(res, 400, 'query not allowed');
+    if ([...url.searchParams.keys()].some(key => key !== 'session_id') || (isRun && url.search) || (!directoryKind && !fileKind && !isRun && !isIntake && (sessions.length !== 1 || !/^[A-Za-z0-9_-]{1,200}$/.test(sessions[0])))) return reject(res, 400, 'query not allowed');
     const target = isIntake ? `${BACKEND}/api/company/intake` : `${BACKEND}/agentos${url.pathname.slice('/api/agentos'.length)}${url.search}`;
     const headers = { authorization: `Bearer ${token}`, 'x-samurai-client': '1' };
     if (req.headers['content-type']) headers['content-type'] = req.headers['content-type'];
@@ -96,9 +205,11 @@ export function agentosProxy(root, fetchImpl = fetch) {
     const controller = new AbortController();
     res.once('close', () => { if (!res.writableFinished) controller.abort(); });
     try {
-      const body = directoryKind && !['workspace_list', 'company_list', 'member_delete'].includes(directoryKind) ? await directoryBody(req, directoryKind) : isRun ? req : undefined;
+      const body = directoryKind && !['workspace_list', 'company_list', 'member_delete'].includes(directoryKind) ? await directoryBody(req, directoryKind) : fileKind === 'file_upload' ? multipartFileBody(req) : isRun ? req : undefined;
       if (directoryKind && body) headers['content-type'] = 'application/json';
-      const upstream = await fetchImpl(target, { signal: controller.signal, method: req.method, headers, body, ...(isRun ? { duplex: 'half' } : {}) });
+      if (fileKind === 'file_upload') headers['content-type'] = req.headers['content-type'];
+      if (fileKind && fileKind !== 'file_upload' && (req.headers['transfer-encoding'] || Number(req.headers['content-length'] ?? 0) > 0)) return reject(res, 400, 'Body not allowed.');
+      const upstream = await fetchImpl(target, { signal: controller.signal, method: req.method, headers, body, ...((isRun || fileKind === 'file_upload') ? { duplex: 'half' } : {}) });
       res.statusCode = upstream.status;
       if (upstream.headers.get('content-type')) res.setHeader('Content-Type', upstream.headers.get('content-type'));
       if (!upstream.ok && (upstream.status === 401 || upstream.status >= 500)) {
@@ -106,12 +217,28 @@ export function agentosProxy(root, fetchImpl = fetch) {
         res.setHeader('Content-Type', 'application/json');
         return res.end(JSON.stringify({ detail: upstream.status === 401 ? 'AgentOS authentication failed.' : 'Samurai AgentOS is unavailable.' }));
       }
+      if (fileKind === 'file_download' && upstream.ok) {
+        const allowed = {
+          'content-type': /^(?:text\/(?:plain|markdown|csv)|application\/(?:json|pdf))(?:; charset=utf-8)?$/i,
+          'content-disposition': /^attachment; filename="download"; filename\*=UTF-8''(?:[A-Za-z0-9!#$&+.^_`|~-]|%[0-9a-f]{2})+$/i,
+          'content-length': /^[0-9]+$/,
+          'x-content-sha256': /^[a-f0-9]{64}$/i,
+          'cache-control': /^(?:private, )?no-store$/,
+          'x-content-type-options': /^nosniff$/i,
+        };
+        for (const [name, pattern] of Object.entries(allowed)) {
+          const value = upstream.headers.get(name);
+          if (!value || !pattern.test(value)) { await upstream.body?.cancel(); return reject(res, 502, 'Invalid file download response.'); }
+          res.setHeader(name, value);
+        }
+      }
       if (!upstream.body) return res.end();
       await pipeline(Readable.fromWeb(upstream.body), res);
     } catch (error) {
       if (res.destroyed) return;
       if (res.headersSent) return res.destroy();
-      if (error instanceof DirectoryRequestError) return reject(res, error.status, error.message);
+      const multipartError = error instanceof MultipartFileError ? error : error instanceof TypeError && error.cause instanceof MultipartFileError ? error.cause : undefined;
+      if (error instanceof DirectoryRequestError || multipartError) return reject(res, error instanceof DirectoryRequestError ? error.status : multipartError.status, error instanceof DirectoryRequestError ? error.message : multipartError.message);
       return reject(res, 502, 'Samurai AgentOS is unavailable.');
     }
   };

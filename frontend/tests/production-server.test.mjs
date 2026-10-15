@@ -33,6 +33,45 @@ test('forwards only strict workspace directory requests', async t => {
   assert.deepEqual(calls.map(([url, options]) => [url, options.method, options.body]), [['https://backend.example/agentos/samurai/workspaces', 'POST', JSON.stringify({ display_name: 'Founders' })]]);
 });
 
+test('streams allowlisted workspace file downloads and preserves backend denials', async t => {
+  const workspaceId = '00000000-0000-4000-8000-000000000001';
+  const fileId = '00000000-0000-4000-8000-000000000003';
+  const app = await fixture(t, async url => {
+    if (String(url).endsWith('/download')) return new Response('bounded file', { headers: {
+      'content-type': 'text/csv; charset=utf-8', 'content-disposition': "attachment; filename=\"download\"; filename*=UTF-8''table.csv",
+      'content-length': '12', 'x-content-sha256': 'a'.repeat(64), 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff',
+    } });
+    return Response.json([]);
+  });
+  const download = await app.request(`/api/agentos/samurai/workspaces/${workspaceId}/files/${fileId}/download`);
+  assert.equal(download.status, 200);
+  assert.equal(download.headers.get('content-disposition'), "attachment; filename=\"download\"; filename*=UTF-8''table.csv");
+  assert.equal(download.headers.get('x-content-sha256'), 'a'.repeat(64));
+
+  const denied = await fixture(t, async () => new Response('{}', { status: 404 }));
+  assert.equal((await denied.request(`/api/agentos/samurai/workspaces/${workspaceId}/files/${fileId}/download`)).status, 404);
+});
+
+test('returns controlled upload errors from streamed multipart validation', async t => {
+  const workspaceId = '00000000-0000-4000-8000-000000000001';
+  const app = await fixture(t, async (_url, options) => {
+    for await (const _chunk of options.body) {}
+    return Response.json({});
+  });
+  const unknown = new FormData();
+  unknown.set('file', new File(['bounded'], 'brief.md', { type: 'text/markdown' }));
+  unknown.set('user_id', 'forged');
+  const invalid = await app.request(`/api/agentos/samurai/workspaces/${workspaceId}/files`, { method: 'POST', headers: { origin: 'https://samurai.example' }, body: unknown });
+  assert.equal(invalid.status, 400);
+
+  const boundary = 'samurai-task9';
+  const prefix = Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="large.txt"\r\nContent-Type: text/plain\r\n\r\n`);
+  const suffix = Buffer.from(`\r\n--${boundary}--\r\n`);
+  const oversized = new ReadableStream({ start(controller) { controller.enqueue(Buffer.concat([prefix, Buffer.alloc(10 * 1024 * 1024 + 1), suffix])); controller.close(); } });
+  const tooLarge = await app.request(`/api/agentos/samurai/workspaces/${workspaceId}/files`, { method: 'POST', headers: { origin: 'https://samurai.example', 'content-type': `multipart/form-data; boundary=${boundary}` }, body: oversized, duplex: 'half' });
+  assert.equal(tooLarge.status, 413);
+});
+
 test('requires a submission ID for company reservations and maps it to the upstream idempotency key', async t => {
   const calls = [];
   const app = await fixture(t, async (url, options) => { calls.push([url, options]); return Response.json({}); });
@@ -246,4 +285,65 @@ test('reuses cached rotating IAP public keys', async () => {
   const identity = createIapVerifier(audience, client);
   await Promise.all([identity(assertion()), identity(assertion({ sub: 'user-b' }))]);
   assert.equal(requests, 1);
+});
+
+
+test('CopilotKit discovery keeps IAP identity and private AgentOS tokens server-side', async t => {
+  const app = await fixture(t, () => assert.fail('discovery invoked the backend'));
+  const response = await app.request('/api/copilotkit', { method: 'POST', headers: { origin: 'https://samurai.example', 'content-type': 'application/json' }, body: JSON.stringify({ method: 'info' }) });
+  assert.equal(response.status, 200);
+  const info = await response.json();
+  assert.ok(info.agents.samurai);
+  assert.ok(!JSON.stringify(info).includes('Bearer'));
+  assert.equal(response.headers.get('content-security-policy'), "frame-src 'none'; object-src 'none'");
+});
+
+for (const [name, value] of Object.entries({
+  connect: { method: 'agent/connect', params: { agentId: 'samurai' } },
+  otherAgent: { method: 'agent/run', params: { agentId: 'other' }, body: {} },
+  missingIds: { method: 'agent/run', params: { agentId: 'samurai' }, body: { messages: [{ id: 'u', role: 'user', content: 'Read state' }] } },
+  state: { method: 'agent/run', params: { agentId: 'samurai' }, body: { threadId: 'company', runId: 'run', state: { company_id: 'foreign' }, messages: [{ id: 'u', role: 'user', content: 'Read state' }] } },
+})) test(`CopilotKit refuses ${name} without upstream access`, async t => {
+  const app = await fixture(t, () => assert.fail('upstream reached'));
+  const response = await app.request('/api/copilotkit', { method: 'POST', headers: { origin: 'https://samurai.example', 'content-type': 'application/json' }, body: JSON.stringify(value) });
+  assert.equal(response.status, 400);
+});
+
+test('CopilotKit streams Agno with the verified founder JWT and no global thread history', async t => {
+  let calls = 0;
+  const app = await fixture(t, async (url, options) => {
+    calls += 1;
+    assert.equal(url, 'https://backend.example/agentos/agents/samurai/agui');
+    const claims = JSON.parse(Buffer.from(new Headers(options.headers).get('authorization').split('.')[1], 'base64url'));
+    assert.equal(claims.sub, 'iap:user-a');
+    assert.deepEqual(claims.scopes, ['agents:samurai:read', 'agents:samurai:run']);
+    const input = JSON.parse(options.body);
+    assert.equal(input.messages.length, 1);
+    assert.deepEqual(input.state, {});
+    assert.deepEqual(input.forwardedProps, { team_area: 'research' });
+    const events = [
+      { type: 'RUN_STARTED', threadId: input.threadId, runId: input.runId },
+      { type: 'CUSTOM', name: 'samurai', value: { event: 'RunStarted', agent_id: 'samurai', session_id: input.threadId, run_id: input.runId } },
+      { type: 'CUSTOM', name: 'samurai', value: { event: 'RunCompleted', agent_id: 'samurai', session_id: input.threadId, run_id: input.runId, content: 'Hello founder' } },
+      { type: 'RUN_FINISHED', threadId: input.threadId, runId: input.runId },
+    ];
+    return new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
+  });
+  const body = { method: 'agent/run', params: { agentId: 'samurai' }, body: { threadId: 'company', runId: 'run', state: {}, tools: [], context: [], forwardedProps: { team_area: 'research' }, messages: [{ id: 'u', role: 'user', content: 'Read state' }] } };
+  const response = await app.request('/api/copilotkit', { method: 'POST', headers: { origin: 'https://samurai.example', 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  assert.equal(response.status, 200);
+  const stream = await response.text();
+  assert.ok(stream.includes('Hello founder'), stream);
+  assert.ok(stream.includes('RUN_FINISHED'), stream);
+  assert.equal(calls, 1);
+});
+
+
+test('CopilotKit accepts only a typed team choice while rejecting identity overrides', async () => {
+  const { validateCopilotBody } = await import('../server/copilotkit.mjs');
+  const body = { method: 'agent/run', params: { agentId: 'samurai' }, body: { threadId: 'company', runId: 'run', state: {}, messages: [{ id: 'u', role: 'user', content: 'Research competitors' }], forwardedProps: { team_area: 'research' } } };
+  assert.deepEqual(validateCopilotBody(body), body);
+  for (const forwardedProps of [{ team_area: 'other' }, { team_area: 'research', user_id: 'other' }, { company_id: 'foreign' }, [], 'research']) {
+    assert.throws(() => validateCopilotBody({ ...body, body: { ...body.body, forwardedProps } }));
+  }
 });

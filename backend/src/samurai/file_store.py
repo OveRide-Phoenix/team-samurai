@@ -9,6 +9,7 @@ from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Final, final
 from uuid import UUID, uuid4
 
+from fastapi import HTTPException
 from sqlalchemy import text
 
 from samurai import file_store_maintenance as maintenance
@@ -27,7 +28,7 @@ from samurai.quota import WorkspaceQuota
 from samurai.workspace_membership import WorkspaceMembership
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Iterator
 
     from sqlalchemy.engine import Connection, Engine
     from sqlalchemy.sql.elements import TextClause
@@ -57,13 +58,15 @@ class FileStore:
         self._quota: WorkspaceQuota = WorkspaceQuota(schema)
         self._maintenance = maintenance.FileStoreMaintenance(engine, schema, objects)
 
-    def upload(
+    def upload(  # noqa: PLR0913 - public storage operation requires all scoped file facts.
         self,
         actor_id: str,
         workspace_id: UUID,
         display_name: str,
         media_type: str,
         chunks: Iterable[bytes],
+        *,
+        company_id: UUID | None = None,
     ) -> FileRecord:
         """Validate and promote one immutable logical file."""
         timestamp = int(time.time())
@@ -82,18 +85,23 @@ class FileStore:
                 self._quota.lock(connection, workspace_id)
                 self._lock_object(connection, quarantined.key)
                 self._require_writable(actor_id, workspace_id, connection)
+                if company_id is not None:
+                    self._require_company(connection, workspace_id, company_id)
                 self._quota.reserve_file(connection, workspace_id, quarantined.byte_size)
                 _ = connection.execute(
                     self._sql(
                         """INSERT INTO "{schema}".samurai_files
-                        (file_id, workspace_id, created_by, state, display_name, media_type,
+                        (file_id, workspace_id, company_id, created_by, state, display_name,
+                        media_type,
                         byte_size, content_sha256, storage_key, created_at, updated_at)
-                        VALUES (:file_id, :workspace_id, :actor_id, 'quarantined', :display_name,
+                        VALUES (:file_id, :workspace_id, :company_id, :actor_id,
+                        'quarantined', :display_name,
                         :media_type, :byte_size, :sha256, :storage_key, :now, :now)"""
                     ),
                     {
                         "file_id": file_id,
                         "workspace_id": workspace_id,
+                        "company_id": company_id,
                         "actor_id": actor_id,
                         "display_name": display_name,
                         "media_type": media_type,
@@ -127,13 +135,65 @@ class FileStore:
 
     def read(self, actor_id: str, workspace_id: UUID, file_id: UUID) -> bytes:
         """Read one ready file through current workspace membership."""
-        record = self._record(actor_id, workspace_id, file_id)
+        try:
+            _record, chunks = self.stream(actor_id, workspace_id, file_id)
+        except FileStoreError as error:
+            if error.issue is FileStoreIssue.NOT_FOUND:
+                raise FileStoreError(FileStoreIssue.NOT_READY) from error
+            raise
+        return b"".join(chunks)
+
+    def list(
+        self, actor_id: str, workspace_id: UUID, *, company_id: UUID | None = None
+    ) -> list[FileRecord]:
+        """List visible non-deleted files through current workspace membership."""
+        with self._engine.connect() as connection:
+            role = self._membership.require_member(connection, workspace_id, actor_id)
+            if company_id is not None:
+                self._require_company(connection, workspace_id, company_id)
+            rows = connection.execute(
+                self._sql(
+                    """SELECT file_id, workspace_id, company_id, state, display_name, media_type,
+                    byte_size, content_sha256, storage_key, created_at, updated_at
+                    FROM "{schema}".samurai_files
+                    WHERE workspace_id = :workspace_id AND state != 'deleted'
+                    AND (CAST(:company_id AS uuid) IS NULL
+                    OR company_id = CAST(:company_id AS uuid))
+                    AND (CAST(:ready_only AS boolean) = false OR state = 'ready')
+                    ORDER BY created_at, file_id"""
+                ),
+                {
+                    "workspace_id": workspace_id,
+                    "company_id": company_id,
+                    "ready_only": role is WorkspaceRole.VIEWER,
+                },
+            ).mappings()
+            return [FileRecord.model_validate(row) for row in rows]
+
+    def metadata(self, actor_id: str, workspace_id: UUID, file_id: UUID) -> FileRecord:
+        """Return visible file metadata without exposing its storage key."""
+        record, role = self._record_with_role(actor_id, workspace_id, file_id)
+        if record.state is FileState.DELETED:
+            raise FileStoreError(FileStoreIssue.NOT_FOUND)
+        if role is WorkspaceRole.VIEWER and record.state is not FileState.READY:
+            raise FileStoreError(FileStoreIssue.NOT_FOUND)
+        return record
+
+    def stream(
+        self, actor_id: str, workspace_id: UUID, file_id: UUID
+    ) -> tuple[FileRecord, Iterator[bytes]]:
+        """Verify and return a fresh bounded stream for one ready file."""
+        record = self.metadata(actor_id, workspace_id, file_id)
         if record.state is not FileState.READY:
             raise FileStoreError(FileStoreIssue.NOT_READY)
-        content = self._objects.read(record.storage_key)
-        if hashlib.sha256(content).hexdigest() != record.content_sha256:
+        digest = hashlib.sha256()
+        size = 0
+        for chunk in self._objects.chunks(record.storage_key, chunk_size=1024 * 1024):
+            digest.update(chunk)
+            size += len(chunk)
+        if digest.hexdigest() != record.content_sha256 or size != record.byte_size:
             raise FileStoreError(FileStoreIssue.HASH_MISMATCH)
-        return content
+        return record, self._objects.chunks(record.storage_key, chunk_size=64 * 1024)
 
     def delete(
         self,
@@ -203,26 +263,52 @@ class FileStore:
         """Repair validated promotions and remove aged unreferenced quarantines."""
         return self._maintenance.reconcile_orphans(now=now)
 
+    def cleanup_workspace(
+        self, actor_id: str, workspace_id: UUID, *, now: int | None = None
+    ) -> tuple[int, int, int, int, int]:
+        """Run owner-only maintenance that cannot cross the selected workspace."""
+        with self._engine.begin() as connection:
+            self._membership.require_owner(connection, workspace_id, actor_id)
+        rejected = self._maintenance.cleanup_quarantine(
+            workspace_id=workspace_id, actor_id=actor_id, now=now
+        )
+        purged, expired = self._maintenance.purge_deleted(
+            workspace_id=workspace_id, actor_id=actor_id, now=now
+        )
+        repaired, removed = self._maintenance.reconcile_orphans(
+            workspace_id=workspace_id, actor_id=actor_id, now=now
+        )
+        return rejected, purged, expired, repaired, removed
+
     def _record(self, actor_id: str, workspace_id: UUID, file_id: UUID) -> FileRecord:
+        record, _role = self._record_with_role(actor_id, workspace_id, file_id)
+        return record
+
+    def _record_with_role(
+        self, actor_id: str, workspace_id: UUID, file_id: UUID
+    ) -> tuple[FileRecord, WorkspaceRole]:
         with self._engine.connect() as connection:
+            try:
+                role = self._membership.require_member(connection, workspace_id, actor_id)
+            except HTTPException as error:
+                raise FileStoreError(FileStoreIssue.PERMISSION_DENIED) from error
             row = (
                 connection.execute(
                     self._sql(
-                        """SELECT f.file_id, f.workspace_id, f.state, f.display_name, f.media_type,
+                        """SELECT f.file_id, f.workspace_id, f.company_id, f.state,
+                    f.display_name, f.media_type,
                     f.byte_size, f.content_sha256, f.storage_key, f.created_at, f.updated_at
                     FROM "{schema}".samurai_files f
-                    JOIN "{schema}".samurai_workspace_memberships m
-                    ON m.workspace_id = f.workspace_id AND m.user_id = :actor_id AND m.active
                     WHERE f.file_id = :file_id AND f.workspace_id = :workspace_id"""
                     ),
-                    {"actor_id": actor_id, "file_id": file_id, "workspace_id": workspace_id},
+                    {"file_id": file_id, "workspace_id": workspace_id},
                 )
                 .mappings()
                 .one_or_none()
             )
         if row is None:
-            raise FileStoreError(FileStoreIssue.PERMISSION_DENIED)
-        return FileRecord.model_validate(row)
+            raise FileStoreError(FileStoreIssue.NOT_FOUND)
+        return FileRecord.model_validate(row), role
 
     def _require_writable(
         self, actor_id: str, workspace_id: UUID, connection: Connection | None = None
@@ -234,6 +320,19 @@ class FileStore:
             role = self._membership.require_member(connection, workspace_id, actor_id)
         if role is WorkspaceRole.VIEWER:
             raise FileStoreError(FileStoreIssue.PERMISSION_DENIED)
+
+    def _require_company(
+        self, connection: Connection, workspace_id: UUID, company_id: UUID
+    ) -> None:
+        found = connection.execute(
+            self._sql(
+                """SELECT 1 FROM "{schema}".samurai_companies
+                WHERE company_id = :company_id AND workspace_id = :workspace_id"""
+            ),
+            {"company_id": company_id, "workspace_id": workspace_id},
+        ).scalar_one_or_none()
+        if found is None:
+            raise FileStoreError(FileStoreIssue.NOT_FOUND)
 
     @staticmethod
     def _validate(display_name: str, media_type: str, content: bytes) -> None:

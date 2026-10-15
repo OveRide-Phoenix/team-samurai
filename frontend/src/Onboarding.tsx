@@ -9,10 +9,12 @@ const pagesSchema = z.array(z.strictObject({ title: z.string().min(1).max(120), 
   const ids = pages.flatMap(page => page.questions.map(question => question.id));
   return ids.length === 6 && new Set(ids).size === 6;
 }, 'Every prerequisite must appear once');
-export function Onboarding({ name, onCancel, onComplete }: { name: string; onCancel: () => void; onComplete: (brief: CompanyBrief) => void }) {
+export type IntakePages = z.infer<typeof pagesSchema>;
+export function Onboarding({ name, onCancel, onComplete, previewPages }: { name: string; onCancel: () => void; onComplete: (brief: CompanyBrief) => void; previewPages?: IntakePages }) {
   const [step, setStep] = useState(0);
-  const [pages, setPages] = useState<z.infer<typeof pagesSchema>>([]);
+  const [pages, setPages] = useState<IntakePages>(() => previewPages ? pagesSchema.parse(previewPages) : []);
   useEffect(() => {
+    if (previewPages) return;
     const controller = new AbortController();
     void fetch('/api/agentos/intake', { headers: { 'X-Samurai-Client': '1' }, signal: controller.signal }).then(async response => {
       if (!response.ok) throw new Error('Prerequisite questions are unavailable. Return Home and try again.');
@@ -20,7 +22,7 @@ export function Onboarding({ name, onCancel, onComplete }: { name: string; onCan
       if (!controller.signal.aborted) setPages(data);
     }).catch(error => { if (!controller.signal.aborted) setError(error instanceof Error ? error.message : 'Could not load prerequisite questions.'); });
     return () => controller.abort();
-  }, []);
+  }, [previewPages]);
   const [answers, setAnswers] = useState<CompanyBrief>({ idea: '', customer: '', location: '', budget: '', goal: '' });
   const [error, setError] = useState('');
   const heading = useRef<HTMLHeadingElement>(null);
@@ -50,7 +52,7 @@ export function Onboarding({ name, onCancel, onComplete }: { name: string; onCan
       })}</div>
       {error && <p id="intake-error" className="intake-error" role="alert">{error}</p>}
       <div className="onboarding-actions">{step > 0 && <button type="button" className="soft-button" onClick={() => { setError(''); setStep(step - 1); }}><ArrowLeft size={16} />Back</button>}<button className="primary-button" type="submit">{step === pages.length - 1 ? 'Build my company' : 'Continue'}<ArrowRight size={17} /></button></div>
-      <p className="intake-preview-note">Live Samurai workflow · Nothing is sent or published</p>
+      <p className="intake-preview-note">{previewPages ? 'UI preview · No provider calls' : 'Live Samurai workflow · Nothing is sent or published'}</p>
     </form>
   </div>;
 }

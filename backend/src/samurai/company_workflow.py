@@ -46,7 +46,7 @@ if TYPE_CHECKING:
 
     from samurai.config import Settings
 
-JourneyStage = Literal["brief", "research", "strategy", "plan"]
+JourneyStage = Literal["brief", "research", "strategy", "plan", "verify"]
 
 WORKFLOW_ID = "company-journey"
 REQUIRED_CONTEXT = ("target_customer", "geography", "budget", "founder_skills", "goal")
@@ -602,6 +602,17 @@ class _Journey:
     ) -> StepOutput:
         context = _context(run_context)
         state = _state(context)
+        if any(_latest(state, kind) is None for kind in JOURNEY_TYPES[:-1]):
+            return _step_output(
+                _result(
+                    state,
+                    "needs_input",
+                    questions=(
+                        "Finish research, strategy and delivery planning before full verification.",
+                    ),
+                ),
+                stop=True,
+            )
         proposal = await _agent_payload(
             self.verifier_agent,
             state.model_dump_json(),
@@ -704,7 +715,30 @@ def create_company_workflow(
         Step(name="Product plan", executor=journey.product, max_retries=0),
         Step(name="Verify journey", executor=journey.verify, max_retries=0),
     ]
-    if stage != "plan":
+    if stage == "verify":
+
+        def load_existing(
+            step_input: StepInput, run_context: RunContext | None = None
+        ) -> StepOutput:
+            context = _context(run_context)
+            try:
+                state = load_company_state(
+                    _request(step_input), context, created_at=datetime.now(UTC)
+                )
+            except (
+                CompanyMismatchError,
+                SessionMismatchError,
+                StaleRevisionError,
+                WorkflowContextError,
+            ) as error:
+                return _step_output(_boundary_failure(error), stop=True)
+            return _step_output(state)
+
+        steps = [
+            Step(name="Load existing company", executor=load_existing, max_retries=0),
+            Step(name="Verify journey", executor=journey.verify, max_retries=0),
+        ]
+    elif stage != "plan":
         questions = {
             "brief": "Ready to research your market?",
             "research": "Ready to shape your offer?",

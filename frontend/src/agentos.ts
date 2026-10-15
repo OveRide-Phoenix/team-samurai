@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { agents, panelSchema, type BackendRun, type Message, type Panel, type WorkEvent } from './model';
+import { agents, panelSchema, teamAreaSchema, type BackendRun, type Message, type Panel, type TeamArea, type WorkEvent } from './model';
 
 const base = '/api/agentos/agents/samurai/runs';
 const headers = { 'X-Samurai-Client': '1' } as const;
@@ -41,8 +41,8 @@ const summarySchema = z.strictObject({
   company_id: uuid.nullable(), revision: z.number().int().min(0), artifact_count: z.number().int().min(0), status: z.enum(['active', 'not_started']),
   brief: brief.nullable().default(null), sources: z.array(source).max(100).default([]), evidence_conflicts: strings.default([]),
   verification_findings: z.array(z.strictObject({ code: text, message: text, severity: z.enum(['info', 'warning', 'error']) })).max(100).default([]),
-  next_decision: text.nullable().default(null),
-});
+  next_decision: text.nullable().default(null), artifacts: z.array(artifact).max(20).default([]),
+}).refine(value => value.artifacts.every(item => item.company_id === value.company_id && item.revision <= value.revision));
 export const companyResultSchema = z.union([resultSchema, summarySchema]);
 type WorkflowResult = z.infer<typeof companyResultSchema>;
 export const companySnapshotSchema = z.strictObject({ summary: summarySchema, artifacts: z.array(artifact).max(100) }).refine(value => value.summary.company_id !== null && value.artifacts.every(item => item.company_id === value.summary.company_id && item.revision <= value.summary.revision));
@@ -55,6 +55,7 @@ export type AgentosApproval = {
   readonly expectedRevision: number;
   readonly companyId: string;
 };
+type CopilotStart = (input: string, signal: AbortSignal, area?: TeamArea) => Promise<Response>;
 type AgentosRunResult = { readonly run: AgentosRun; readonly events: readonly WorkEvent[] };
 export class AgentosError extends Error {
   readonly name = 'AgentosError';
@@ -89,7 +90,7 @@ function workflow(value: unknown): WorkflowResult | undefined {
 function resultEvents(result: WorkflowResult | CompanySnapshot, seen: Set<string>): WorkEvent[] {
   const events: WorkEvent[] = [];
   const summary = 'summary' in result ? result.summary : 'artifact_count' in result ? result : undefined;
-  const artifacts = 'summary' in result ? result.artifacts : 'artifact_count' in result ? [] : result.artifacts;
+  const artifacts = result.artifacts;
   if (summary) {
     const key = `summary:${summary.company_id}:${summary.revision}`;
     if (seen.has(key)) return events;
@@ -301,12 +302,17 @@ export async function* resumeAgentosRun(
       }
       if (event.event === 'ToolCallCompleted' || event.event === 'RunCompleted') {
         const tool = event.tool === undefined ? undefined : recordSchema.parse(event.tool);
-        const result = workflow(event.event === 'ToolCallCompleted' ? tool?.result : event.content);
+        const value = event.event === 'ToolCallCompleted' ? tool?.result : event.content;
+        const view = presentation(value);
+        const handoff = handoffEvents(value, seen);
+        if (handoff) for (const output of handoff) yield output;
+        if (view) for (const output of presentationEvents(view, seen)) yield output;
+        const result = view || handoff ? undefined : workflow(value);
         if (result) {
           if (companyId && result.company_id && companyId !== result.company_id) throw new AgentosError('scope', 'AgentOS returned a result for another company.');
           companyId = result.company_id ?? companyId; revision = result.revision;
           for (const output of resultEvents(result, seen)) yield output;
-        } else if (event.event === 'RunCompleted' && typeof event.content === 'string' && event.content.trim()) yield { type: 'message', text: event.content };
+        } else if (!view && !handoff && event.event === 'RunCompleted' && typeof event.content === 'string' && event.content.trim()) yield { type: 'message', text: event.content };
       }
       const next: AgentosRun = { ...run, runId, status: event.event === 'RunCompleted' ? 'completed' : event.event === 'RunCancelled' ? 'cancelled' : event.event === 'RunError' ? 'failed' : 'running', ...(companyId ? { companyId } : {}), ...(revision !== undefined ? { revision } : {}), ...(lastEventIndex !== undefined ? { lastEventIndex } : {}) };
       run = next; onRun?.(next);
@@ -344,11 +350,15 @@ export function createAgentosTransport(
   sessionId: string,
   onRun?: (run: AgentosRun) => unknown,
   savedMessages: () => readonly Message[] = () => [],
-  createSubmissionId: () => string = () => crypto.randomUUID(),
-): (input: string, signal: AbortSignal, approval?: AgentosApproval) => AsyncIterable<WorkEvent> {
+  startOrCreateSubmissionId: CopilotStart | (() => string) = () => crypto.randomUUID(),
+): (input: string, signal: AbortSignal, scope?: TeamArea | AgentosApproval) => AsyncIterable<WorkEvent> {
   text.parse(sessionId);
+  const start = startOrCreateSubmissionId.length >= 2 ? startOrCreateSubmissionId as CopilotStart : undefined;
+  const createSubmissionId = start ? () => crypto.randomUUID() : startOrCreateSubmissionId as () => string;
   let companyId: string | undefined;
-  return async function* (input, signal, approval) {
+  return async function* (input, signal, scope) {
+    const area = teamAreaSchema.safeParse(scope).data;
+    const approval = area ? undefined : scope as AgentosApproval | undefined;
     if (signal.aborted) throw new DOMException('Run was cancelled before starting.', 'AbortError');
     const submissionId = uuid.parse(createSubmissionId());
     if (onRun?.({ submissionId, status: 'submitting' }) === false) throw new AgentosError('storage', 'The run was not started because its recovery receipt could not be saved.');
@@ -388,7 +398,7 @@ export function createAgentosTransport(
         runHeaders['X-Samurai-Stage'] = approval.stage;
         runHeaders['X-Samurai-Expected-Revision'] = String(approval.expectedRevision);
       }
-      try { response = await request(base, { method: 'POST', body: form, signal: controller.signal, headers: runHeaders }); }
+      try { response = start ? await start(text.parse(input), controller.signal, area) : await request(base, { method: 'POST', body: form, signal: controller.signal, headers: runHeaders }); }
       catch {
         const receipt = await readAgentosReceipt(sessionId, submissionId, controller.signal);
         runId = receipt.runId; companyId = receipt.companyId; revision = receipt.revision; status = receipt.status; onRun?.(receipt);
@@ -428,7 +438,12 @@ export function createAgentosTransport(
           }
           if (event.event === 'ToolCallCompleted' || event.event === 'RunCompleted') {
             const tool = event.tool === undefined ? undefined : recordSchema.parse(event.tool);
-            const result = workflow(event.event === 'ToolCallCompleted' ? tool?.result : event.content);
+            const value = event.event === 'ToolCallCompleted' ? tool?.result : event.content;
+            const view = presentation(value);
+            const handoff = handoffEvents(value, seen);
+            if (handoff) for (const output of handoff) yield output;
+            if (view) for (const output of presentationEvents(view, seen)) yield output;
+            const result = view || handoff ? undefined : workflow(value);
             if (result) {
               if (companyId && result.company_id && companyId !== result.company_id) throw new AgentosError('scope', 'AgentOS returned a result for another company.');
               companyId = result.company_id ?? companyId; revision = result.revision; notify(status);
@@ -436,7 +451,7 @@ export function createAgentosTransport(
                 if (signal.aborted) { cancel(); break stream; }
                 yield output;
               }
-            } else if (event.event === 'RunCompleted' && typeof event.content === 'string' && event.content.trim()) yield { type: 'message', text: event.content };
+            } else if (!view && !handoff && event.event === 'RunCompleted' && typeof event.content === 'string' && event.content.trim()) yield { type: 'message', text: event.content };
           }
           if (event.event === 'RunError') { terminal = true; notify('failed'); throw new AgentosError('stream', 'Samurai could not complete this run.'); }
           if (event.event === 'RunCompleted' || event.event === 'RunCancelled') { terminal = true; notify(event.event === 'RunCancelled' ? 'cancelled' : 'completed'); return; }
@@ -476,8 +491,12 @@ export async function readAgentosRun(sessionId: string, runId: string, signal?: 
   const run = z.strictObject({ run_id: text, session_id: text, agent_id: z.literal('samurai'), status: z.enum(['RUNNING', 'PENDING', 'PAUSED', 'COMPLETED', 'CANCELLED', 'ERROR']), content: z.unknown().optional() }).parse({ run_id: wire.run_id, session_id: wire.session_id, agent_id: wire.agent_id, status: wire.status, content: wire.content });
   if (run.run_id !== runId || run.session_id !== sessionId) throw new AgentosError('scope', 'AgentOS returned another session or run.');
   const status = run.status === 'COMPLETED' ? 'completed' : run.status === 'CANCELLED' ? 'cancelled' : run.status === 'ERROR' ? 'failed' : run.status === 'PENDING' ? 'queued' : run.status === 'PAUSED' ? 'paused' : 'running';
-  const result = status === 'completed' ? workflow(run.content) : undefined;
-  return { run: { runId, status, ...(result ? { ...(result.company_id ? { companyId: result.company_id } : {}), revision: result.revision } : {}) }, events: [...recoveredActivities(wire.events, sessionId, runId), ...(result ? resultEvents(result, artifactKeys(savedMessages)) : status === 'completed' && typeof run.content === 'string' ? [{ type: 'message' as const, text: run.content }] : [])] };
+  const seen = artifactKeys(savedMessages);
+  const view = status === 'completed' ? presentation(run.content) : undefined;
+  const handoff = status === 'completed' ? handoffEvents(run.content, seen) : undefined;
+  const result = status === 'completed' && !view && !handoff ? workflow(run.content) : undefined;
+  const savedArea = teamAreaSchema.safeParse(recordSchema.safeParse(wire.metadata).data?.team_area);
+  return { run: { runId, status, ...(savedArea.success ? { area: savedArea.data } : {}), ...(result ? { ...(result.company_id ? { companyId: result.company_id } : {}), revision: result.revision } : {}) }, events: [...recoveredActivities(wire.events, sessionId, runId), ...(handoff ? handoff : view ? presentationEvents(view, seen) : result ? resultEvents(result, seen) : status === 'completed' && typeof run.content === 'string' ? [{ type: 'message' as const, text: run.content }] : [])] };
 }
 
 function recoveredActivities(value: unknown, sessionId: string, runId: string): WorkEvent[] {
@@ -526,7 +545,33 @@ export function presentMessages(messages: readonly Message[]): Message[] {
 
 function artifactKeys(messages: readonly Message[]): Set<string> {
   return new Set(messages.flatMap(message => {
+    if (message.handoff) return ['handoff:' + JSON.stringify({ area: message.handoff, text: message.text, ...(message.handoffPrerequisite !== undefined ? { prerequisite: message.handoffPrerequisite } : {}) })];
+    if (message.panel && ['declarative', 'custom'].includes(message.panel.kind)) return [`panel:${message.panel.id}:${JSON.stringify(message.panel)}`];
     const item = message.panel?.provenance;
     return item && typeof item.artifact_id === 'string' && typeof item.revision === 'number' ? [`${item.artifact_id}:${item.revision}`] : [];
   }));
+}
+
+function presentation(value: unknown): Panel | undefined {
+  if (typeof value !== 'string') return undefined;
+  const marker = 'SAMURAI_PANEL=';
+  const index = value.lastIndexOf(marker);
+  if (index < 0) return undefined;
+  const panel = panelSchema.parse(json(value.slice(index + marker.length)));
+  if (panel.kind !== 'declarative' && panel.kind !== 'custom') throw new AgentosError('protocol', 'Invalid presentation view.');
+  return panel;
+}
+function presentationEvents(panel: Panel, seen: Set<string>): WorkEvent[] {
+  const key = `panel:${panel.id}:${JSON.stringify(panel)}`;
+  if (seen.has(key)) return [];
+  seen.add(key);
+  return [{ type: 'message', text: '', panel }];
+}
+function handoffEvents(value: unknown, seen: Set<string>): WorkEvent[] | undefined {
+  if (typeof value !== 'string' || !value.startsWith('SAMURAI_HANDOFF=')) return undefined;
+  const handoff = z.strictObject({ area: teamAreaSchema, text: z.string().min(1).max(500), prerequisite: z.boolean().optional() }).parse(json(value.slice('SAMURAI_HANDOFF='.length)));
+  const key = 'handoff:' + JSON.stringify(handoff);
+  if (seen.has(key)) return [];
+  seen.add(key);
+  return [{ type: 'message', text: handoff.text, handoff: handoff.area, ...(handoff.prerequisite !== undefined ? { handoffPrerequisite: handoff.prerequisite } : {}) }];
 }

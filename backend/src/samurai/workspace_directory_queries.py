@@ -55,4 +55,3 @@ WHERE workspace_id = :workspace_id AND active AND role = 'owner'"""
 def render(source: str, schema: str) -> TextClause:
     """Bind the app-owned schema to a fixed query."""
     return text(source.format(schema=schema))
-

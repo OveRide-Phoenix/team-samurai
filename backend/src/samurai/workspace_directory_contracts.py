@@ -76,4 +76,3 @@ class BindingRow(BaseModel):
     created_at: int
     parent_session_id: str
     child_session_id: str
-

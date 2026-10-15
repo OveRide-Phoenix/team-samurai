@@ -38,6 +38,48 @@ describe('actual local AgentOS proxy', () => {
       `http://127.0.0.1:8000/agentos/samurai/workspaces/${workspaceId}/companies/${companyId}/open`,
     ]);
   });
+  it('forwards only bounded, fixed workspace file requests', async () => {
+    const upstream = vi.fn<typeof fetch>(async (url, init) => {
+      if (init?.method === 'POST') {
+        expect(init.body).toBeDefined();
+        for await (const _chunk of init.body as AsyncIterable<Uint8Array>) {}
+        return Response.json({ file_id: '00000000-0000-4000-8000-000000000003' });
+      }
+      if (String(url).endsWith('/download')) return new Response('bounded file', { headers: {
+        'content-type': 'text/csv; charset=utf-8', 'content-disposition': "attachment; filename=\"download\"; filename*=UTF-8''table.csv",
+        'content-length': '12', 'x-content-sha256': 'a'.repeat(64), 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff',
+      } });
+      return Response.json([]);
+    });
+    const { request } = await fixture(true, upstream);
+    const workspaceId = '00000000-0000-4000-8000-000000000001';
+    const form = new FormData();
+    form.set('file', new File(['bounded file'], 'brief.md', { type: 'text/markdown' }));
+    form.set('company_id', '00000000-0000-4000-8000-000000000002');
+
+    expect((await request(`/api/agentos/samurai/workspaces/${workspaceId}/files`)).status).toBe(200);
+    expect((await request(`/api/agentos/samurai/workspaces/${workspaceId}/files`, { method: 'POST', body: form })).status).toBe(200);
+    const download = await request(`/api/agentos/samurai/workspaces/${workspaceId}/files/00000000-0000-4000-8000-000000000003/download`);
+    expect(download.status).toBe(200);
+    expect(download.headers.get('content-disposition')).toBe("attachment; filename=\"download\"; filename*=UTF-8''table.csv");
+    expect(upstream.mock.calls.map(call => call[0])).toEqual([
+      `http://127.0.0.1:8000/agentos/samurai/workspaces/${workspaceId}/files`,
+      `http://127.0.0.1:8000/agentos/samurai/workspaces/${workspaceId}/files`,
+      `http://127.0.0.1:8000/agentos/samurai/workspaces/${workspaceId}/files/00000000-0000-4000-8000-000000000003/download`,
+    ]);
+  });
+  it('rejects an unknown multipart field without forwarding file bytes', async () => {
+    const upstream = vi.fn<typeof fetch>(async (_url, init) => {
+      if (init?.body) for await (const _chunk of init.body as AsyncIterable<Uint8Array>) {}
+      return Response.json({});
+    });
+    const { request } = await fixture(true, upstream);
+    const form = new FormData();
+    form.set('file', new File(['bounded file'], 'brief.md', { type: 'text/markdown' }));
+    form.set('user_id', 'forged');
+    const response = await request('/api/agentos/samurai/workspaces/00000000-0000-4000-8000-000000000001/files', { method: 'POST', body: form });
+    expect(response.status).toBe(400);
+  });
   it('requires a submission ID for company reservations and maps it to the upstream idempotency key', async () => {
     const { request, upstream } = await fixture();
     const workspaceId = '00000000-0000-4000-8000-000000000001';

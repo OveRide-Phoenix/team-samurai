@@ -100,6 +100,11 @@ class FakeObjectStore:
     def read(self, key: str) -> bytes:
         return self.objects[key]
 
+    def chunks(self, key: str, *, chunk_size: int) -> Iterator[bytes]:
+        content = self.objects[key]
+        for offset in range(0, len(content), chunk_size):
+            yield content[offset : offset + chunk_size]
+
     def delete(self, key: str) -> None:
         _ = self.objects.pop(key, None)
 
