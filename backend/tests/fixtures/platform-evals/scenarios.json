@@ -1,0 +1,42 @@
+{
+  "title": "Dental clinic 90-day operating scenario",
+  "horizon_days": 90,
+  "baseline_metrics": [
+    {"name": "current_leads", "value": "120", "unit": "leads_per_month"},
+    {"name": "conversion_rate", "value": "0.18", "unit": "ratio"},
+    {"name": "average_case_value", "value": "8000", "unit": "INR"},
+    {"name": "monthly_marketing_spend", "value": "30000", "unit": "INR"}
+  ],
+  "assumptions": [
+    {
+      "name": "lead_growth",
+      "target_metric": "current_leads",
+      "low_delta_percent": "-10",
+      "base_delta_percent": "5",
+      "high_delta_percent": "20"
+    },
+    {
+      "name": "conversion_change",
+      "target_metric": "conversion_rate",
+      "low_delta_percent": "-15",
+      "base_delta_percent": "0",
+      "high_delta_percent": "10"
+    },
+    {
+      "name": "price_change",
+      "target_metric": "average_case_value",
+      "low_delta_percent": "-5",
+      "base_delta_percent": "0",
+      "high_delta_percent": "5"
+    }
+  ],
+  "constraints": [
+    {
+      "name": "founder_budget_ceiling",
+      "metric": "monthly_marketing_spend",
+      "operator": "maximum",
+      "threshold": "25000",
+      "unit": "INR"
+    }
+  ]
+}
