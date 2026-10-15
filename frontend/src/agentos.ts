@@ -136,9 +136,14 @@ function truthClaims(id: string, truth: FounderTruth): Extract<Panel, { kind: 'e
   ];
 }
 function knowledgeSources(references: z.infer<typeof knowledgeReference>[]): EvidenceSource[] {
-  return references.map(reference => reference.trust_class === 'uploaded_file'
-    ? { kind: 'workspace_file', file_id: reference.file_id!, title: null, chunk_id: reference.chunk_id, indexed_revision: reference.indexed_revision, ordinal: reference.ordinal, content_sha256: reference.content_sha256, trust_class: 'uploaded_file', evidence_status: 'untrusted_context' }
-    : { kind: 'accepted_artifact', artifact_id: reference.artifact_id!, chunk_id: reference.chunk_id, indexed_revision: reference.indexed_revision, ordinal: reference.ordinal, content_sha256: reference.content_sha256, trust_class: 'accepted_artifact', evidence_status: 'untrusted_context' });
+  return references.map(reference => {
+    if (reference.trust_class === 'uploaded_file') {
+      if (reference.file_id === null || reference.artifact_id !== null) throw new AgentosError('protocol', 'AgentOS returned invalid knowledge provenance.');
+      return { kind: 'workspace_file', file_id: reference.file_id, title: null, chunk_id: reference.chunk_id, indexed_revision: reference.indexed_revision, ordinal: reference.ordinal, content_sha256: reference.content_sha256, trust_class: 'uploaded_file', evidence_status: 'untrusted_context' };
+    }
+    if (reference.artifact_id === null || reference.file_id !== null) throw new AgentosError('protocol', 'AgentOS returned invalid knowledge provenance.');
+    return { kind: 'accepted_artifact', artifact_id: reference.artifact_id, chunk_id: reference.chunk_id, indexed_revision: reference.indexed_revision, ordinal: reference.ordinal, content_sha256: reference.content_sha256, trust_class: 'accepted_artifact', evidence_status: 'untrusted_context' };
+  });
 }
 export const companySnapshotSchema = z.strictObject({ summary: summarySchema, artifacts: z.array(artifact).max(100) }).refine(value => value.summary.company_id !== null && value.artifacts.every(item => item.company_id === value.summary.company_id && item.revision <= value.summary.revision));
 type CompanySnapshot = z.infer<typeof companySnapshotSchema>;
