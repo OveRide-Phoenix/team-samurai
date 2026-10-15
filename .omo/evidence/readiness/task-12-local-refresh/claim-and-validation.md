@@ -2,10 +2,11 @@
 
 ## Scope
 
-Only `README.md`, `docs/architecture.md`, `docs/local-development.md`, and
-`.omo/plans/README.md` were changed. This is a local documentation snapshot;
-it does not deploy, publish, call a provider, change an account, or claim a
-current cloud release.
+The committed documentation changes are `README.md`, `docs/architecture.md`,
+`docs/local-development.md`, and `.omo/plans/README.md`; this evidence receipt
+is included with them. This is a local documentation snapshot; it does not
+deploy, publish, call a provider, change an account, or claim a current cloud
+release.
 
 ## Claim sources
 
@@ -42,6 +43,3 @@ TASK9_ANCESTOR_OF_CURRENT_HEAD=YES
 5eea8dea4c4469c39e6682879d637d5ca3dcf0f8
 style(tests): apply upstream formatter
 ```
-
-The exact committed documentation SHA and independent read-only review are
-recorded in `post-commit-review.md` after the local documentation commit.

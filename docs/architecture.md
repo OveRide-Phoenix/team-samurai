@@ -6,14 +6,14 @@ The owner's Agno proposal selects a workflow-first implementation of AI Idea →
 
 | Layer | Choice | Status |
 |---|---|---|
-| Founder workspace | React/Vite, TypeScript, Tailwind, assistant-ui, Radix | Authenticated local intake, SSE progress, cancellation, and saved-result recovery implemented; production IAP sign-in, live brief and reload verified |
+| Founder workspace | React/Vite, TypeScript, Tailwind, assistant-ui, Radix | Authenticated local intake, SSE progress, cancellation, and saved-result recovery implemented; production IAP sign-in, live brief and reload were verified against recorded deployed revisions, not the current local source |
 | Agent runtime | Python, Agno AgentOS, FastAPI | With a configured Gemini model, current source registers one ordinary `Samurai` parent Agent with four bounded tools; local API and Chrome acceptance passed |
 | Orchestration | Explicit Agno Workflow stages, with bounded branching/parallelism | The local parent journey, conditional metrics analysis, restart/recall, and cancellation paths passed; launch drafts remain draft-only and were not generated live |
 | Intelligence | Gemini API initially; Vertex AI is a future deployment choice | Model configuration present; live access requires credentials |
 | Research | Native Gemini Search with bounded retained source evidence | The local API primary retained three unique sources and nine propagated references; the Chrome primary retained five unique sources. Claims remained unverified and verification returned `needs_rework` |
 | Records | PostgreSQL locally through Podman; Cloud SQL in production | The backend's app-owned workspace/company rows hold canonical state and revisioned artifact history; actor-scoped AgentOS sessions bind members to those companies. Root Taskfile commands manage only the local Samurai PostgreSQL service; Cloud SQL-backed readback and Agno Live reload were verified in the recorded backend deployment |
 | Artifacts | Local immutable workspace-file store with metadata/revision references in PostgreSQL; Cloud Storage is a future adapter | Provider-free workspace-file lifecycle accepted locally; no Cloud Storage adapter or deployment is established |
-| Hosting | Cloud Run for the Python backend and Node frontend serving Vite assets | Backend/frontend deployed; automatic and manual main rollouts verified |
+| Hosting | Cloud Run for the Python backend and Node frontend serving Vite assets | Historical backend/frontend deployment and automatic/manual main rollout acceptance are recorded; they do not show that the current local source is deployed |
 | Identity | JWT authentication plus company-scoped backend authorization | RS256 JWT/scope enforcement and owner isolation implemented; Agno Live key retained, additive frontend public key supports verified IAP subjects; the user skipped the live two-account browser exercise |
 
 Agno agents are reasoning roles, not independent services. Samurai is the one founder-facing ordinary Agent; Intake, Researcher, Strategist, Product Manager, Builder, Marketer, Sales, Analyst, and Verifier are internal roles. Explicit workflows own their order and validation. Deterministic code owns identity/session bindings, revision checks, artifact acceptance, limits, calculations, and execution controls. Preserve the root README's product story and architecture map.

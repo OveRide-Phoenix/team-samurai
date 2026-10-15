@@ -84,7 +84,7 @@ flowchart TD
     Plan --> Verifier
     Execute --> Verifier
     Verifier -->|"Conflicting or insufficient evidence"| Orchestrator
-    Verifier -->|"Checked results and explicit limitations"| State["PostgreSQL: company records; Cloud Storage: artifacts"]
+    Verifier -->|"Checked results and explicit limitations"| State["PostgreSQL: company records; local workspace files (Cloud Storage future)"]
     State --> Workspace
     State --> Orchestrator
     Orchestrator --> Approval["Explicit approval for consequential external actions"]
