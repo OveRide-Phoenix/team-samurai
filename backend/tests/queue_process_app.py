@@ -25,6 +25,7 @@ from samurai.parent import SamuraiParentAgent
 
 if TYPE_CHECKING:
     from collections import abc
+    from collections.abc import Sequence
 
     from agno.models.message import Message
     from fastapi import FastAPI
@@ -126,6 +127,11 @@ def _forbid_provider_call(*_args: object, **_kwargs: object) -> Never:
 
 async def _aforbid_provider_call(*_args: object, **_kwargs: object) -> Never:
     return _forbid_provider_call()
+
+
+async def _aforbid_source_fetch(_urls: Sequence[str]) -> Never:
+    message = "queue process fixtures forbid external source fetches"
+    raise InputCheckError(message)
 
 
 async def _reject_parent_run(*_args: object, **_kwargs: object) -> Never:
@@ -262,12 +268,18 @@ def create_queue_process_app() -> FastAPI:
         "ainvoke_stream",
         new=_forbid_provider_call,
     )
+    source_fetch_patch = patch.object(
+        company_workflow,
+        "fetch_sources",
+        new=_aforbid_source_fetch,
+    )
     run_patch = patch.object(SamuraiParentAgent, "arun", new=_reject_parent_run)
     _ = catalog_patch.start()
     _ = provider_patch.start()
     _ = async_provider_patch.start()
     _ = provider_stream_patch.start()
     _ = async_provider_stream_patch.start()
+    _ = source_fetch_patch.start()
     if os.environ["SAMURAI_QUEUE_MODEL_MODE"] == "registration_guard":
         _ = run_patch.start()
     app = create_app(
@@ -281,6 +293,7 @@ def create_queue_process_app() -> FastAPI:
         async_provider_patch,
         provider_stream_patch,
         async_provider_stream_patch,
+        source_fetch_patch,
         run_patch,
     )
     return app

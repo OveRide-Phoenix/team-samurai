@@ -690,9 +690,7 @@ class CompanyState(Contract):
                     "rejected_canonical_state", "canonical state accepts accepted artifacts only"
                 )
             if error := _adjudication_payload_error(artifact):
-                raise PydanticCustomError(
-                    "invalid_adjudication", "{error}", {"error": error}
-                )
+                raise PydanticCustomError("invalid_adjudication", "{error}", {"error": error})
             if error := _artifact_evidence_error(artifact):
                 raise PydanticCustomError(
                     "invalid_artifact_evidence",

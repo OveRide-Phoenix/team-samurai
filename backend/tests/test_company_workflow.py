@@ -20,6 +20,7 @@ from agno.db.sqlite import SqliteDb
 from agno.models.base import Model
 from agno.models.response import ModelResponse
 from agno.run import RunContext
+from agno.run.cancel import acleanup_run
 from agno.run.workflow import WorkflowRunOutput
 from agno.workflow import Step, StepInput, StepOutput, Workflow
 from pydantic import BaseModel, ConfigDict, HttpUrl, JsonValue, TypeAdapter, ValidationError
@@ -65,7 +66,7 @@ from samurai.source_fetch import (
 from samurai.team_areas import HANDOFF_MARKER, journey_handoff
 from samurai.workflow_state import WorkflowContextError, load_company_state, save_company_state
 from samurai.workspace_directory import WorkspaceDirectory
-from scripts.smoke_company_journey import SmokeArguments, SmokeError, run_smoke
+from scripts.smoke_company_journey import SmokeArguments, SmokeError, run_smoke, smoke_terminal
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
@@ -806,10 +807,13 @@ async def _run_workflow(
     workflow: Workflow,
     request: CompanyJourneyRequest,
     session_state: dict[str, JsonValue],
+    *,
+    run_id: str | None = None,
 ) -> WorkflowRunOutput:
     output = await workflow.arun(
         request,
         user_id="founder-1",
+        run_id=run_id,
         session_id="child-journey",
         session_state=session_state,
         dependencies={
@@ -926,6 +930,28 @@ def test_ordinary_research_adjudicates_before_offer(
     assert sum(model.calls for model in models.values()) == 5
 
 
+def test_smoke_requires_adjudicated_source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    catalog, _ = _catalog()
+
+    def catalog_factory(_settings: Settings) -> Mapping[Role, ConfiguredRole]:
+        return catalog
+
+    monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
+    monkeypatch.setattr("samurai.company_workflow.run_research", _complete_research)
+    workflow = create_company_workflow(
+        SqliteDb(db_file=str(tmp_path / "smoke-contract.db")), _settings()
+    )
+    session_state: dict[str, JsonValue] = {}
+
+    output = anyio.run(partial(_run_workflow, workflow, _complete_request(), session_state))
+    result = WorkflowResult.model_validate(output.content)
+    state = CompanyState.model_validate(session_state["company"])
+    incomplete = state.model_copy(update={"artifacts": state.artifacts[:2], "current_revision": 2})
+
+    assert smoke_terminal(result, state) is True
+    assert smoke_terminal(result, incomplete) is False
+
+
 def test_stale_adjudication_loses_existing_revision_fence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1021,6 +1047,7 @@ def test_cancellation_reaps_blocked_source_helper_before_returning(
         SqliteDb(db_file=str(tmp_path / "cancelled-adjudication.db")), _settings()
     )
     session_state: dict[str, JsonValue] = {}
+    run_id = "cancelled-source-helper"
 
     # When cancellation reaches the journey while the helper is blocked.
     async def scenario() -> bool:
@@ -1029,10 +1056,17 @@ def test_cancellation_reaps_blocked_source_helper_before_returning(
         async def invoke() -> None:
             nonlocal cancellation_observed
             try:
-                _ = await _run_workflow(workflow, _complete_request(), session_state)
+                _ = await _run_workflow(
+                    workflow,
+                    _complete_request(),
+                    session_state,
+                    run_id=run_id,
+                )
             except anyio.get_cancelled_exc_class():
                 cancellation_observed = True
                 raise
+            finally:
+                await acleanup_run(run_id)
 
         async with anyio.create_task_group() as tasks:
             _ = tasks.start_soon(invoke)

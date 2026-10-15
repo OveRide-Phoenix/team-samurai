@@ -43,7 +43,7 @@ from samurai.company_store_contracts import (
     MembershipRow,
     WorkspaceRole,
 )
-from samurai.contracts import ArtifactType, CompanyState, Contract
+from samurai.contracts import ArtifactType, CompanyState, Contract, ResearchArtifact
 from samurai.quota import QuotaResource, WorkspaceQuota, WorkspaceQuotaExceededError
 
 if TYPE_CHECKING:
@@ -270,9 +270,15 @@ def _terminal_acceptance(
         ApprovedStage.STRATEGY: ArtifactType.STRATEGY,
         ApprovedStage.PLAN: ArtifactType.VERIFICATION,
     }
-    target = targets[ApprovedStage(stage)]
+    approved_stage = ApprovedStage(stage)
+    target = targets[approved_stage]
     return any(
-        artifact.artifact_type == target and artifact.revision > expected_revision
+        artifact.artifact_type == target
+        and artifact.revision > expected_revision
+        and (
+            approved_stage is not ApprovedStage.RESEARCH
+            or (isinstance(artifact.payload, ResearchArtifact) and artifact.payload.is_adjudicated)
+        )
         for artifact in state.artifacts
     )
 
