@@ -662,6 +662,8 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
   What to do: On `Kalyan/founder-platform-t15-knowledge-context`, expose authorized index/search endpoints and strict `KnowledgeReference` fields on artifacts. Before Intake/Strategy/Verifier reasoning, retrieve at most five relevant chunks after membership/revision checks and wrap them as untrusted context. Persist only references actually used; file knowledge is founder/workspace context, never independent market support. Keep Google Search research as the only external retrieval path.
   Must NOT do: Do not let knowledge widen tools/identity/permissions, mark file text as supported market evidence, silently ingest all files, or invoke provider calls in tests.
 
+  Transaction prerequisite: fresh knowledge provenance and membership checks must run inside `CompanyStore.accept_in_transaction` under the same workspace quota/source locks used for file deletion and permission changes. Task 15 includes the minimal transaction-aware validator in `knowledge.py`, its canonical acceptance hook in `company_store.py`, and directly affected acceptance tests; dispatch-only checks are insufficient. Reuse the existing transaction rather than opening a nested transaction while holding quota locks.
+
   Wire-compatibility prerequisite: `frontend/src/agentos.ts` uses a strict ArtifactEnvelope schema. Adding backend knowledge references must include the matching strict wire schema and focused `agentos.test.ts` coverage in this task, preserving existing payload compatibility and rejecting malformed references. Task 16 still owns rendering, authenticated link behavior, and browser acceptance; do not weaken strict parsing or silently discard references.
 
   Parallelization: Can parallel: NO | Wave 13 | Blocks: [16] | Blocked by: [14]
@@ -693,7 +695,7 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
     Evidence: <attemptDir>/task-15-knowledge-context-error.json
   ```
 
-  Commit: YES | Message: `feat(knowledge): ground drafts in scoped workspace context` | Files: [backend/src/samurai/knowledge_api.py, backend/src/samurai/contracts.py, backend/src/samurai/company_workflow.py, backend/src/samurai/agents.py, backend/src/samurai/parent.py, backend/src/samurai/app.py, backend/src/samurai/prompts/main.md, backend/tests/test_knowledge_api.py, backend/tests/test_company_workflow.py, backend/tests/test_agents.py, frontend/src/agentos.ts, frontend/src/agentos.test.ts]
+  Commit: YES | Message: `feat(knowledge): ground drafts in scoped workspace context` | Files: [backend/src/samurai/knowledge_api.py, backend/src/samurai/knowledge.py, backend/src/samurai/company_store.py, backend/src/samurai/contracts.py, backend/src/samurai/company_workflow.py, backend/src/samurai/agents.py, backend/src/samurai/parent.py, backend/src/samurai/app.py, backend/src/samurai/prompts/main.md, backend/tests/test_knowledge_api.py, backend/tests/test_company_store_acceptance.py, backend/tests/test_company_workflow.py, backend/tests/test_agents.py, frontend/src/agentos.ts, frontend/src/agentos.test.ts]
 
 - [ ] 16. Render authenticated knowledge references through the typed UI
 
