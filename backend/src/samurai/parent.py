@@ -64,6 +64,8 @@ from samurai.contracts import (
     CompanyState,
     Contract,
     FounderMetricInput,
+    FounderTruth,
+    FrameworkReference,
     IntakeArtifact,
     ResearchArtifact,
     Role,
@@ -80,7 +82,7 @@ from samurai.execution_state import (
     WorkIntentError,
     WorkOperation,
 )
-from samurai.frameworks import FrameworkMetadata, load_framework_catalog
+from samurai.frameworks import load_framework_catalog
 from samurai.launch_workflows import (
     LaunchAction,
     LaunchDraftRequest,
@@ -152,8 +154,9 @@ class CompanyStateSummary(Contract):
     evidence_conflicts: tuple[str, ...] = ()
     verification_findings: tuple[VerificationFinding, ...] = ()
     next_decision: str | None = None
+    founder_truth: FounderTruth = FounderTruth()
     artifacts: tuple[ArtifactEnvelope, ...] = ()
-    frameworks: tuple[FrameworkMetadata, ...] = ()
+    frameworks: tuple[FrameworkReference, ...] = ()
 
     @override
     def __str__(self) -> str:
@@ -1398,14 +1401,17 @@ def create_parent_agent(  # noqa: C901, PLR0913, PLR0915 - bounded tool surface.
                 status="not_started",
                 frameworks=framework_metadata,
             )
-        brief = next(
+        intake = next(
             (
-                artifact.payload.brief
+                artifact.payload
                 for artifact in reversed(state.artifacts)
                 if isinstance(artifact.payload, IntakeArtifact)
             ),
             None,
         )
+        brief = intake.brief if intake is not None else None
+        founder_truth = intake.founder_truth if intake is not None else FounderTruth()
+        retained_frameworks = intake.frameworks if intake is not None else ()
         conflicts = tuple(
             conflict
             for artifact in state.artifacts
@@ -1416,8 +1422,8 @@ def create_parent_agent(  # noqa: C901, PLR0913, PLR0915 - bounded tool surface.
             finding for artifact in state.artifacts for finding in artifact.verification_findings
         )[-20:]
         sources = tuple(source for artifact in state.artifacts for source in artifact.sources)[-20:]
-        next_decision = None
-        if brief is not None:
+        next_decision = founder_truth.next_decision
+        if next_decision is None and brief is not None:
             next_decision = next(iter((*brief.open_questions, *brief.next_actions)), None)
         return CompanyStateSummary(
             company_id=state.context.company_id,
@@ -1429,8 +1435,9 @@ def create_parent_agent(  # noqa: C901, PLR0913, PLR0915 - bounded tool surface.
             evidence_conflicts=conflicts,
             verification_findings=findings,
             next_decision=next_decision,
+            founder_truth=founder_truth,
             artifacts=tuple({item.artifact_type: item for item in state.artifacts}.values()),
-            frameworks=framework_metadata,
+            frameworks=retained_frameworks or framework_metadata,
         )
 
     capabilities = ", ".join(

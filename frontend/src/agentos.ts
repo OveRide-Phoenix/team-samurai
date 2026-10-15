@@ -17,9 +17,19 @@ const frameworkMetadata = z.strictObject({
   allowed_roles: z.array(z.enum(['intake', 'strategist', 'verifier'])).min(1).max(3), sha256: z.string().regex(/^[0-9a-f]{64}$/), review_date: z.iso.date(),
 }).refine(value => value.source_url.replace(/\/$/, '') === `https://github.com/${value.source_repository}/tree/${value.source_revision}`
   && new Set(value.allowed_roles).size === value.allowed_roles.length);
+const founderKnownFact = z.strictObject({
+  text, basis: z.enum(['founder_context', 'retained_evidence']), context_key: z.enum(['idea', 'target_customer', 'geography', 'budget', 'founder_skills', 'goal', 'supplied_context']).nullable().default(null), evidence_ids: z.array(uuid).max(100).default([]),
+}).refine(value => (value.basis === 'founder_context' ? value.context_key !== null && value.evidence_ids.length === 0 : value.context_key === null && value.evidence_ids.length > 0)
+  && new Set(value.evidence_ids).size === value.evidence_ids.length);
+const founderTruth = z.strictObject({
+  known: z.array(founderKnownFact).max(100).default([]), believed: strings.default([]), hoped: strings.default([]), evidence_gaps: strings.default([]), bottleneck: text.nullable().default(null), next_decision: text.nullable().default(null),
+}).refine(value => {
+  const statements = [...value.known.map(item => item.text), ...value.believed, ...value.hoped].map(item => item.toLocaleLowerCase());
+  return statements.length === new Set(statements).size;
+});
 const brief = z.strictObject({ idea: text, target_customer: text.nullable(), geography: text.nullable(), budget: text.nullable(), founder_skills: text.nullable(), goal: text.nullable(), supplied_context: strings, assumptions: strings, open_questions: strings, next_actions: strings });
 const payload = z.discriminatedUnion('artifact_type', [
-  z.strictObject({ artifact_type: z.literal('intake'), brief }),
+  z.strictObject({ artifact_type: z.literal('intake'), brief, founder_truth: founderTruth.optional(), frameworks: z.array(frameworkMetadata).max(2).optional() }),
   z.strictObject({ artifact_type: z.literal('research'), summary: text, conflicts: strings }),
   z.strictObject({ artifact_type: z.literal('strategy'), ideal_customer_profile: text, positioning: text, offer: text, pricing_assumptions: strings }),
   z.strictObject({ artifact_type: z.literal('product_plan'), minimum_viable_offering: strings, delivery_requirements: strings, user_stories: strings, roadmap: strings }),
@@ -28,7 +38,8 @@ const payload = z.discriminatedUnion('artifact_type', [
   z.strictObject({ artifact_type: z.literal('sales_draft'), prospect_criteria: strings, outreach: strings, scripts: strings, objection_handling: strings }),
   z.strictObject({ artifact_type: z.literal('analysis'), metric_ids: z.array(uuid).min(1).max(100), findings: strings, recommendations: strings, basis: z.enum(['connected_measurements', 'based_on_founder_supplied_metrics']) }),
   z.strictObject({ artifact_type: z.literal('verification'), checked_artifact_ids: z.array(uuid).min(1).max(100), outcome: z.enum(['verified', 'needs_input', 'needs_rework']) }),
-]);
+]).refine(value => value.artifact_type !== 'intake' || value.frameworks === undefined || (value.frameworks.length === 1
+  && value.frameworks[0]?.id === 'founder_truth' && value.frameworks[0].allowed_roles.includes('intake')));
 const source = z.strictObject({ source_id: uuid, url: z.string().url().refine(value => /^https?:\/\//.test(value)), title: text, retrieved_at: date, search_query: text, excerpt: z.string().min(1).max(2000) });
 const metric = z.strictObject({ metric_id: uuid, name: text, value: z.number().finite(), unit: text, window_start: date, window_end: date, source_label: text, collected_at: date, provenance: z.enum(['connected_measurement', 'founder_supplied', 'demo_fixture']), trusted_connector_receipt: text.nullable().default(null) }).refine(value => Date.parse(value.window_end) > Date.parse(value.window_start) && ((value.provenance === 'connected_measurement') === Boolean(value.trusted_connector_receipt)));
 const artifact = z.strictObject({
@@ -48,7 +59,7 @@ const summarySchema = z.strictObject({
   company_id: uuid.nullable(), revision: z.number().int().min(0), artifact_count: z.number().int().min(0), status: z.enum(['active', 'not_started']),
   brief: brief.nullable().default(null), sources: z.array(source).max(100).default([]), evidence_conflicts: strings.default([]),
   verification_findings: z.array(z.strictObject({ code: text, message: text, severity: z.enum(['info', 'warning', 'error']) })).max(100).default([]),
-  next_decision: text.nullable().default(null), artifacts: z.array(artifact).max(20).default([]), frameworks: z.array(frameworkMetadata).max(2).default([]),
+  next_decision: text.nullable().default(null), founder_truth: founderTruth.optional(), artifacts: z.array(artifact).max(20).default([]), frameworks: z.array(frameworkMetadata).max(2).default([]),
 }).refine(value => value.artifacts.every(item => item.company_id === value.company_id && item.revision <= value.revision)
   && new Set(value.frameworks.map(item => item.id)).size === value.frameworks.length);
 export const companyResultSchema = z.union([resultSchema, summarySchema]);

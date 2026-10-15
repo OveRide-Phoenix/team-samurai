@@ -34,6 +34,7 @@ from samurai.contracts import (
     Assumption,
     CompanyBrief,
     CompanyState,
+    FounderTruth,
     IntakeArtifact,
     ProductPlanArtifact,
     ResearchArtifact,
@@ -242,7 +243,14 @@ def _deterministic_catalog() -> dict[Role, ConfiguredRole]:
                 assumptions=[],
                 open_questions=[],
                 next_actions=["Interview clinic owners."],
-            )
+            ),
+            founder_truth=FounderTruth(
+                believed=("Clinics may lose bookings from missed calls.",),
+                hoped=("A clinic will pay for a pilot.",),
+                evidence_gaps=("No retained clinic interviews or payment evidence.",),
+                bottleneck="Validate the missed-call problem.",
+                next_decision="Choose which clinic segment to interview first.",
+            ),
         ),
         Role.RESEARCHER: ResearchArtifact(summary="unused", conflicts=()),
         Role.STRATEGIST: StrategyArtifact(
@@ -514,6 +522,32 @@ def test_queue_compatible_copies_isolate_owner_model_and_tool_state(
     assert sum(summary.company_id == owner_state.context.company_id for summary in summaries) == 1
     assert len(models) == 2
     assert [model.calls for model in models] == [0, 0]
+
+
+def test_parent_summary_preserves_founder_truth_next_decision() -> None:
+    # Given an additive company summary carrying the canonical Intake diagnosis.
+    truth = FounderTruth(
+        believed=("Clinics may lose bookings from missed calls.",),
+        evidence_gaps=("No retained clinic interviews.",),
+        bottleneck="Validate the missed-call problem.",
+        next_decision="Choose which clinic segment to interview.",
+    )
+
+    # When it crosses the parent JSON boundary.
+    restored = CompanyStateSummary.model_validate_json(
+        CompanyStateSummary(
+            company_id=None,
+            revision=0,
+            artifact_count=0,
+            status="not_started",
+            founder_truth=truth,
+            next_decision=truth.next_decision,
+        ).model_dump_json()
+    )
+
+    # Then the structured truth and one decision remain exact.
+    assert restored.founder_truth == truth
+    assert restored.next_decision == truth.next_decision
 
 
 def test_plain_registered_parent_runs_and_reads_through_agentos(tmp_path: pathlib.Path) -> None:
