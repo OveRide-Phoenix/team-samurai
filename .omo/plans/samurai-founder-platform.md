@@ -653,7 +653,9 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
     Evidence: <attemptDir>/task-14-knowledge-error.json
   ```
 
-  Commit: YES | Message: `feat(knowledge): index scoped artifacts and file text` | Files: [backend/src/samurai/knowledge.py, backend/tests/test_knowledge.py, backend/tests/fixtures/platform-evals/knowledge.json]
+  Schema prerequisite discovered during execution: migration `0001` uniquely keys chunks by workspace/content hash/ordinal, which collides for distinct sources with identical bytes. Task 14 includes an additive `0002_knowledge_provenance.sql` migration and the ordered migration allowlist in `schema.py`. Preserve applied `0001` unchanged and preserve the authoritative source content hash; do not salt it with source identity. Enforce exactly one source identity and source-scoped uniqueness, with explicit derived trust classes. Verify existing-0001 upgrade, duplicate-content provenance, idempotent reapply, and atomic rejection of invalid legacy rows without deleting them.
+
+  Commit: YES | Message: `feat(knowledge): index scoped artifacts and file text` | Files: [backend/src/samurai/knowledge.py, backend/src/samurai/migrations/0002_knowledge_provenance.sql, backend/src/samurai/schema.py, backend/tests/test_knowledge.py, backend/tests/test_workspace_quota_resources.py, backend/tests/fixtures/platform-evals/knowledge.json]
 
 - [ ] 15. Integrate bounded knowledge context and provenance into workflows and APIs
 
