@@ -5,7 +5,8 @@ deployed flow.  Record against the eventual demo version and replace every
 `PENDING` scene only with its referenced evidence.
 
 **16 October update:** the recorded template is now readable in the internal
-browser. Its 12-slide structure and the remaining download/layout limitations
+browser and its public PowerPoint export downloaded successfully. The full
+16-slide inventory and remaining layout limitations
 are recorded in the [template checklist](template-checklist.md). The access
 failure below describes the earlier 13 October check.
 

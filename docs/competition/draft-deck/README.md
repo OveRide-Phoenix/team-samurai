@@ -42,7 +42,8 @@ The official deck-template URL was not accessible through the permitted
 read-only check on 2026-10-13. Apply an authorized template only after the
 portal confirms it; do not treat this local layout as template compliant.
 
-On 16 October the internal browser exposed the recorded template's 12-slide
-structure; downloading it still failed. See the [template checklist](../template-checklist.md)
-for content mapping and remaining requirements. This seven-slide draft has not
-yet been rebuilt in that layout.
+On 16 October the internal browser exposed the first 12 template slides. The
+public PowerPoint export then downloaded successfully and contains 16 slides.
+See the [template checklist](../template-checklist.md) for the full inventory,
+source hash, and remaining requirements. This seven-slide draft has not yet
+been rebuilt in that layout.
