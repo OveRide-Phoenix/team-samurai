@@ -35,7 +35,7 @@ type WorkspaceContextValue = {
   open: (panel: Panel | null) => void;
   discuss: (prompt: string, panel?: Panel) => void;
   selectArea: (area: TeamArea, draft?: string) => void;
-  area: TeamArea;
+  area: TeamArea; workspaceId?: string;
   grouped: boolean;
 };
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
@@ -50,7 +50,7 @@ function BusinessPanel(props: { panel: Panel; compact?: boolean; expanded?: bool
   return props.panel.kind === 'custom' || props.panel.kind === 'declarative' ? <BusinessPanelContent {...props} /> : <Suspense fallback={<BusinessPanelContent {...props} />}><KnownPanel {...props} render={BusinessPanelContent} /></Suspense>;
 }
 function BusinessPanelContent({ panel, compact = false, expanded = false, expandable = false }: { panel: Panel; compact?: boolean; expanded?: boolean; expandable?: boolean }) {
-  const { workspace, mode, pin, shortlist, approve, completeTask, open, discuss } = useWorkspace();
+  const { workspace, mode, pin, shortlist, approve, completeTask, open, discuss, workspaceId } = useWorkspace();
   const pinned = workspace.pinned.some(item => item.id === panel.id);
   const approved = workspace.approvedOffers.includes(panel.id);
   return (
@@ -62,7 +62,7 @@ function BusinessPanelContent({ panel, compact = false, expanded = false, expand
           {expandable && <button className="icon-button" onClick={() => open(expanded ? null : panel)} aria-expanded={expanded} aria-label={`${expanded ? 'Collapse' : 'Expand'} ${panel.title}`}>{expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}</button>}
         </div>
       </div>
-      <GenerativePanelBody mode={mode} panel={panel} compact={compact && !expanded} completedTasks={workspace.completedTasks} onComplete={completeTask} shortlisted={workspace.shortlist} onShortlist={shortlist} approved={approved} onApprove={() => approve(panel.id)} onDiscuss={prompt => discuss(prompt, panel)} />
+      <GenerativePanelBody mode={mode} panel={panel} compact={compact && !expanded} completedTasks={workspace.completedTasks} onComplete={completeTask} shortlisted={workspace.shortlist} onShortlist={shortlist} approved={approved} onApprove={() => approve(panel.id)} onDiscuss={prompt => discuss(prompt, panel)} workspaceId={workspaceId} />
       {!panel.provenance && panel.note && <details className="panel-note panel-note-details"><summary><CircleHelp size={12} />{panel.kind === 'custom' || panel.kind === 'declarative' ? 'Working assumptions' : workspace.executionMode === 'preview' ? 'Sample data' : 'Draft notes'}</summary><p>{panel.note}</p></details>}
       {panel.provenance && panel.kind !== 'evidence' && <p className="panel-note">Draft · Review before acting</p>}
     </section>
@@ -381,7 +381,7 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
     if (conversationAtBottom && (view === 'chat' || conversationOpen)) viewportRef.current?.scrollTo({ top: viewportRef.current.scrollHeight, behavior: 'smooth' });
   }, [workspace.messages.length, view, conversationOpen, conversationAtBottom]);
 
-  return <WorkspaceContext.Provider value={{ workspace, mode, pin, shortlist, approve, completeTask, open: openPanel, discuss, selectArea, area, grouped: focused }}><AssistantRuntimeProvider runtime={runtime}>
+  return <WorkspaceContext.Provider value={{ workspace, mode, pin, shortlist, approve, completeTask, open: openPanel, discuss, selectArea, area, workspaceId: company.workspaceId, grouped: focused }}><AssistantRuntimeProvider runtime={runtime}>
     <div className={['workspace company-workspace', view === 'company' ? 'dashboard-open grouped-company' : '', conversationOpen ? 'conversation-open' : ''].join(' ')}>
       <Atmosphere mode={mode} /><TransitionGrain key={view} /><div className="bottom-blur" aria-hidden="true" />
       <header className="topbar">

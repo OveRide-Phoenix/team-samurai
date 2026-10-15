@@ -105,6 +105,14 @@ describe('AgentOS transport wire boundary', () => {
     expect(companyResultSchema.safeParse({ ...grounded, artifacts: [{ ...grounded.artifacts[0], knowledge_references: [{ ...reference, content_sha256: 'bad' }] }] }).success).toBe(false);
   });
 
+  it('maps strategy knowledge provenance to its stable existing panels', () => {
+    const reference = { chunk_id: '00000000-0000-4000-8000-000000000010', file_id: '00000000-0000-4000-8000-000000000011', artifact_id: null, indexed_revision: 7, ordinal: 2, content_sha256: 'b'.repeat(64), trust_class: 'uploaded_file', evidence_status: 'untrusted_context' };
+    const strategy = { ...result.artifacts[0], artifact_type: 'strategy', producer: 'strategist', sources: [], claims: [], knowledge_references: [reference], payload: { artifact_type: 'strategy', ideal_customer_profile: 'Independent clinics', positioning: 'Reduce missed calls', offer: 'Receptionist trial', pricing_assumptions: [] } };
+    const events = companySnapshotEvents({ summary: { company_id: company, revision: 1, artifact_count: 1, status: 'active', brief: null, sources: [], evidence_conflicts: [], verification_findings: [], next_decision: null, artifacts: [], frameworks: [] }, artifacts: [strategy] }, company);
+    const panel = events.filter(event => event.type === 'message').find(event => event.panel?.id === `artifact-${artifactId}` && event.panel.kind === 'offer')?.panel;
+    expect(panel).toMatchObject({ id: `artifact-${artifactId}`, knowledge_sources: [{ kind: 'workspace_file', file_id: reference.file_id, chunk_id: reference.chunk_id, trust_class: 'uploaded_file' }] });
+  });
+
   it('parses additive founder truth and exact framework provenance in Intake snapshots', () => {
     const framework = { id: 'founder_truth', version: '1.0.0', source_repository: 'gvkhosla/founder-skills', source_revision: '07ea968338cff2ba67ff245671765ea957ce0a0c', source_url: 'https://github.com/gvkhosla/founder-skills/tree/07ea968338cff2ba67ff245671765ea957ce0a0c', license: 'MIT', attribution: 'Adapted from Founder Skills by Geet Khosla.', allowed_roles: ['intake', 'strategist', 'verifier'], sha256: 'ba206825fb8ebd15cf911397e55628ff8b5aacf28cbb02b65d20c978bc31e0bb', review_date: '2026-10-15' };
     const truth = { known: [{ text: 'Python', basis: 'founder_context', context_key: 'founder_skills', evidence_ids: [] }], believed: ['Clinics may lose bookings'], hoped: ['A clinic will pay'], evidence_gaps: ['No interviews'], bottleneck: 'Validate the pain', next_decision: 'Choose a clinic segment' };

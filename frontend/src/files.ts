@@ -36,6 +36,10 @@ export function listWorkspaceFiles(workspaceId: string): Promise<WorkspaceFile[]
   return request(filesPath(workspaceId), z.array(fileSchema), { method: 'GET' });
 }
 
+export function getWorkspaceFile(workspaceId: string, fileId: string): Promise<WorkspaceFile> {
+  return request(`${filesPath(workspaceId)}/${uuid.parse(fileId)}`, fileSchema, { method: 'GET' });
+}
+
 export function uploadWorkspaceFile(workspaceId: string, file: File, companyId?: string): Promise<WorkspaceFile> {
   const form = new FormData();
   form.set('file', file);

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { deleteWorkspaceFile, listWorkspaceFiles, uploadWorkspaceFile } from './files';
+import { deleteWorkspaceFile, downloadWorkspaceFile, getWorkspaceFile, listWorkspaceFiles, uploadWorkspaceFile } from './files';
 
 const workspaceId = '00000000-0000-4000-8000-000000000001';
 const companyId = '00000000-0000-4000-8000-000000000002';
@@ -40,5 +40,15 @@ describe('workspace file client', () => {
   it('accepts the backend delete response with no JSON body', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 204 })));
     await expect(deleteWorkspaceFile(workspaceId, file.file_id)).resolves.toBeUndefined();
+  });
+
+  it('reads metadata and downloads through the fixed same-origin BFF without a browser token', async () => {
+    const request = vi.fn<typeof fetch>(async () => Response.json(file));
+    vi.stubGlobal('fetch', request);
+    await expect(getWorkspaceFile(workspaceId, file.file_id)).resolves.toEqual(file);
+    expect(request).toHaveBeenCalledWith(`/api/agentos/samurai/workspaces/${workspaceId}/files/${file.file_id}`, expect.objectContaining({ method: 'GET', credentials: 'same-origin', headers: { 'X-Samurai-Client': '1' } }));
+
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('founder context', { status: 200 })));
+    await expect(downloadWorkspaceFile(workspaceId, file.file_id)).resolves.toBeInstanceOf(Response);
   });
 });
