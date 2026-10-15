@@ -619,7 +619,7 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
 
   Commit: YES | Message: `feat(ui): render attributed founder decisions` | Files: [frontend/src/agentos.ts, frontend/src/agentos.test.ts, frontend/src/GenerativePanelBody.tsx, frontend/src/GenerativePanelBody.test.ts, frontend/src/model.ts, frontend/src/model.test.ts, frontend/src/styles.css, frontend/BACKEND_CONTRACT.md]
 
-- [ ] 14. Add workspace knowledge storage and deterministic retrieval
+- [x] 14. Add workspace knowledge storage and deterministic retrieval
 
   What to do: On `Kalyan/founder-platform-t14-knowledge`, index two trust classes: accepted ArtifactEnvelope text and ready UTF-8 text/Markdown/CSV/JSON files. Chunk normalized text into at most 50 chunks/file, 2,000 characters/chunk, and 1,000 chunks/workspace. Store workspace/company/file/artifact ID, content hash, ordinal, excerpt, trust class, and indexed revision. Retrieve at most five chunks using deterministic casefolded token overlap with stable tie-breaking; no embeddings/vector DB/model call. Reindex changed hashes idempotently and delete inaccessible/deleted-file chunks.
   Must NOT do: Do not index quarantined/deleted/PDF bytes, external web pages outside accepted artifacts, secrets, other workspaces, or treat retrieval rank as evidence support.
