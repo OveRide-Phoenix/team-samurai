@@ -842,7 +842,7 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
 
   Commit: YES | Message: `feat(scenario): analyze explicit business assumptions` | Files: [backend/src/samurai/scenarios.py, backend/src/samurai/scenario_api.py, backend/tests/test_scenarios.py, backend/tests/fixtures/platform-evals/scenarios.json]
 
-- [ ] 20. Integrate learning, schedules, scenarios, typed UI, and full local acceptance
+- [x] 20. Integrate learning, schedules, scenarios, typed UI, and full local acceptance
 
   Verified integration seam: the production BFF explicitly allowlists routes and request bodies in `frontend/server/production.mjs`; new learning, schedule, and scenario controls require narrow corresponding proxy routes, validated payload/header forwarding, and `frontend/tests/production-server.test.mjs` coverage. Preserve signed server-side identity and fail-closed routing; never introduce a generic backend proxy. Task-owned browser ports must be free and must not replace an existing user runtime at 4173.
 
@@ -860,9 +860,9 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
   - Test:     `backend/scripts/verify_readiness.py:1` - provider-free target-pair acceptance pattern
 
   Acceptance criteria (agent-executable only):
-  - [ ] `task check`, server/sites tests, full provider-free platform eval runner, migration/restore, and loopback smoke pass at one candidate SHA.
-  - [ ] A persisted due schedule executes one scenario exactly once, survives backend restart/reload, and renders a labelled typed panel without changing canonical company revision.
-  - [ ] Exact-commit OMo/Ponytail review finds no unresolved high/medium issue; local integration merges preserve clean status and no unreviewed commit. Docs distinguish implemented/local/provider-free/deferred/deployed states.
+  - [x] `task check`, server/sites tests, full provider-free platform eval runner, migration/restore, and loopback smoke pass at one candidate SHA.
+  - [x] A persisted due schedule executes one scenario exactly once, survives backend restart/reload, and renders a labelled typed panel without changing canonical company revision.
+  - [x] Exact-commit OMo/Ponytail review finds no unresolved high/medium issue; local integration merges preserve clean status and no unreviewed commit. Docs distinguish implemented/local/provider-free/deferred/deployed states.
 
   QA scenarios (MANDATORY - task incomplete without these):
   ```
@@ -880,6 +880,8 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
   ```
 
   Commit: YES | Message: `feat(platform): integrate bounded founder operations` | Files: [frontend/server/production.mjs, frontend/tests/production-server.test.mjs, backend/src/samurai/app.py, backend/src/samurai/schedules.py, backend/src/samurai/platform_api.py, backend/scripts/run_platform_evals.py, backend/tests/test_platform_e2e.py, frontend/src/model.ts, frontend/src/model.test.ts, frontend/src/App.tsx, frontend/src/GenerativePanelBody.tsx, frontend/src/GenerativePanelBody.test.ts, frontend/src/scenarios.ts, frontend/src/styles.css, frontend/BACKEND_CONTRACT.md, README.md, backend/README.md, frontend/README.md, docs/architecture.md, docs/local-development.md, .omo/plans/README.md]
+
+Local acceptance: `7b731d6942e113e671d5ce0110d694deea19193e`, fast-forwarded into the founder integration branch. `task check` passed (554 backend tests, 150 frontend tests, build); server tests passed 60/60, Sites tests 4/4, and platform evaluations 40/40 without skips or provider calls. Browser creation/reload and actual backend restart evidence, revoked scheduled-actor rejection, isolated restore reconciliation, exact-commit review, and task-owned cleanup passed. F1–F4 remain pending; this is not deployment or competition acceptance.
 
 ## Final verification wave (MANDATORY - after all implementation tasks)
 > Runs in PARALLEL. ALL must APPROVE. Surface results to the caller and wait for an explicit "okay" before declaring complete.
