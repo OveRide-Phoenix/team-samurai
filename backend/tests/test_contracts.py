@@ -22,11 +22,13 @@ from samurai.contracts import (
     IntakeArtifact,
     InvalidArtifactTransitionError,
     MeasuredResult,
+    OfferDiagnostic,
     Role,
     SessionMismatchError,
     SourcedClaim,
     SourceReference,
     StaleRevisionError,
+    StrategyArtifact,
     VerificationFinding,
     accept_artifact,
     create_company_state,
@@ -108,6 +110,43 @@ def test_founder_truth_rejects_contradictory_categories() -> None:
             ),
             believed=("Customers will pay.",),
         )
+
+
+def test_offer_diagnostic_rejects_a_forged_framework_authority() -> None:
+    reference = FrameworkReference(
+        id="founder_truth",
+        version="1.0.0",
+        source_repository="gvkhosla/founder-skills",
+        source_revision="07ea968338cff2ba67ff245671765ea957ce0a0c",
+        source_url=HttpUrl(
+            "https://github.com/gvkhosla/founder-skills/tree/07ea968338cff2ba67ff245671765ea957ce0a0c"
+        ),
+        license="MIT",
+        attribution="Founder truth.",
+        allowed_roles=(Role.INTAKE, Role.STRATEGIST),
+        sha256="ba206825fb8ebd15cf911397e55628ff8b5aacf28cbb02b65d20c978bc31e0bb",
+        review_date="2026-10-15",
+    )
+    with pytest.raises(ValidationError, match="offer diagnostics require"):
+        _ = OfferDiagnostic(
+            market="Clinics",
+            painful_problem="Missed calls",
+            purchasing_power_assumption=Assumption(assumption_id=uuid4(), text="Budget unknown"),
+            draft_offer="A pilot",
+            evidence_needed=("Retained willingness-to-pay evidence.",),
+            framework=reference,
+        )
+    assert (
+        StrategyArtifact.model_validate(
+            {
+                "ideal_customer_profile": "Clinics",
+                "positioning": "Handle missed calls",
+                "offer": "A pilot",
+                "pricing_assumptions": [],
+            }
+        ).offer_diagnostic
+        is None
+    )
 
 
 def _artifact(state: CompanyState, *, input_revision: int | None = None) -> ArtifactEnvelope:

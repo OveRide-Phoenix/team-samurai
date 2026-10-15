@@ -25,6 +25,7 @@ from samurai.contracts import (
     FounderTruth,
     FrameworkReference,
     IntakeArtifact,
+    OfferDiagnostic,
     ProductPlanArtifact,
     ResearchArtifact,
     Role,
@@ -70,7 +71,9 @@ JOURNEY_TYPES = (
     ArtifactType.PRODUCT_PLAN,
     ArtifactType.VERIFICATION,
 )
-type ArtifactStatus = Literal["complete", "insufficient_evidence", "needs_input", "needs_rework"]
+type ArtifactStatus = Literal[
+    "complete", "insufficient_evidence", "needs_input", "needs_rework", "draft_only"
+]
 type FailureCode = Literal["invalid_context", "invalid_revision", "invalid_company_input"]
 RESEARCH_RESULT_ADAPTER = TypeAdapter(ResearchResult)
 JSON_VALUE_ADAPTER = TypeAdapter(JsonValue)
@@ -109,11 +112,20 @@ class _IntakeDraft(BaseModel):
     founder_truth: FounderTruth = FounderTruth()
 
 
+class _OfferDiagnosticDraft(BaseModel):
+    market: str
+    painful_problem: str
+    purchasing_power_assumption: str
+    draft_offer: str
+    evidence_needed: tuple[str, ...]
+
+
 class _StrategyDraft(BaseModel):
     ideal_customer_profile: str
     positioning: str
     offer: str
     pricing_assumptions: tuple[str, ...]
+    offer_diagnostic: _OfferDiagnosticDraft | None = None
 
 
 class _ProductDraft(BaseModel):
@@ -375,6 +387,69 @@ def _has_retained_mappings(result: ResearchResult) -> bool:
     )
 
 
+def _supported_research_claim(research: ArtifactEnvelope) -> SourcedClaim | None:
+    sources = {source.source_id: source for source in research.sources}
+    return next(
+        (
+            claim
+            for claim in research.claims
+            if claim.support_status == "mapped"
+            and claim.verification_status == "supported"
+            and bool(claim.support_segments)
+            and all(
+                any(
+                    (source := sources.get(source_id)) is not None and segment in source.excerpt
+                    for source_id in claim.source_ids
+                )
+                for segment in claim.support_segments
+            )
+        ),
+        None,
+    )
+
+
+def _has_critical_contradiction(research: ArtifactEnvelope) -> bool:
+    return bool(ResearchArtifact.model_validate(research.payload).conflicts) or any(
+        claim.verification_status == "contradicted" for claim in research.claims
+    )
+
+
+def _offer_framework() -> FrameworkReference:
+    references = tuple(
+        FrameworkReference.model_validate(resource.metadata.model_dump())
+        for resource in load_framework_catalog().for_role(Role.STRATEGIST)
+        if resource.metadata.id == "offer_diagnostic"
+    )
+    if len(references) != 1:
+        message = "reviewed offer framework is unavailable"
+        raise JourneyInputError(message)
+    return references[0]
+
+
+def _offer_diagnostic(draft: _StrategyDraft, supported_problem: str) -> OfferDiagnostic:
+    proposed = draft.offer_diagnostic
+    if proposed is None:
+        proposed = _OfferDiagnosticDraft(
+            market=draft.ideal_customer_profile,
+            painful_problem=supported_problem,
+            purchasing_power_assumption=(
+                "Purchasing power requires retained willingness-to-pay evidence."
+            ),
+            draft_offer=draft.offer,
+            evidence_needed=("Retained willingness-to-pay evidence.",),
+        )
+    return OfferDiagnostic(
+        market=proposed.market,
+        painful_problem=supported_problem,
+        purchasing_power_assumption=Assumption(
+            assumption_id=uuid4(), text=proposed.purchasing_power_assumption
+        ),
+        draft_offer=proposed.draft_offer,
+        evidence_needed=proposed.evidence_needed,
+        framework=_offer_framework(),
+    )
+
+
 async def _agent_payload[PayloadT: BaseModel](
     agent: ResearchAgent, prompt: str, schema: type[PayloadT]
 ) -> PayloadT:
@@ -632,19 +707,34 @@ class _Journey:
         if prior is not None:
             return _step_output(prior)
         research = _research_lineage(state)
+        if _has_critical_contradiction(research):
+            return _step_output(_result(state, "needs_rework"), stop=True)
+        supported_claim = _supported_research_claim(research)
+        if supported_claim is None:
+            return _step_output(
+                _result(
+                    state,
+                    "needs_input",
+                    questions=("What retained source segment supports the painful problem?",),
+                ),
+                stop=True,
+            )
         draft = await _agent_payload(
             self.strategy_agent,
             state.model_dump_json(),
             _StrategyDraft,
         )
-        payload = StrategyArtifact.model_validate(draft.model_dump())
+        diagnostic = _offer_diagnostic(draft, supported_claim.text)
+        payload = StrategyArtifact.model_validate(
+            {**draft.model_dump(exclude={"offer_diagnostic"}), "offer_diagnostic": diagnostic}
+        )
         conflicts = ResearchArtifact.model_validate(research.payload).conflicts
         envelope = _envelope(
             state,
             _ArtifactCandidate(
                 payload=payload,
                 producer=Role.STRATEGIST,
-                status="complete",
+                status="draft_only",
                 findings=(
                     *tuple(
                         finding
@@ -663,9 +753,16 @@ class _Journey:
                 ),
                 sources=research.sources,
                 claims=research.claims,
-                assumptions=tuple(
-                    Assumption(assumption_id=uuid4(), text=text)
-                    for text in payload.pricing_assumptions
+                assumptions=(
+                    *tuple(
+                        Assumption(assumption_id=uuid4(), text=text)
+                        for text in (
+                            *payload.pricing_assumptions,
+                            payload.offer,
+                            diagnostic.draft_offer,
+                        )
+                    ),
+                    diagnostic.purchasing_power_assumption,
                 ),
             ),
         )
@@ -742,14 +839,12 @@ class _Journey:
         accepted = tuple(artifact for artifact in upstream if artifact is not None)
         research = ResearchArtifact.model_validate(accepted[1].payload)
         intake_truth = IntakeArtifact.model_validate(accepted[0].payload).founder_truth
-        strategy = StrategyArtifact.model_validate(accepted[2].payload)
-        supported_text = " ".join(claim.text for claim in accepted[1].claims)
         numbers: set[str] = {
             token
-            for assumption in strategy.pricing_assumptions
-            for token in _numeric_tokens(assumption)
+            for assumption in accepted[2].assumptions
+            for token in _numeric_tokens(assumption.text)
         }
-        unsupported = tuple(sorted(token for token in numbers if token not in supported_text))
+        unsupported = tuple(sorted(numbers))
         outcome = "needs_rework" if unsupported or research.conflicts else proposal.outcome
         findings: list[VerificationFinding] = []
         if research.conflicts:

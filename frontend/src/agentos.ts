@@ -17,6 +17,10 @@ const frameworkMetadata = z.strictObject({
   allowed_roles: z.array(z.enum(['intake', 'strategist', 'verifier'])).min(1).max(3), sha256: z.string().regex(/^[0-9a-f]{64}$/), review_date: z.iso.date(),
 }).refine(value => value.source_url.replace(/\/$/, '') === `https://github.com/${value.source_repository}/tree/${value.source_revision}`
   && new Set(value.allowed_roles).size === value.allowed_roles.length);
+const assumption = z.strictObject({ assumption_id: uuid, text });
+const offerDiagnostic = z.strictObject({
+  market: text, painful_problem: text, purchasing_power_assumption: assumption, draft_offer: text, evidence_needed: strings.min(1), framework: frameworkMetadata,
+}).refine(value => value.framework.id === 'offer_diagnostic' && value.framework.allowed_roles.includes('strategist'));
 const founderKnownFact = z.strictObject({
   text, basis: z.enum(['founder_context', 'retained_evidence']), context_key: z.enum(['idea', 'target_customer', 'geography', 'budget', 'founder_skills', 'goal', 'supplied_context']).nullable().default(null), evidence_ids: z.array(uuid).max(100).default([]),
 }).refine(value => (value.basis === 'founder_context' ? value.context_key !== null && value.evidence_ids.length === 0 : value.context_key === null && value.evidence_ids.length > 0)
@@ -31,7 +35,7 @@ const brief = z.strictObject({ idea: text, target_customer: text.nullable(), geo
 const payload = z.discriminatedUnion('artifact_type', [
   z.strictObject({ artifact_type: z.literal('intake'), brief, founder_truth: founderTruth.optional(), frameworks: z.array(frameworkMetadata).max(2).optional() }),
   z.strictObject({ artifact_type: z.literal('research'), summary: text, conflicts: strings }),
-  z.strictObject({ artifact_type: z.literal('strategy'), ideal_customer_profile: text, positioning: text, offer: text, pricing_assumptions: strings }),
+  z.strictObject({ artifact_type: z.literal('strategy'), ideal_customer_profile: text, positioning: text, offer: text, pricing_assumptions: strings, offer_diagnostic: offerDiagnostic.nullable().optional() }),
   z.strictObject({ artifact_type: z.literal('product_plan'), minimum_viable_offering: strings, delivery_requirements: strings, user_stories: strings, roadmap: strings }),
   z.strictObject({ artifact_type: z.literal('builder_draft'), architecture: strings, database_schema: strings, apis: strings, user_interface: strings, deployment_configuration: strings }),
   z.strictObject({ artifact_type: z.literal('marketing_draft'), landing_page: text, ads: strings, social_posts: strings, emails: strings }),
@@ -47,7 +51,7 @@ const artifact = z.strictObject({
   status: z.enum(['complete', 'insufficient_evidence', 'needs_input', 'needs_rework', 'draft_only', 'requires_metrics', 'based_on_founder_supplied_metrics']), acceptance_status: z.enum(['pending', 'accepted']).default('pending'), payload,
   founder_statements: z.array(z.strictObject({ statement_id: uuid, text })).max(100).default([]), sources: z.array(source).max(100).default([]),
   claims: z.array(z.strictObject({ claim_id: uuid, text, source_ids: z.array(uuid).min(1).max(100), support_status: z.enum(['mapped', 'unmapped']), support_segments: strings, verification_status: z.enum(['unverified', 'supported', 'contradicted']) }).refine(value => value.support_status !== 'mapped' || value.support_segments.length > 0)).max(100).default([]),
-  measurements: z.array(metric).max(100).default([]), assumptions: z.array(z.strictObject({ assumption_id: uuid, text })).max(100),
+  measurements: z.array(metric).max(100).default([]), assumptions: z.array(assumption).max(100),
   verification_findings: z.array(z.strictObject({ code: text, message: text, severity: z.enum(['info', 'warning', 'error']) })).min(1).max(100),
 }).refine(value => value.artifact_type === value.payload.artifact_type && value.claims.every(claim => claim.source_ids.every(id => value.sources.some(item => item.source_id === id))) && value.measurements.every(item => item.provenance !== 'connected_measurement')).refine(value => {
   if (value.payload.artifact_type !== 'analysis') return true;

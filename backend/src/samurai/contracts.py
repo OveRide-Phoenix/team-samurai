@@ -233,6 +233,26 @@ class FrameworkReference(Contract):
         return self
 
 
+class OfferDiagnostic(Contract):
+    market: str = Field(min_length=1)
+    painful_problem: str = Field(min_length=1)
+    purchasing_power_assumption: Assumption
+    draft_offer: str = Field(min_length=1)
+    evidence_needed: tuple[Annotated[str, Field(min_length=1)], ...] = Field(min_length=1)
+    framework: FrameworkReference
+
+    @model_validator(mode="after")
+    def validate_framework(self) -> Self:
+        if (
+            self.framework.id != "offer_diagnostic"
+            or Role.STRATEGIST not in self.framework.allowed_roles
+        ):
+            raise PydanticCustomError(
+                "offer_framework", "offer diagnostics require the reviewed strategist framework"
+            )
+        return self
+
+
 class IntakeArtifact(Contract):
     artifact_type: Literal[ArtifactType.INTAKE] = ArtifactType.INTAKE
     brief: CompanyBrief
@@ -264,6 +284,7 @@ class StrategyArtifact(Contract):
     positioning: str = Field(min_length=1)
     offer: str = Field(min_length=1)
     pricing_assumptions: tuple[str, ...]
+    offer_diagnostic: OfferDiagnostic | None = None
 
 
 class ProductPlanArtifact(Contract):
