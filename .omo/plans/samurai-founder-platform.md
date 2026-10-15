@@ -770,7 +770,7 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
 
   Commit: YES | Message: `feat(learning): record explicit founder preferences` | Files: [backend/src/samurai/learning.py, backend/src/samurai/learning_api.py, backend/tests/test_learning.py, backend/tests/fixtures/platform-evals/learning.json]
 
-- [ ] 18. Add persisted bounded schedules and a real local runner
+- [x] 18. Add persisted bounded schedules and a real local runner
 
   What to do: On `Kalyan/founder-platform-t18-schedules`, implement persisted one-shot, daily, and weekly schedules with IANA timezone, enabled state, next/last run, pinned workspace/company/revision, creator membership epoch, action kind, bounded typed payload, and max 20/workspace. Add a local `run_due_schedules.py --once --now ...` runner that transactionally claims due rows, dedupes `(schedule_id,scheduled_for)`, rechecks membership/revision/quota, executes registered provider-free handlers, records result/error, computes next occurrence, and coalesces at most the latest missed occurrence. Include one deterministic `workspace_review` handler that reports evidence gaps without mutating company state.
   Must NOT do: Do not deploy cron/Cloud Scheduler/daemon, call providers, create external side effects, accept sub-hour recurrence, retry validation/auth failures, or treat schedule creation as standing consequential-action approval.
@@ -785,9 +785,9 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
   - Test:     `backend/tests/test_queue_process.py:600` - process/retry/ownership patterns
 
   Acceptance criteria (agent-executable only):
-  - [ ] ZoneInfo validation, one-shot/daily/weekly recurrence, min one-hour interval, stable next time across DST, max count, claim lease, and run dedupe are deterministic.
-  - [ ] Running the same `--once --now` twice produces one run; a downtime gap creates at most the latest eligible occurrence.
-  - [ ] Revoked membership, changed revision, disabled schedule, quota exhaustion, or unregistered action records a safe skipped/failed result without company mutation or automatic retry.
+  - [x] ZoneInfo validation, one-shot/daily/weekly recurrence, min one-hour interval, stable next time across DST, max count, claim lease, and run dedupe are deterministic.
+  - [x] Running the same `--once --now` twice produces one run; a downtime gap creates at most the latest eligible occurrence.
+  - [x] Revoked membership, changed revision, disabled schedule, quota exhaustion, or unregistered action records a safe skipped/failed result without company mutation or automatic retry.
 
   QA scenarios (MANDATORY - task incomplete without these):
   ```
@@ -806,7 +806,7 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
 
   Commit: YES | Message: `feat(schedule): execute bounded local company schedules` | Files: [backend/src/samurai/schedules.py, backend/src/samurai/schedule_api.py, backend/scripts/run_due_schedules.py, backend/tests/test_schedules.py, backend/tests/fixtures/platform-evals/schedules.json]
 
-- [ ] 19. Add useful deterministic synthetic scenario analysis
+- [x] 19. Add useful deterministic synthetic scenario analysis
 
   What to do: On `Kalyan/founder-platform-t19-scenarios`, implement immutable scenario definitions/results pinned to workspace/company/revision/hash. Inputs contain founder-supplied baseline metrics, 1–10 assumptions and low/base/high deltas, 1–10 constraints, and a 1–365 day horizon. Pure deterministic arithmetic produces conservative/base/optimistic trajectories, sensitivity ranking, violated constraints, and explicit formula/input provenance. Persist result hash and `synthetic_scenario_not_validation`; never append to canonical artifacts. Expose create/run/get APIs with idempotency and cancellation-safe transaction boundaries.
   Must NOT do: Do not install/run MiroFish, use agents/models/providers/random fake populations, emit calibrated probabilities, claim customers/demand/revenue, or advance evidence/stages.
@@ -821,9 +821,9 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
   - Test:     `backend/tests/test_analysis_workflow.py:156` - deterministic retained metric tests
 
   Acceptance criteria (agent-executable only):
-  - [ ] Same baseline revision/hash and normalized inputs produce byte-equivalent results/hash; changed inputs under same idempotency key reject.
-  - [ ] Every result displays all assumptions/formulas and the exact synthetic label; no field can use `connected_measurement`, `supported`, or `verified` status.
-  - [ ] Stale baseline/revoked membership/cancelled run persists no completed result and changes no canonical company revision.
+  - [x] Same baseline revision/hash and normalized inputs produce byte-equivalent results/hash; changed inputs under same idempotency key reject.
+  - [x] Every result displays all assumptions/formulas and the exact synthetic label; no field can use `connected_measurement`, `supported`, or `verified` status.
+  - [x] Stale baseline/revoked membership/cancelled run persists no completed result and changes no canonical company revision.
 
   QA scenarios (MANDATORY - task incomplete without these):
   ```
