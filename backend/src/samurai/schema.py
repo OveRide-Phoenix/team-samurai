@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 
 MIGRATIONS_DIR: Final = Path(__file__).with_name("migrations")
 MIGRATION_NAME: Final = "0001_founder_platform"
+MIGRATION_NAMES: Final = (MIGRATION_NAME, "0002_knowledge_provenance")
 SCHEMA_NAME: Final = re.compile(r"^[a-z_][a-z0-9_]*$")
 MIGRATION_FILE: Final = re.compile(r"^(?P<version>\d{4})_[a-z0-9_]+\.sql$")
 UUID_LIST_ADAPTER = TypeAdapter(list[UUID])
@@ -94,7 +95,7 @@ class FounderPlatformMigrator:
                 raise LegacyMigrationError(LegacyMigrationIssue.INVALID_FILENAME)
             source = path.read_text(encoding="utf-8")
             migrations.append((path.stem, source, hashlib.sha256(source.encode()).hexdigest()))
-        if tuple(version for version, _, _ in migrations) != (MIGRATION_NAME,):
+        if tuple(version for version, _, _ in migrations) != MIGRATION_NAMES:
             raise LegacyMigrationError(LegacyMigrationIssue.INVALID_ORDER)
         return tuple(migrations)
 
