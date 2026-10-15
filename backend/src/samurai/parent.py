@@ -1423,8 +1423,6 @@ def create_parent_agent(  # noqa: C901, PLR0913, PLR0915 - bounded tool surface.
         )[-20:]
         sources = tuple(source for artifact in state.artifacts for source in artifact.sources)[-20:]
         next_decision = founder_truth.next_decision
-        if next_decision is None and brief is not None:
-            next_decision = next(iter((*brief.open_questions, *brief.next_actions)), None)
         return CompanyStateSummary(
             company_id=state.context.company_id,
             revision=state.current_revision,

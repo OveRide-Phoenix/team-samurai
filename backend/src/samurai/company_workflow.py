@@ -435,7 +435,9 @@ class _Journey:
         brief = brief.model_copy(
             update={
                 "open_questions": [QUESTIONS[name] for name in missing],
-                "next_actions": [] if unsupported_known else proposed.brief.next_actions,
+                "next_actions": []
+                if unsupported_known or founder_truth.next_decision is None
+                else proposed.brief.next_actions,
             }
         )
         findings = [

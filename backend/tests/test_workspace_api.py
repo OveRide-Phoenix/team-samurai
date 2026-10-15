@@ -24,7 +24,9 @@ from samurai.config import Settings
 from samurai.contracts import (
     ArtifactEnvelope,
     ArtifactType,
+    CompanyBrief,
     CompanyState,
+    IntakeArtifact,
     Role,
     VerificationArtifact,
     VerificationFinding,
@@ -114,6 +116,50 @@ def test_public_snapshot_includes_sanitized_framework_metadata() -> None:
     assert all(
         "resource" not in item.model_dump(mode="json") for item in snapshot.summary.frameworks
     )
+
+
+def test_public_snapshot_does_not_promote_legacy_brief_action_to_founder_decision() -> None:
+    initial = create_company_state(
+        "legacy-snapshot",
+        created_at=datetime(2026, 10, 15, tzinfo=UTC),
+    )
+    state = accept_artifact(
+        initial,
+        ArtifactEnvelope(
+            artifact_id=uuid4(),
+            company_id=initial.context.company_id,
+            artifact_type=ArtifactType.INTAKE,
+            revision=1,
+            input_revision=0,
+            producer=Role.INTAKE,
+            status="complete",
+            payload=IntakeArtifact(
+                brief=CompanyBrief(
+                    idea="Legacy clinic assistant",
+                    target_customer="Clinics",
+                    geography="India",
+                    budget="INR 50000",
+                    founder_skills="Python",
+                    goal="Validate demand",
+                    supplied_context=[],
+                    assumptions=[],
+                    open_questions=[],
+                    next_actions=["Model-authored legacy action"],
+                )
+            ),
+            assumptions=(),
+            verification_findings=(
+                VerificationFinding(code="legacy", message="Legacy artifact", severity="info"),
+            ),
+        ),
+        authenticated_session_id="legacy-snapshot",
+    )
+
+    snapshot = WorkspaceDirectory._public_snapshot(  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+        state
+    )
+
+    assert snapshot.summary.next_decision is None
 
 
 def test_members_share_workspace_without_sharing_actor_sessions(

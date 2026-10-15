@@ -4,7 +4,7 @@ import json
 from collections import abc  # noqa: TC003 - Agno resolves model annotations at runtime.
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, ClassVar, Never, cast, final, override
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import anyio
 import pytest
@@ -31,6 +31,8 @@ from samurai.app import create_app
 from samurai.config import Settings
 from samurai.contracts import (
     AnalysisDraft,
+    ArtifactEnvelope,
+    ArtifactType,
     Assumption,
     CompanyBrief,
     CompanyState,
@@ -45,6 +47,7 @@ from samurai.contracts import (
     VerificationArtifact,
     VerificationFinding,
     WorkflowResult,
+    accept_artifact,
     create_company_state,
 )
 from samurai.launch_workflows import LaunchAction, LaunchKind
@@ -548,6 +551,77 @@ def test_parent_summary_preserves_founder_truth_next_decision() -> None:
     # Then the structured truth and one decision remain exact.
     assert restored.founder_truth == truth
     assert restored.next_decision == truth.next_decision
+
+
+def test_parent_summary_does_not_promote_legacy_brief_action_to_founder_decision(
+    tmp_path: pathlib.Path,
+) -> None:
+    parent_session_id = "legacy-truth-parent"
+    database = SqliteDb(db_file=str(tmp_path / "legacy-truth-parent.db"))
+    initial = create_company_state(parent_session_id, created_at=NOW)
+    artifact = ArtifactEnvelope(
+        artifact_id=uuid4(),
+        company_id=initial.context.company_id,
+        artifact_type=ArtifactType.INTAKE,
+        revision=1,
+        input_revision=0,
+        producer=Role.INTAKE,
+        status="complete",
+        payload=IntakeArtifact(
+            brief=CompanyBrief(
+                idea="Legacy clinic assistant",
+                target_customer="Clinics",
+                geography="India",
+                budget="INR 50000",
+                founder_skills="Python",
+                goal="Validate demand",
+                supplied_context=[],
+                assumptions=[],
+                open_questions=[],
+                next_actions=["Model-authored legacy action"],
+            )
+        ),
+        assumptions=(),
+        verification_findings=(
+            VerificationFinding(code="legacy", message="Legacy artifact", severity="info"),
+        ),
+    )
+    state = accept_artifact(
+        initial,
+        artifact,
+        authenticated_session_id=parent_session_id,
+    )
+    _ = database.upsert_session(
+        WorkflowSession(
+            session_id=child_session_id("founder", parent_session_id),
+            user_id="founder",
+            workflow_id="company-journey",
+            session_data={"session_state": {"company": state.model_dump(mode="json")}},
+        )
+    )
+    parent = create_parent_agent(database, Settings.model_validate({}), model=_ToolSequenceModel())
+    function = next(
+        tool
+        for tool in cast("list[object]", parent.tools)
+        if isinstance(tool, Function) and tool.name == "read_company_state"
+    )
+    read_state = cast("Callable[..., CompanyStateSummary]", function.entrypoint)
+
+    summary = read_state(
+        run_context=RunContext(
+            run_id="legacy-truth-read",
+            session_id=parent_session_id,
+            user_id="founder",
+            session_state={
+                "child_session_id": child_session_id("founder", parent_session_id),
+                "company_id": str(state.context.company_id),
+                "current_revision": 1,
+            },
+        )
+    )
+
+    assert summary.founder_truth == FounderTruth()
+    assert summary.next_decision is None
 
 
 def test_plain_registered_parent_runs_and_reads_through_agentos(tmp_path: pathlib.Path) -> None:
