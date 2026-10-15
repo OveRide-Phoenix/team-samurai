@@ -11,6 +11,7 @@ describe('founder operations BFF allowlist', () => {
   it('allows only exact recovery routes and bounded queries', () => {
     expect(founderOperationsRoute(new URL(`http://local/api/agentos/samurai/workspaces/${workspace}/companies/${company}/scenarios`), 'GET')).toMatchObject({ path: `/agentos/samurai/workspaces/${workspace}/companies/${company}/scenarios` });
     expect(founderOperationsRoute(new URL(`http://local/api/agentos/samurai/workspaces/${workspace}/schedules/${scenario}/runs`), 'GET')).toMatchObject({ path: `/agentos/samurai/workspaces/${workspace}/schedules/${scenario}/runs` });
+    expect(founderOperationsRoute(new URL(`http://local/api/agentos/samurai/workspaces/${workspace}/companies/${company}/scenarios/${scenario}/result`), 'GET')).toMatchObject({ optional: true });
     expect(() => founderOperationsRoute(new URL(`http://local/api/agentos/samurai/workspaces/${workspace}/learning?company_id=${company}&owner=forged`), 'GET')).toThrow('Query not allowed.');
   });
 

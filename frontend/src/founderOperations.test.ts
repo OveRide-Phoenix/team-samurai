@@ -35,10 +35,16 @@ describe('founder operation client boundaries', () => {
   it('parses a persisted result and maps only the allowlisted synthetic panel', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(result), { status: 200, headers: { 'Content-Type': 'application/json' } })));
     const saved = await getScenarioResult(workspace, company, scenario);
+    if (!saved) throw new Error('Expected a persisted scenario result');
     expect(saved.formulas[0]?.baseline_input).toBe('1.2E+2');
     const panel = scenarioPanel(definition, saved);
     expect(panelSchema.parse(panel)).toMatchObject({ kind: 'scenario', synthetic_label: 'synthetic_scenario_not_validation', company_revision: 2 });
     expect(JSON.stringify(panel.provenance)).toContain('company_state_sha256');
+  });
+
+  it('treats an unrun optional scenario result as absent', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 204 })));
+    await expect(getScenarioResult(workspace, company, scenario)).resolves.toBeNull();
   });
 
   it('parses the full nested scheduled scenario receipt without flattening its result', async () => {

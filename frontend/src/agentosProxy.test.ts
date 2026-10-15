@@ -99,6 +99,19 @@ describe('actual local AgentOS proxy', () => {
     expect(upstream.mock.calls[0]?.[0]).toBe(`http://127.0.0.1:8000/agentos/samurai/workspaces/${workspaceId}/companies/${companyId}/scenarios/${scenarioId}/runs`);
     expect(upstream.mock.calls[0]?.[1]?.headers).toMatchObject({ 'idempotency-key': scenarioId, authorization: 'Bearer test-private-token' });
   });
+  it('represents a missing optional scenario result as no content', async () => {
+    const upstream = vi.fn<typeof fetch>(async () => Response.json({ detail: 'scenario was not found' }, { status: 404 }));
+    const { request } = await fixture(true, upstream);
+    const response = await request('/api/agentos/samurai/workspaces/00000000-0000-4000-8000-000000000001/companies/00000000-0000-4000-8000-000000000002/scenarios/00000000-0000-4000-8000-000000000003/result');
+    expect(response.status).toBe(204);
+  });
+  it('preserves authorization failures for the optional scenario result', async () => {
+    const upstream = vi.fn<typeof fetch>(async () => Response.json({ detail: 'active workspace membership is required' }, { status: 403 }));
+    const { request } = await fixture(true, upstream);
+    const response = await request('/api/agentos/samurai/workspaces/00000000-0000-4000-8000-000000000001/companies/00000000-0000-4000-8000-000000000002/scenarios/00000000-0000-4000-8000-000000000003/result');
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ detail: 'active workspace membership is required' });
+  });
   it('rejects malformed directory bodies, unsafe identity fields, invalid UUIDs and methods', async () => {
     const { request, upstream } = await fixture();
     const workspaceId = '00000000-0000-4000-8000-000000000001';

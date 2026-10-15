@@ -98,6 +98,19 @@ test('forwards one exact scenario run with server identity and mapped idempotenc
   assert.equal(calls[0][1].body, '{}');
 });
 
+test('represents only a missing optional scenario result as no content', async t => {
+  const workspaceId = '00000000-0000-4000-8000-000000000001';
+  const companyId = '00000000-0000-4000-8000-000000000002';
+  const scenarioId = '00000000-0000-4000-8000-000000000003';
+  const path = `/api/agentos/samurai/workspaces/${workspaceId}/companies/${companyId}/scenarios/${scenarioId}/result`;
+  const missing = await fixture(t, async () => Response.json({ detail: 'scenario was not found' }, { status: 404 }));
+  assert.equal((await missing.request(path)).status, 204);
+  const denied = await fixture(t, async () => Response.json({ detail: 'active workspace editor membership is required' }, { status: 403 }));
+  const deniedResponse = await denied.request(path);
+  assert.equal(deniedResponse.status, 403);
+  assert.deepEqual(await deniedResponse.json(), { detail: 'active workspace editor membership is required' });
+});
+
 test('rejects forged directory fields and invalid directory routes before upstream access', async t => {
   const app = await fixture(t, () => assert.fail('upstream reached'));
   const headers = { origin: 'https://samurai.example', 'content-type': 'application/json' };

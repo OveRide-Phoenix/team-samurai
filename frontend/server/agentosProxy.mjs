@@ -216,6 +216,11 @@ export function agentosProxy(root, fetchImpl = fetch) {
       if (fileKind === 'file_upload') headers['content-type'] = req.headers['content-type'];
       if ((operation && !operation.body || fileKind && fileKind !== 'file_upload') && (req.headers['transfer-encoding'] || Number(req.headers['content-length'] ?? 0) > 0)) return reject(res, 400, 'Body not allowed.');
       const upstream = await fetchImpl(target, { signal: controller.signal, method: req.method, headers, body, ...((isRun || fileKind === 'file_upload') ? { duplex: 'half' } : {}) });
+      if (operation?.optional && upstream.status === 404) {
+        await upstream.body?.cancel();
+        res.statusCode = 204;
+        return res.end();
+      }
       res.statusCode = upstream.status;
       if (upstream.headers.get('content-type')) res.setHeader('Content-Type', upstream.headers.get('content-type'));
       if (!upstream.ok && (upstream.status === 401 || upstream.status >= 500)) {

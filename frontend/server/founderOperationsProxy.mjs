@@ -48,7 +48,7 @@ export function founderOperationsRoute(url, method) {
     if (!scenarioId && method === 'POST') return { kind: 'founder_operation', path, body: 'scenario_create', idempotent: true };
     if (scenarioId && !action && method === 'GET') return { kind: 'founder_operation', path };
     if (scenarioId && action === '/runs' && method === 'POST') return { kind: 'founder_operation', path, body: 'scenario_run', idempotent: true };
-    if (scenarioId && action === '/result' && method === 'GET') return { kind: 'founder_operation', path };
+    if (scenarioId && action === '/result' && method === 'GET') return { kind: 'founder_operation', path, optional: true };
     fail('Route not available.');
   }
   return null;

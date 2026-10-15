@@ -23,8 +23,8 @@ export function FounderOperationsPanel({ workspaceId, companyId, revision, state
       const receipts = await Promise.all(companySchedules.map(async item => [item.schedule_id, await listScheduleRuns(workspaceId, item.schedule_id)] as const));
       setRuns(Object.fromEntries(receipts));
       for (const definition of savedScenarios) {
-        try { setPanel(scenarioPanel(definition, await getScenarioResult(workspaceId, companyId, definition.scenario_id))); break; }
-        catch (error) { if (!(error instanceof Error) || !error.message.includes('not found')) throw error; }
+        const result = await getScenarioResult(workspaceId, companyId, definition.scenario_id);
+        if (result) { setPanel(scenarioPanel(definition, result)); break; }
       }
       setStatus('Founder operations are up to date.');
     } catch (error) { setStatus(error instanceof Error ? error.message : 'Request failed.'); }

@@ -186,6 +186,11 @@ export function createProductionServer(config, { verifyIdentity = createIapVerif
           }
         }
         const upstream = await fetchImpl(`${config.backend}${selected.path}`, { method: req.method, redirect: 'error', headers: upstreamHeaders, body, ...(fileUpload ? { duplex: 'half' } : {}), signal: AbortSignal.any([controller.signal, AbortSignal.timeout(3_600_000)]) });
+        if (selected.optional && upstream.status === 404) {
+          await upstream.body?.cancel();
+          res.writeHead(204, { 'Cache-Control': 'no-store' });
+          return res.end();
+        }
         if (!upstream.ok) {
           if (selected.kind === 'founder_operation' && upstream.status < 500) return json(res, upstream.status, { detail: await founderOperationsError(upstream) });
           await upstream.body?.cancel();
