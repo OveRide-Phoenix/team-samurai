@@ -9,8 +9,16 @@ const founderPanelContext = z.strictObject({
   next_decision: z.string().min(1).max(20_000).nullable().default(null), evidence_gaps: z.array(z.string().min(1).max(20_000)).max(100).default([]),
   framework: frameworkAttribution.optional(),
 });
-const basePanel = { id: z.string(), title: z.string(), note: z.string(), provenance: z.record(z.string(), z.unknown()).optional(), founder_context: founderPanelContext.optional() };
 const shortText = z.string().min(1).max(4000);
+const externalEvidenceSource = z.strictObject({ kind: z.literal('external'), title: shortText, url: z.string().url().refine(url => /^https?:\/\//.test(url)) });
+const legacyExternalEvidenceSource = z.strictObject({ title: shortText, url: z.string().url().refine(url => /^https?:\/\//.test(url)) }).transform(source => ({ ...source, kind: 'external' as const }));
+const knowledgeProvenance = z.strictObject({ chunk_id: z.string().uuid(), indexed_revision: z.number().int().min(0), ordinal: z.number().int().min(0), content_sha256: z.string().regex(/^[a-f0-9]{64}$/), trust_class: z.enum(['accepted_artifact', 'uploaded_file']), evidence_status: z.literal('untrusted_context') });
+const workspaceFileEvidenceSource = knowledgeProvenance.extend({ kind: z.literal('workspace_file'), file_id: z.string().uuid(), title: z.string().min(1).max(200).nullable().default(null), trust_class: z.literal('uploaded_file') });
+const acceptedArtifactEvidenceSource = knowledgeProvenance.extend({ kind: z.literal('accepted_artifact'), artifact_id: z.string().uuid(), trust_class: z.literal('accepted_artifact') });
+export const evidenceSourceSchema = z.union([externalEvidenceSource, legacyExternalEvidenceSource, workspaceFileEvidenceSource, acceptedArtifactEvidenceSource]);
+export type EvidenceSource = z.infer<typeof evidenceSourceSchema>;
+const panelKnowledgeSources = z.array(z.union([workspaceFileEvidenceSource, acceptedArtifactEvidenceSource])).min(1).max(5).refine(sources => new Set(sources.map(source => source.chunk_id)).size === sources.length);
+const basePanel = { id: z.string(), title: z.string(), note: z.string(), provenance: z.record(z.string(), z.unknown()).optional(), founder_context: founderPanelContext.optional(), knowledge_sources: panelKnowledgeSources.optional() };
 export const panelBlockSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('text'), text: shortText }),
   z.strictObject({ kind: z.literal('metric'), label: shortText, value: shortText, detail: shortText }),
@@ -26,8 +34,8 @@ export const panelSchema = z.discriminatedUnion('kind', [
     price: z.string(), includes: z.array(z.string()).max(20) }),
   z.strictObject({ ...basePanel, kind: z.literal('evidence'), claims: z.array(z.strictObject({
     id: z.string(), claim: z.string(), status: z.enum(['hypothesis', 'needs-check', 'supported']),
-    detail: z.string(), sources: z.array(z.object({ title: z.string(), url: z.string().url().refine(url => /^https?:\/\//.test(url)) })).max(100),
-  }).refine(claim => claim.status !== 'supported' || claim.sources.length > 0, 'Supported claims need sources')).max(500) }),
+    detail: z.string(), sources: z.array(evidenceSourceSchema).max(100),
+  }).refine(claim => claim.status !== 'supported' || claim.sources.some(source => source.kind === 'external'), 'Supported claims need external sources')).max(500) }),
   z.strictObject({ ...basePanel, kind: z.literal('launch-plan'), tasks: z.array(z.strictObject({
     id: z.string(), title: z.string(), owner: z.string(), timing: z.string(), detail: z.string(),
   })).max(400).refine(tasks => new Set(tasks.map(task => task.id)).size === tasks.length, 'Task IDs must be unique') }),

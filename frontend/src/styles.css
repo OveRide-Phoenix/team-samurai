@@ -342,6 +342,13 @@ h1,h2,h3,p { margin: 0; }
 .evidence-status { display: inline-block; border-radius: 6px; padding: 4px 7px; font-size: 10px; background: var(--accent-soft); color: var(--secondary-text); margin-bottom: 7px; }
 .evidence-status.needs-check { border: 1px solid var(--secondary-text); }
 .evidence-row a { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; margin: 8px 12px 0 0; text-decoration: underline; overflow-wrap: anywhere; }
+.evidence-source-link { display: inline-flex; align-items: center; gap: 5px; margin: 8px 12px 0 0; padding: 0; color: var(--foreground); font-size: 12px; text-decoration: underline; }
+.knowledge-source { display: inline-block; }
+.knowledge-provenance { margin-top: 4px; }
+.knowledge-provenance dl { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px 14px; }
+.knowledge-provenance dt { font-weight: 600; }
+.knowledge-provenance dd { margin: 2px 0 0; overflow-wrap: anywhere; }
+.source-unavailable { color: var(--secondary-text); }
 .launch-progress { display: flex; align-items: center; gap: 14px; font-size: 11px; color: var(--secondary-text); margin-bottom: 18px; }
 .launch-progress progress { height: 5px; width: 90px; accent-color: var(--primary); margin-left: auto; }
 .launch-task { display: flex; align-items: flex-start; gap: 12px; padding: 14px 0; border-top: 1px solid var(--border); }

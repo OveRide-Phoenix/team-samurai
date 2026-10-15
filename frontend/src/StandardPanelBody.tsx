@@ -1,12 +1,13 @@
-import { useState } from 'react';
-import { ArrowRight, Check, CheckCheck, ChevronDown, ExternalLink, MapPin, Plus, Sparkles, Target, Users, Wallet } from 'lucide-react';
-import type { Panel } from './model';
+import { useEffect, useState } from 'react';
+import { ArrowRight, Check, CheckCheck, ChevronDown, Download, ExternalLink, MapPin, Plus, Sparkles, Target, Users, Wallet } from 'lucide-react';
+import { downloadWorkspaceFile, getWorkspaceFile } from './files';
+import type { EvidenceSource, Panel } from './model';
 
 type StandardPanel = Exclude<Panel, { kind: 'custom' | 'declarative' }>;
 type Props = {
   panel: StandardPanel; compact: boolean; completedTasks: string[]; onComplete: (id: string) => void;
   shortlisted: string[]; onShortlist: (id: string) => void; approved: boolean; onApprove: () => void;
-  onDiscuss?: (prompt: string) => void;
+  onDiscuss?: (prompt: string) => void; workspaceId?: string;
 };
 function Choices({ label, values, selected, onSelect }: { label: string; values: string[]; selected: string; onSelect: (value: string) => void }) {
   return <div className="panel-segments" role="group" aria-label={label}>{values.map(value => <button key={value} type="button" aria-pressed={selected === value} onClick={() => onSelect(value)}>{value}</button>)}</div>;
@@ -15,11 +16,12 @@ function Discussion({ label, prompt, onDiscuss }: { label: string; prompt: strin
   return onDiscuss ? <button className="panel-discuss" onClick={() => onDiscuss(prompt)}><Sparkles size={14} />{label}<ArrowRight size={14} /></button> : null;
 }
 export function StandardPanelBody(props: Props) {
-  if (props.panel.kind === 'offer') return <OfferPanel {...props} panel={props.panel} />;
-  if (props.panel.kind === 'pricing') return <PricingPanel {...props} panel={props.panel} />;
-  if (props.panel.kind === 'prospects') return <ProspectPanel {...props} panel={props.panel} />;
-  if (props.panel.kind === 'launch-plan') return <DeliveryPanel {...props} panel={props.panel} />;
-  return props.panel.title === 'Company brief' ? <BriefPanel {...props} panel={props.panel} /> : <EvidencePanel {...props} panel={props.panel} />;
+  const body = props.panel.kind === 'offer' ? <OfferPanel {...props} panel={props.panel} />
+    : props.panel.kind === 'pricing' ? <PricingPanel {...props} panel={props.panel} />
+      : props.panel.kind === 'prospects' ? <ProspectPanel {...props} panel={props.panel} />
+        : props.panel.kind === 'launch-plan' ? <DeliveryPanel {...props} panel={props.panel} />
+          : props.panel.title === 'Company brief' ? <BriefPanel {...props} panel={props.panel} /> : <EvidencePanel {...props} panel={props.panel} />;
+  return <>{body}{props.panel.knowledge_sources && <details className="panel-details knowledge-panel-sources"><summary>Workspace context</summary>{props.panel.knowledge_sources.map(source => <EvidenceSourceLink key={source.chunk_id} source={source} workspaceId={props.workspaceId} />)}</details>}</>;
 }
 function BriefPanel({ panel, onDiscuss }: Props & { panel: Extract<Panel, { kind: 'evidence' }> }) {
   const [view, setView] = useState('Overview');
@@ -73,14 +75,50 @@ function ProspectPanel({ panel, shortlisted, onShortlist, compact }: Props & { p
     {!rows.length && <p className="empty-note">{filter === 'Shortlisted' ? 'Shortlist a prospect to keep it here.' : 'No prospects match these filters.'}</p>}
   </div>;
 }
-function EvidencePanel({ panel, compact }: Props & { panel: Extract<Panel, { kind: 'evidence' }> }) {
+function ExternalSource({ source }: { source: Extract<EvidenceSource, { kind: 'external' }> }) {
+  return <a href={source.url} target="_blank" rel="noopener noreferrer">{source.title}<ExternalLink size={12} /></a>;
+}
+function KnowledgeProvenance({ source, title }: { source: Exclude<EvidenceSource, { kind: 'external' }>; title: string }) {
+  return <details className="panel-details knowledge-provenance"><summary>{title}</summary><dl><div><dt>Trust</dt><dd>{source.trust_class === 'uploaded_file' ? 'Uploaded workspace context' : 'Accepted artifact provenance'}</dd></div><div><dt>Revision</dt><dd>{source.indexed_revision}</dd></div><div><dt>Chunk</dt><dd>{source.ordinal + 1} · {source.chunk_id}</dd></div><div><dt>SHA-256</dt><dd>{source.content_sha256}</dd></div></dl><p>Workspace context informs a draft; it does not independently verify a finding.</p></details>;
+}
+function WorkspaceFileSource({ source, workspaceId }: { source: Extract<EvidenceSource, { kind: 'workspace_file' }>; workspaceId?: string }) {
+  const [title, setTitle] = useState(source.title);
+  const [status, setStatus] = useState<'idle' | 'unavailable' | 'downloading'>('idle');
+  useEffect(() => {
+    let active = true;
+    setTitle(source.title); setStatus('idle');
+    if (!workspaceId) return () => { active = false; };
+    void getWorkspaceFile(workspaceId, source.file_id).then(file => { if (active) setTitle(file.display_name); }).catch(() => { if (active) setStatus('unavailable'); });
+    return () => { active = false; };
+  }, [workspaceId, source.file_id]);
+  const download = async () => {
+    if (!workspaceId) return;
+    setStatus('downloading');
+    try {
+      const response = await downloadWorkspaceFile(workspaceId, source.file_id);
+      const objectUrl = URL.createObjectURL(await response.blob());
+      const link = document.createElement('a'); link.href = objectUrl; link.download = title || 'workspace-file'; link.click(); URL.revokeObjectURL(objectUrl);
+      setStatus('idle');
+    } catch { setStatus('unavailable'); }
+  };
+  const label = title || 'Workspace file';
+  return <div className="knowledge-source"><button type="button" className="evidence-source-link" onClick={() => void download()} disabled={!workspaceId || status === 'downloading'}>{label}<Download size={12} /></button>{status === 'unavailable' && <p className="source-unavailable" role="status">Download unavailable.</p>}<KnowledgeProvenance source={source} title="Workspace context details" /></div>;
+}
+function EvidenceSourceLink({ source, workspaceId }: { source: EvidenceSource; workspaceId?: string }) {
+  if (source.kind === 'external') return <ExternalSource source={source} />;
+  if (source.kind === 'workspace_file') return <WorkspaceFileSource source={source} workspaceId={workspaceId} />;
+  return <KnowledgeProvenance source={source} title="Accepted artifact details" />;
+}
+function EvidencePanel({ panel, compact, workspaceId }: Props & { panel: Extract<Panel, { kind: 'evidence' }> }) {
   const [filter, setFilter] = useState('All findings');
   const findings = panel.claims.filter(claim => !/^(info|warning|error):/.test(claim.detail));
   const supported = findings.filter(claim => claim.status === 'supported').length;
   const filtered = findings.filter(claim => filter === 'All findings' || (filter === 'Needs review' ? claim.status !== 'supported' : claim.sources.length > 0));
   const support = findings.filter(claim => claim.detail && !['Assumption, not sourced fact', 'Research summary; see individual source-backed findings'].includes(claim.detail)).filter((claim, index, entries) => /^(unverified|supported|contradicted);/.test(claim.detail) || entries.findIndex(entry => entry.detail === claim.detail) === index);
   const warnings = panel.claims.filter(claim => /^(warning|error):/.test(claim.detail));
-  const render = (claim: typeof panel.claims[number]) => <div className="evidence-row" key={claim.id}><span className="finding-state"><span />{claim.status === 'supported' ? 'Supported' : claim.status === 'hypothesis' ? 'Hypothesis' : 'Needs review'}</span>{claim.claim.length > 240 ? <details className="evidence-reading"><summary><strong>{claim.claim.slice(0, 200)}…</strong><span>Read more</span></summary><p>{claim.claim}</p></details> : <strong>{claim.claim}</strong>}{!compact && claim.sources.slice(0, 2).map(source => <a key={source.url} href={source.url} target="_blank" rel="noopener noreferrer">{source.title}<ExternalLink size={12} /></a>)}{!compact && claim.sources.length > 2 && <details className="panel-details"><summary>More sources</summary>{claim.sources.slice(2).map(source => <a key={source.url} href={source.url} target="_blank" rel="noopener noreferrer">{source.title}<ExternalLink size={12} /></a>)}</details>}</div>;
+  const sourceKey = (source: EvidenceSource) => source.kind === 'external' ? source.url : source.chunk_id;
+  const sourceLinks = (sources: EvidenceSource[]) => sources.map(source => <EvidenceSourceLink key={sourceKey(source)} source={source} workspaceId={workspaceId} />);
+  const render = (claim: typeof panel.claims[number]) => <div className="evidence-row" key={claim.id}><span className="finding-state"><span />{claim.status === 'supported' ? 'Supported' : claim.status === 'hypothesis' ? 'Hypothesis' : 'Needs review'}</span>{claim.claim.length > 240 ? <details className="evidence-reading"><summary><strong>{claim.claim.slice(0, 200)}…</strong><span>Read more</span></summary><p>{claim.claim}</p></details> : <strong>{claim.claim}</strong>}{!compact && sourceLinks(claim.sources.slice(0, 2))}{!compact && claim.sources.length > 2 && <details className="panel-details"><summary>More sources</summary>{sourceLinks(claim.sources.slice(2))}</details>}</div>;
   return <div className="evidence-list"><div className="evidence-overview"><span className="evidence-number">{findings.length}</span><div><strong>Findings</strong><p>{supported} supported · {findings.length - supported} to review</p></div></div><Choices label="Evidence filters" values={['All findings', 'Needs review', 'With sources']} selected={filter} onSelect={setFilter} />
     {filtered.slice(0, 3).map(render)}{!filtered.length && <p className="empty-note">No findings in this view. Evidence may still be needed.</p>}
     {(filtered.length > 3 || warnings.length > 0 || support.length > 0) && <details className="panel-details"><summary>Details</summary>{filtered.slice(3).map(render)}{warnings.map(claim => <p key={claim.id}>{claim.claim}</p>)}{support.map(claim => <div className="evidence-row" key={`support-${claim.id}`}><strong>{claim.detail.startsWith('contradicted;') ? 'Conflicting evidence' : /^(unverified|supported);/.test(claim.detail) ? 'Source support' : 'Context'}</strong><p className="source-support-claim">{claim.claim}</p><p>{claim.detail.replace(/^(unverified|supported|contradicted); (mapped|unmapped)\.\s*/, '') || 'Source support has not been retained for this finding.'}</p></div>)}</details>}

@@ -46,6 +46,10 @@ describe('backend-facing UI contract', () => {
     expect(panelSchema.safeParse({ ...evidence, claims: [claim] }).success).toBe(false);
     expect(panelSchema.safeParse({ ...evidence, claims: [{ ...claim, sources: [{ title: 'Source', url: 'javascript:alert(1)' }] }] }).success).toBe(false);
     expect(panelSchema.safeParse({ ...evidence, claims: [{ ...claim, sources: [{ title: 'Source', url: 'https://example.org/evidence' }] }] }).success).toBe(true);
+    const context = { kind: 'workspace_file', file_id: '00000000-0000-4000-8000-000000000001', title: null, chunk_id: '00000000-0000-4000-8000-000000000002', indexed_revision: 4, ordinal: 0, content_sha256: 'a'.repeat(64), trust_class: 'uploaded_file', evidence_status: 'untrusted_context' };
+    expect(panelSchema.safeParse({ ...evidence, claims: [{ ...claim, sources: [context] }] }).success).toBe(false);
+    expect(panelSchema.safeParse({ ...evidence, claims: [{ ...claim, sources: [{ ...context, kind: 'external', title: 'Unsafe', url: 'javascript:alert(1)' }] }] }).success).toBe(false);
+    expect(panelSchema.safeParse({ ...evidence, claims: [{ ...claim, sources: [{ ...context, kind: 'unknown' }] }] }).success).toBe(false);
   });
   it('restores old workspaces and rejects ambiguous launch task IDs', () => {
     const { completedTasks, ...legacy } = initialWorkspace;
