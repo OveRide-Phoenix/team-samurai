@@ -844,6 +844,8 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
 
 - [ ] 20. Integrate learning, schedules, scenarios, typed UI, and full local acceptance
 
+  Verified integration seam: the production BFF explicitly allowlists routes and request bodies in `frontend/server/production.mjs`; new learning, schedule, and scenario controls require narrow corresponding proxy routes, validated payload/header forwarding, and `frontend/tests/production-server.test.mjs` coverage. Preserve signed server-side identity and fail-closed routing; never introduce a generic backend proxy. Task-owned browser ports must be free and must not replace an existing user runtime at 4173.
+
   What to do: On `Kalyan/founder-platform-t20-integration`, mount learning/schedule/scenario routers, register `workspace_review` and `scenario_recompute` schedule handlers, and add accessible frontend learning/schedule/scenario controls. Add one allowlisted `scenario` panel with low/base/high rows, assumptions/formulas, constraints, and always-visible synthetic label; keep other results in existing evidence panels. Update architecture/local docs and status claims. Execute a real local scheduled scenario against disposable PostgreSQL/Redis/backend/BFF, show result after reload, run every deterministic eval, full checks, exact-commit review, and task-owned cleanup. Locally merge reviewed task commits in order.
   Must NOT do: Do not deploy schedule/simulation, call providers, push, publish, create IAM, contact anyone, install MiroFish, or claim the scheduled synthetic result is observed demand.
 
@@ -877,7 +879,7 @@ Critical path: Task 1/2/3 -> Task 4 -> Task 5 -> Task 6 -> Task 7 -> Task 8 -> T
     Evidence: <attemptDir>/task-20-platform-e2e-error.json
   ```
 
-  Commit: YES | Message: `feat(platform): integrate bounded founder operations` | Files: [backend/src/samurai/app.py, backend/src/samurai/schedules.py, backend/src/samurai/platform_api.py, backend/scripts/run_platform_evals.py, backend/tests/test_platform_e2e.py, frontend/src/model.ts, frontend/src/model.test.ts, frontend/src/App.tsx, frontend/src/GenerativePanelBody.tsx, frontend/src/GenerativePanelBody.test.ts, frontend/src/scenarios.ts, frontend/src/styles.css, frontend/BACKEND_CONTRACT.md, README.md, backend/README.md, frontend/README.md, docs/architecture.md, docs/local-development.md, .omo/plans/README.md]
+  Commit: YES | Message: `feat(platform): integrate bounded founder operations` | Files: [frontend/server/production.mjs, frontend/tests/production-server.test.mjs, backend/src/samurai/app.py, backend/src/samurai/schedules.py, backend/src/samurai/platform_api.py, backend/scripts/run_platform_evals.py, backend/tests/test_platform_e2e.py, frontend/src/model.ts, frontend/src/model.test.ts, frontend/src/App.tsx, frontend/src/GenerativePanelBody.tsx, frontend/src/GenerativePanelBody.test.ts, frontend/src/scenarios.ts, frontend/src/styles.css, frontend/BACKEND_CONTRACT.md, README.md, backend/README.md, frontend/README.md, docs/architecture.md, docs/local-development.md, .omo/plans/README.md]
 
 ## Final verification wave (MANDATORY - after all implementation tasks)
 > Runs in PARALLEL. ALL must APPROVE. Surface results to the caller and wait for an explicit "okay" before declaring complete.
