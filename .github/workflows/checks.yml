@@ -8,6 +8,9 @@ permissions:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    container: python:3.14.5-slim-bookworm
+    env:
+      UV_PYTHON_DOWNLOADS: never
     defaults:
       run:
         working-directory: backend
@@ -50,17 +53,18 @@ jobs:
       - run: bash ../scripts/test-prepare-cloud-run-queue.sh
   recovery:
     runs-on: ubuntu-latest
-    container: python:3.14.3-slim-bookworm
+    container: python:3.14.5-slim-bookworm
     timeout-minutes: 10
     defaults:
       run:
         working-directory: backend
     env:
+      UV_PYTHON_DOWNLOADS: never
       SAMURAI_TEST_DATABASE_URL: postgresql+psycopg://samurai:samurai-test@postgres:5432/samurai
       REDIS_URL: redis://redis:6379/0
     services:
       postgres:
-        image: public.ecr.aws/docker/library/postgres:18
+        image: postgres:18
         env:
           POSTGRES_USER: samurai
           POSTGRES_PASSWORD: samurai-test
@@ -71,7 +75,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
       redis:
-        image: public.ecr.aws/docker/library/redis@sha256:9d317178eceac8454a2284a9e6df2466b93c745529947f0cd42a0fa9609d7005
+        image: redis@sha256:9d317178eceac8454a2284a9e6df2466b93c745529947f0cd42a0fa9609d7005
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 5s
@@ -79,6 +83,11 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Task
+        uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e
+        with:
+          version: "3.48.0"
+      - run: task --version
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: "0.13.0"
