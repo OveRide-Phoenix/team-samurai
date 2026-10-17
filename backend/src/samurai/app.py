@@ -40,6 +40,7 @@ from samurai.execution_state import (
     WorkReceipt,
 )
 from samurai.file_api import file_router
+from samurai.guest_access import GuestAccessBoundary
 from samurai.intake import INTAKE_PAGES, IntakePage
 from samurai.knowledge_api import knowledge_router
 from samurai.learning_api import learning_router
@@ -574,6 +575,13 @@ def create_app(
         redis_url=(
             settings.redis_url.get_secret_value() if settings.redis_url is not None else None
         ),
+    )
+
+    runtime_base.add_middleware(
+        GuestAccessBoundary,
+        enabled=settings.guest_access_enabled,
+        engine=runtime_db.db_engine if isinstance(runtime_db, SamuraiPostgresDb) else None,
+        schema=runtime_db.db_schema if isinstance(runtime_db, SamuraiPostgresDb) else "public",
     )
 
     @runtime_base.exception_handler(WorkIntentError)

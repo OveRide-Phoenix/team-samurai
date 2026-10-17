@@ -6,15 +6,17 @@ export class RequestError extends Error {
 }
 
 export function productionConfig(env = process.env) {
-  const required = ['PUBLIC_ORIGIN', 'AGENTOS_BACKEND_URL', 'IAP_AUDIENCE', 'AGENTOS_SIGNING_KEY'];
+  const authMode = env.FRONTEND_AUTH_MODE ?? 'iap';
+  if (!['iap', 'guest'].includes(authMode)) throw new Error('Invalid frontend authentication mode');
+  const required = ['PUBLIC_ORIGIN', 'AGENTOS_BACKEND_URL', 'AGENTOS_SIGNING_KEY', ...(authMode === 'iap' ? ['IAP_AUDIENCE'] : [])];
   if (required.some(name => !env[name])) throw new Error('Missing production authentication configuration');
   const origin = new URL(env.PUBLIC_ORIGIN);
   const backend = new URL(env.AGENTOS_BACKEND_URL);
   if ([origin, backend].some(url => url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash)) throw new Error('Production URLs must be HTTPS origins');
-  if (!/^\/projects\/\d+\/locations\/[a-z0-9-]+\/services\/[a-z0-9-]+$/.test(env.IAP_AUDIENCE)) throw new Error('Invalid Cloud Run IAP audience');
+  if (authMode === 'iap' && !/^\/projects\/\d+\/locations\/[a-z0-9-]+\/services\/[a-z0-9-]+$/.test(env.IAP_AUDIENCE)) throw new Error('Invalid Cloud Run IAP audience');
   const key = createPrivateKey(env.AGENTOS_SIGNING_KEY);
   if (key.asymmetricKeyType !== 'rsa' || key.asymmetricKeyDetails.modulusLength < 2048) throw new Error('Signing key must be RSA, at least 2048 bits');
-  return { origin: origin.origin, backend: backend.origin, audience: env.IAP_AUDIENCE, key };
+  return { origin: origin.origin, backend: backend.origin, audience: env.IAP_AUDIENCE, key, authMode };
 }
 
 export function createIapVerifier(audience, client = new OAuth2Client({ transporterOptions: { timeout: 10_000 } })) {

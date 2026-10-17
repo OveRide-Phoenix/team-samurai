@@ -209,3 +209,12 @@ competition readiness.
 
 The following Task 9 totals are historical:
 Cloud deployment and IAP acceptance are historical, exact-revision evidence in [the deployment guide](docs/gcp-deployment.md); local queue/recovery evidence does not deploy the current checkout. Cloud SQL recovery (`a84c718`) and Cloud Run queue rollout (`571a378`) are preparation only. The user deferred the paid cloud queue upgrade; readiness Task 11 remains deferred and unverified while local founder work continues. Task 7 terminal UI evidence (`1a4c6a9`) and Task 10 provider-free readiness (`76c9884`) are locally accepted. Founder Platform Task 9 is accepted locally at `5eea8dea4c4469c39e6682879d637d5ca3dcf0f8`: focused file tests passed 39 with no skips, the full backend run passed 266 with 105 environment-gated skips, and the frontend run passed 130; this is not authorized GitHub Actions coverage. The live second-account browser check was explicitly skipped, so automated owner-isolation coverage does not establish that skipped exercise.
+
+### Public guest access preparation
+
+See [docs/public-guest-access.md](docs/public-guest-access.md). Public judges are an
+approved access model, but activation is blocked on the previously deferred cloud
+queue. Preserve signed guest cookies, distinct `guest:`/`iap:` identities, durable
+per-guest/global admission limits, and backend membership checks. Never turn off
+IAP alone or weaken the production durable-run requirement. Keep guest flags off
+until the documented activation checks and hosting decision are complete.

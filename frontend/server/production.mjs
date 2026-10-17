@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { createIapVerifier, productionConfig, RequestError, signAgentosToken } from './iapAuth.mjs';
+import { guestIdentity } from './guestAuth.mjs';
 import { MultipartFileError, multipartFileBody } from './agentosProxy.mjs';
 import { FounderOperationsRequestError, founderOperationsBody, founderOperationsError, founderOperationsHeaders, founderOperationsRoute } from './founderOperationsProxy.mjs';
 
@@ -149,7 +150,7 @@ export function createProductionServer(config, { verifyIdentity = createIapVerif
       const url = new URL(req.url, config.origin);
       if (url.pathname === '/healthz' && req.method === 'GET' && !url.search) return json(res, 200, { status: 'ok' });
       if (req.headers.authorization || req.headers['x-user-id'] || req.headers['x-samurai-user-id']) throw new RequestError(403, 'Client identity override denied.');
-      const subject = await verifyIdentity(req.headers['x-goog-iap-jwt-assertion']);
+      const subject = config.authMode === 'guest' ? guestIdentity(req, res, config.key) : await verifyIdentity(req.headers['x-goog-iap-jwt-assertion']);
       if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
         if (req.headers['x-samurai-client'] !== '1' || (req.headers.origin && req.headers.origin !== config.origin) || (req.method !== 'GET' && req.headers.origin !== config.origin)) throw new RequestError(403, 'Invalid client origin.');
         if (url.pathname === '/api/copilotkit' && req.method === 'POST' && !url.search) {
@@ -192,6 +193,10 @@ export function createProductionServer(config, { verifyIdentity = createIapVerif
           return res.end();
         }
         if (!upstream.ok) {
+          if (subject.startsWith('guest:') && upstream.status === 429) {
+            await upstream.body?.cancel();
+            return json(res, 429, { detail: 'Guest daily usage limit reached. Try again tomorrow (UTC).' });
+          }
           if (selected.kind === 'founder_operation' && upstream.status < 500) return json(res, upstream.status, { detail: await founderOperationsError(upstream) });
           await upstream.body?.cancel();
           return json(res, upstream.status >= 500 ? 503 : upstream.status, { detail: upstream.status >= 500 ? 'Samurai AgentOS is unavailable.' : 'AgentOS request denied.' });

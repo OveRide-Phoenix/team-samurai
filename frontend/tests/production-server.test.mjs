@@ -122,7 +122,7 @@ test('rejects forged directory fields and invalid directory routes before upstre
 
 export { assertion, publicKeys, privateKey, audience, rsa, now };
 
-async function fixture(t, fetchImpl) {
+async function fixture(t, fetchImpl, authMode = 'iap') {
   const { OAuth2Client } = await import('google-auth-library');
   const { createIapVerifier, productionConfig } = await import('../server/iapAuth.mjs');
   const { createProductionServer } = await import('../server/production.mjs');
@@ -131,7 +131,7 @@ async function fixture(t, fetchImpl) {
   const directory = await mkdtemp(join(tmpdir(), 'samurai-bff-'));
   await writeFile(join(directory, 'index.html'), '<html>Samurai fixture</html>');
   await writeFile(join(directory, 'app.js'), 'console.log("public asset")');
-  const config = productionConfig({ PUBLIC_ORIGIN: 'https://samurai.example', AGENTOS_BACKEND_URL: 'https://backend.example', IAP_AUDIENCE: audience, AGENTOS_SIGNING_KEY: privateKey });
+  const config = productionConfig({ FRONTEND_AUTH_MODE: authMode, PUBLIC_ORIGIN: 'https://samurai.example', AGENTOS_BACKEND_URL: 'https://backend.example', IAP_AUDIENCE: audience, AGENTOS_SIGNING_KEY: privateKey });
   const server = createProductionServer(config, { verifyIdentity: createIapVerifier(audience, client), fetchImpl, staticDirectory: directory });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -373,4 +373,40 @@ test('CopilotKit accepts only a typed team choice while rejecting identity overr
   for (const forwardedProps of [{ team_area: 'other' }, { team_area: 'research', user_id: 'other' }, { company_id: 'foreign' }, [], 'research']) {
     assert.throws(() => validateCopilotBody({ ...body, body: { ...body.body, forwardedProps } }));
   }
+});
+
+test('guest navigation establishes signed isolated identities without IAP', async t => {
+  const calls = [];
+  const app = await fixture(t, async (_url, options) => { calls.push(options); return Response.json([]); }, 'guest');
+  assert.equal((await app.request('/api/agentos/connection')).status, 401);
+  const first = await app.request('/');
+  const second = await app.request('/');
+  assert.equal(first.status, 200);
+  const cookieA = first.headers.get('set-cookie').split(';')[0];
+  const cookieB = second.headers.get('set-cookie').split(';')[0];
+  assert.notEqual(cookieA, cookieB);
+  assert.match(first.headers.get('set-cookie'), /Path=\/; HttpOnly; Secure; SameSite=Lax/);
+  const connection = cookie => app.request('/api/agentos/connection', { headers: { cookie } }).then(r => r.json());
+  const a = await connection(cookieA), b = await connection(cookieB);
+  assert.notEqual(a.storageNamespace, b.storageNamespace);
+  assert.equal((await connection(cookieA)).storageNamespace, a.storageNamespace);
+  await app.request('/api/agentos/samurai/workspaces', { headers: { cookie: cookieA } });
+  const token = calls[0].headers.authorization.slice(7);
+  const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url'));
+  assert.match(payload.sub, /^guest:/);
+  assert.equal(createHash('sha256').update(payload.sub).digest('hex'), a.storageNamespace);
+  assert.equal((await app.request('/api/agentos/connection', { headers: { cookie: cookieA.replace(/.$/, '!') } })).status, 401);
+  assert.equal((await app.request('/api/agentos/connection', { headers: { cookie: `${cookieA}; ${cookieA}` } })).status, 401);
+  assert.equal((await app.request('/api/agentos/samurai/workspaces', { method: 'POST', headers: { cookie: cookieA, origin: 'https://evil.example', 'content-type': 'application/json' }, body: '{}' })).status, 403);
+});
+
+test('guest cookie expiration and backend JWT cannot be used as a guest cookie', async () => {
+  const { guestIdentity } = await import('../server/guestAuth.mjs');
+  const { signAgentosToken } = await import('../server/iapAuth.mjs');
+  let cookie;
+  const res = { setHeader(_name, value) { cookie = value.split(';')[0]; } };
+  guestIdentity({ method: 'GET', url: '/', headers: {} }, res, rsa.privateKey, now);
+  const original = cookie;
+  assert.throws(() => guestIdentity({ headers: { cookie: original } }, res, rsa.privateKey, now + 7 * 86400), /expired or invalid/);
+  assert.throws(() => guestIdentity({ headers: { cookie: `__Host-samurai_guest=${signAgentosToken('iap:user-a', rsa.privateKey)}` } }, res, rsa.privateKey, now), /expired or invalid/);
 });

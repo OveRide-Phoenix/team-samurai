@@ -176,3 +176,7 @@ A fresh authenticated AgentOS console run on `gemini-3.5-flash-lite` completed a
 
 ### CopilotKit AG-UI
 The authenticated `/agentos/agents/samurai/agui` interface resolves the existing parent per request and uses the same JWT run scope and native persistence. It rejects client tools, state/context/identity overrides, foreign sessions and reused run IDs. `compose_panel` and `create_custom_panel` add validated draft presentation to the four business tools; neither mutates canonical company state nor performs an external action. Native read/cancel endpoints remain authoritative. See [the UI contract](../docs/generative-ui.md). No paid provider run or cloud redeployment was made for this integration.
+
+Guest admission is opt-in (`GUEST_ACCESS_ENABLED=false` by default). Migration
+`0005_guest_usage` adds shared daily counters. Production guests additionally require
+the durable queue; see [public guest access](../docs/public-guest-access.md) before activation.

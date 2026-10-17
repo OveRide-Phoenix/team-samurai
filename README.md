@@ -178,3 +178,7 @@ CopilotKit 1.79.0 is integrated locally through AG-UI and the existing Agno back
 The entry form yields a declarative Company brief. Research/evidence, offer/pricing and delivery-plan panels follow the existing founder-approved stages. The A2UI catalog also covers prospect lists and reuses the same business components in chat, Home and the dashboard. Additional views compose typed text, metrics, lists and tables. Founder-requested custom HTML/CSS/JS runs in an isolated frame with embedded Inter, theme tokens, blocked host access and blocked network/navigation. Generated panels remain drafts; their definitions persist, while custom frame input values are temporary.
 
 This is a source/local integration. The recorded Cloud Run revisions were not updated for these new endpoints. Validation uses deterministic models rather than paid Gemini calls; see [the generative UI contract](docs/generative-ui.md).
+
+Public judge access is being prepared with isolated guest sessions and shared daily
+limits. It is not enabled in production; see [the activation dependency and local
+verification scope](docs/public-guest-access.md).
