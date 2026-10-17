@@ -52,7 +52,9 @@ update=(services update "$service"
   --memory=2Gi
   --no-cpu-throttling
   --min=1
-  --max=2
+  --max=1
+  --min-instances=1
+  --max-instances=1
   --concurrency=8
   --deploy-health-check)
 if [[ "$dry_run" == true ]]; then
@@ -133,7 +135,9 @@ if ! jq -e \
   $template.metadata.annotations["run.googleapis.com/vpc-access-egress"] == "private-ranges-only" and
   $template.metadata.annotations["run.googleapis.com/cpu-throttling"] == "false" and
   $template.metadata.annotations["autoscaling.knative.dev/minScale"] == "1" and
-  $template.metadata.annotations["autoscaling.knative.dev/maxScale"] == "2" and
+  $template.metadata.annotations["autoscaling.knative.dev/maxScale"] == "1" and
+  $root.metadata.annotations["run.googleapis.com/minScale"] == "1" and
+  $root.metadata.annotations["run.googleapis.com/maxScale"] == "1" and
   $template.spec.containers[0].resources.limits.cpu == "1" and
   $template.spec.containers[0].resources.limits.memory == "2Gi" and
   $template.spec.containerConcurrency == 8 and
