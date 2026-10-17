@@ -65,7 +65,7 @@ UI identity on saved runs so recovery returns replies to the originating aspect.
 
 Samurai's first slice uses React, TypeScript, Vite, Tailwind, assistant-ui, Radix, Lucide, and Zod. Follow root AGENTS.md and ponytail. Keep structured panel validation and the explicit sample-data/activity labels. Agent provider secrets belong on the backend. The authenticated AgentOS integration is implemented; BACKEND_CONTRACT.md records the interface.
 
-Run the local server yourself and open the preview in the browser available to this environment. Do not give the user server-start instructions when you can run it.
+Run the local server yourself and open the actual app in the browser available to this environment. Do not give the user server-start instructions when you can run it.
 
 Before making substantial visual changes, use the Product Design plugin's `get-context` skill when the visual source is unclear or no longer matches the current goal. When the user gives durable prototype-specific design feedback, preferences, or decisions, record them in `AGENTS.md`.
 
@@ -75,7 +75,7 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 
 ## Identity refinement — 11 October 2026
 
-The user wants Samurai to feel its own while keeping the airy atmosphere and top blur. Their latest preference supersedes the initial dark-direction choice: do not force the logo colors or turn the workspace dark. Reduce decorative labels, repetitive helper copy, and idle-agent descriptions. Keep essential data provenance and preview labels readable, and preserve chat, panel actions, and visible progress during work.
+The user wants Samurai to feel its own while keeping the airy atmosphere and top blur. Their latest preference supersedes the initial dark-direction choice: do not force the logo colors or turn the workspace dark. Reduce decorative labels, repetitive helper copy, and idle-agent descriptions. Keep essential data provenance and draft labels readable, and preserve chat, panel actions, and visible progress during work.
 
 ## Company workspace and final visual direction
 
@@ -115,7 +115,7 @@ Landing has no AI → COMPANY kicker. Center the floating company-name intake. S
 
 ## Repository consolidation
 
-The user requested moving the working UI from `ui/` to `frontend/`. Preserve its React/Vite runtime and all existing behavior; the Next.js health-only scaffold is superseded. Use npm with exact direct versions and the generated lockfile. `task frontend:setup` installs the UI independently of backend setup; `task frontend:dev` runs on port 4173. Run `npm run check` and `npm run build`. Follow applicable OMo and Ponytail skills. Local JWT-authenticated native AgentOS SSE plumbing is implemented; verify model access separately. New companies use the live transport, legacy/demo companies remain Preview. Recorded production Node-proxy revisions validated Google IAP and supplied per-user JWTs; Google sign-in, live brief creation, and reload were verified there rather than for the current source. Never expose provider keys, service keys, JWT configuration or bearer tokens in VITE_ variables.
+The user requested moving the working UI from `ui/` to `frontend/`. Preserve its React/Vite runtime and all existing behavior; the Next.js health-only scaffold is superseded. Use npm with exact direct versions and the generated lockfile. `task frontend:setup` installs the UI independently of backend setup; `task frontend:dev` runs on port 4173. Run `npm run check` and `npm run build`. Follow applicable OMo and Ponytail skills. Local JWT-authenticated native AgentOS SSE plumbing is implemented; verify model access separately. All usable ideas use the live transport; legacy samples remain archived. Recorded production Node-proxy revisions validated Google IAP and supplied per-user JWTs; Google sign-in, live brief creation, and reload were verified there rather than for the current source. Never expose provider keys, service keys, JWT configuration or bearer tokens in VITE_ variables.
 
 ### Local UI integration — 11 October 2026
 
@@ -150,7 +150,7 @@ Company has a centered liquid-glass workflow filter bar with independently toggl
 
 Each selected role starts with a full-width dashboard and the original floating bottom chat bar. Opening the bar reveals panels on the left and its focused conversation on the right; closing restores the dashboard. Mobile opens the conversation in the content area and the close control returns to panels. Keep the conversation mounted and retain drafts and scroll position. The centered workflow filter uses actual backdrop refraction, a restrained tint and clear icon circles. Selected filters stay visibly pressed; mobile shows all four choices without horizontal clipping. Keep area drafts, selected area, saved actions and old workspace data. Main Chat remains the company-wide conversation. A suggested handoff opens the other area with the original request as a draft; it never submits automatically. Preserve cancellation and single-run behavior when navigating during work. Do not redesign intake in this pass; company creation remains brief-first.
 
-Scope requests through the exact typed team_area navigation choice in CopilotKit forwardedProps. Backend tool/stage guards enforce execution scope and prerequisites; topic redirection uses the bounded handoff tool and scope instructions. Keep identity/state/tools/dependency overrides rejected and JWT scopes unchanged. Backend model access is verified separately from the labelled local preview.
+Scope requests through the exact typed team_area navigation choice in CopilotKit forwardedProps. Backend tool/stage guards enforce execution scope and prerequisites; topic redirection uses the bounded handoff tool and scope instructions. Keep identity/state/tools/dependency overrides rejected and JWT scopes unchanged. Verify backend model access through the actual local app separately from provider-free tests.
 
 Opening or closing the floating chat bar slides panel positions with a gentle spring; do not blur or replay grain for this motion. Other page/view reveals retain their existing timing. One workflow focuses its conversation; zero or multiple selected workflows use the general Samurai conversation and existing general backend scope. Clearing filters fades the chat back to general context. Keep typed single-area transport validation, run cancellation, keyboard focus and reduced motion. Persist filter selections and migrate the previous single choice without discarding saved work.
 
@@ -160,7 +160,7 @@ Workflow selections retain click order; a newly selected or reselected workflow 
 
 Removing a workflow reverses the same 850 ms page reveal before its cards leave the layout. Keep outgoing cards mounted and in their slots until completion, with interaction disabled. Rapid reselection reverses the in-progress fade without losing card state. Remaining cards then move smoothly to fill the gap; reduced motion removes immediately.
 
-Home retains the original portfolio layout: the centered idea heading, floating company-name field and saved company tiles. The local panel preview Home button and intake cancel return to the normal portfolio Home; do not replace Home with an isolated demo-entry screen when refining the Company dashboard. Preview workspaces stay in their separate cache.
+Home retains the original portfolio layout: the centered idea heading, floating company-name field and saved company tiles. The Home button and intake cancel return to the normal portfolio Home. Preserve archived legacy sample data without opening it as live ideas.
 
 Do not show search controls anywhere in the product UI: Home, workspace headers, prospect cards or generated tables. Remove the Cmd/Ctrl+K search shortcut. Keep workflow filters, prospect fit/shortlist filters and panel actions.
 

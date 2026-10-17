@@ -106,14 +106,14 @@ download headers and bytes, denied mutation, oversized rejection, deletion,
 and empty scoped cleanup. Use only a disposable PostgreSQL schema and remove
 the temporary key, storage directory, schema, and server after the check.
 
-## Frontend UI preview
+## Actual frontend app
 
 ```sh
 task frontend:setup
 task frontend:dev
 ```
 
-The founder UI runs at `http://127.0.0.1:4173/` from `frontend/`. It includes onboarding, chat, panels, and the company dashboard with labelled preview data. Frontend setup only needs Node/npm and does not start the backend or database. The former Next.js `/api/health` scaffold is removed. New companies use authenticated native AgentOS through the local Vite proxy; existing/sample companies remain Preview. Prerequisites come from the backend, and Team shows actual workflow step history. Live Gemini intake/research and saved-result recovery were exercised locally, with research stopping at missing source evidence. Production IAP authentication and the Node proxy were verified against recorded deployed revisions; that historical result does not show that the current local source is deployed. Source-supported live strategy and launch drafts remain pending.
+The founder UI runs at `http://127.0.0.1:4173/` from `frontend/`. It includes software-idea onboarding, the mentor conversation, pinned panels, and the six-aspect idea map. Frontend setup only needs Node/npm and does not start the backend or database. The former Next.js `/api/health` scaffold is removed. Every usable idea uses authenticated native AgentOS through the local Vite proxy. Legacy sample caches are preserved in a bounded archive and do not open as live ideas. Start the configured backend with `task backend:dev` for actual app use; the JWT setup is documented below. Prerequisites come from the backend, and Team shows actual workflow step history. Live Gemini intake/research and saved-result recovery were exercised locally, with research stopping at missing source evidence. Production IAP authentication and the Node proxy were verified against recorded deployed revisions; that historical result does not show that the current local source is deployed. Source-supported live strategy and launch drafts remain pending.
 
 ## Frontend-to-AgentOS contract
 
@@ -121,7 +121,7 @@ The implemented frontend integration uses the installed AgentOS OpenAPI referenc
 
 For streaming journeys, consume the SSE lifecycle and use the returned run identifier with the authenticated run-read and cancel routes under `/agentos/agents/samurai/runs/{run_id}`. Handle terminal completion, errors, and cancellation before rendering a final result; do not infer completion from a connection closing. The backend enforces user isolation and validates the request body, so the frontend must not send framework-owned context or bypass the backend with a direct model call.
 
-`BACKEND_URL` is reserved and is not consumed by the current UI preview. Do not put `OS_SECURITY_KEY`, `GOOGLE_API_KEY`, JWT verification configuration, or user bearer tokens in `VITE_` or other browser-exposed variables.
+`BACKEND_URL` is reserved and is not consumed by the frontend. Do not put `OS_SECURITY_KEY`, `GOOGLE_API_KEY`, JWT verification configuration, or user bearer tokens in `VITE_` or other browser-exposed variables.
 
 ## Founder operations and restart acceptance
 

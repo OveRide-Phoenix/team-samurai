@@ -54,7 +54,7 @@ Supported panel kinds are `offer`, `pricing`, `prospects`, `evidence`, and `laun
 ## State ownership and current limits
 
 - Chat, pins, shortlisted IDs, reviewed drafts, and the durable run receipt currently live in owner-scoped browser localStorage. They are UI preferences and a reconnect pointer, not durable backend approvals, researched prospects, or sent outreach.
-- Preview fixtures use a dental scenario. New companies submit their validated brief to the real backend.
+- Renderer fixtures are test-only. All usable ideas submit their validated brief to the real backend; legacy samples remain archived.
 - Backend artifacts retain validated evidence, citations, assumptions and lineage. Explicit journey-stage approval is server-confirmed; token-by-token prose and connected measurements are not implemented.
 - Deterministic renderer fixtures are test inputs, never verification of market facts.
 - Provider credentials belong on the backend. The frontend must not contain a Gemini API key or Firebase Admin credential.

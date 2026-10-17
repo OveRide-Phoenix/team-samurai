@@ -51,12 +51,12 @@ Use the task commands from the repository root. They create missing private conf
 task setup          # prepare private backend configuration and locked Python dependencies
 task backend:dev    # ensure setup, start PostgreSQL, then serve AgentOS on 127.0.0.1:8000
 task health         # check Samurai PostgreSQL and /agentos/health without a model call
-task frontend:dev   # founder UI preview on 127.0.0.1:4173
+task frontend:dev   # actual founder app on 127.0.0.1:4173
 ```
 
 In a second terminal, use `task db:status`, `task db:logs`, or `task db:stop`. `db:stop` preserves the Samurai volume and does not touch Reporting or other Podman services. See [the local development guide](docs/local-development.md) for prerequisites, JWT AgentOS testing, safe repeat behavior, and the technical-console/UI boundary.
 
-The separate [Founder operations acceptance record](docs/local-development.md#founder-operations-and-restart-acceptance) covers disposable loopback PostgreSQL/Redis services and task-owned ports 8200/4200, leaving the user's 4173 preview untouched. It exercised the actual application factory and BFF with synthetic local identities and no provider calls; its ignored harness is evidence, not a fresh-checkout setup dependency.
+The separate [Founder operations acceptance record](docs/local-development.md#founder-operations-and-restart-acceptance) covers disposable loopback PostgreSQL/Redis services and task-owned ports 8200/4200, leaving the user's app on port 4173 untouched. It exercised the actual application factory and BFF with synthetic local identities and no provider calls; its ignored harness is evidence, not a fresh-checkout setup dependency.
 
 The local AgentOS screenshots demonstrate the saved **Samurai Local** connection, a retained journey, and state recall. They are sanitized local QA evidence, intentionally excluded from Git; the rendered output is a technical AgentOS console with raw structured JSON, not the React/Vite founder workspace.
 

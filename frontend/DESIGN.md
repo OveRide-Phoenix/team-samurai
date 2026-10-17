@@ -165,7 +165,7 @@ Company has a centered liquid-glass workflow filter bar with independently toggl
 
 Each selected role starts with a full-width dashboard and the original floating bottom chat bar. Opening the bar reveals panels on the left and its focused conversation on the right; closing restores the dashboard. Mobile opens the conversation in the content area and the close control returns to panels. Keep the conversation mounted and retain drafts and scroll position. The centered workflow filter uses actual backdrop refraction, a restrained tint and clear icon circles. Selected filters stay visibly pressed; mobile shows all four choices without horizontal clipping. Keep area drafts, selected area, saved actions and old workspace data. Main Chat remains the company-wide conversation. A suggested handoff opens the other area with the original request as a draft; it never submits automatically. Preserve cancellation and single-run behavior when navigating during work. Do not redesign intake in this pass; company creation remains brief-first.
 
-Scope requests through the exact typed team_area navigation choice in CopilotKit forwardedProps. Backend tool/stage guards enforce execution scope and prerequisites; topic redirection uses the bounded handoff tool and scope instructions. Keep identity/state/tools/dependency overrides rejected and JWT scopes unchanged. Backend model access is verified separately from the labelled local preview.
+Scope requests through the exact typed team_area navigation choice in CopilotKit forwardedProps. Backend tool/stage guards enforce execution scope and prerequisites; topic redirection uses the bounded handoff tool and scope instructions. Keep identity/state/tools/dependency overrides rejected and JWT scopes unchanged. Verify backend model access through the actual local app separately from provider-free tests.
 
 Opening or closing the floating chat bar slides panel positions with a gentle spring; do not blur or replay grain for this motion. Other page/view reveals retain their existing timing. One workflow focuses its conversation; zero or multiple selected workflows use the general Samurai conversation and existing general backend scope. Clearing filters fades the chat back to general context. Keep typed single-area transport validation, run cancellation, keyboard focus and reduced motion. Persist filter selections and migrate the previous single choice without discarding saved work.
 
@@ -175,7 +175,7 @@ Workflow selections retain click order; a newly selected or reselected workflow 
 
 Removing a workflow reverses the same 850 ms page reveal before its cards leave the layout. Keep outgoing cards mounted and in their slots until completion, with interaction disabled. Rapid reselection reverses the in-progress fade without losing card state. Remaining cards then move smoothly to fill the gap; reduced motion removes immediately.
 
-Home retains the original portfolio layout: the centered idea heading, floating company-name field and saved company tiles. The local panel preview Home button and intake cancel return to the normal portfolio Home; do not replace Home with an isolated demo-entry screen when refining the Company dashboard. Preview workspaces stay in their separate cache.
+Home retains the original portfolio layout: the centered idea heading, floating company-name field and saved company tiles. The Home button and intake cancel return to the normal portfolio Home. Preserve archived legacy sample data without opening it as live ideas.
 
 Do not show search controls anywhere in the product UI: Home, workspace headers, prospect cards or generated tables. Remove the Cmd/Ctrl+K search shortcut. Keep workflow filters, prospect fit/shortlist filters and panel actions.
 
@@ -184,17 +184,17 @@ The Chat sidebar uses the plus control beside Pinned to add panels. Do not repea
 
 ## OpenUI composed views — 16 October 2026
 
-OpenUI owns the text/metric/list/table composition renderer. Its allowlisted components retain the existing `declarative-*` markup, Inter, theme tokens, native table semantics and scroll container. The surrounding BusinessPanel still owns title, pinning and assumptions. The shared preview includes an illustrative Pilot comparison; no new visual theme or chat shell is introduced.
+OpenUI owns the text/metric/list/table composition renderer. Its allowlisted components retain the existing `declarative-*` markup, Inter, theme tokens, native table semantics and scroll container. The surrounding BusinessPanel still owns title, pinning and assumptions. Test fixtures include an illustrative Pilot comparison; no new visual theme or chat shell is introduced.
 
 
 ## Calm panels — 16 October 2026
 
-Use generous shared card padding and a quiet title without decorative category icons. Keep controls visible and keyboard accessible. Replace nested segmented-control shells with simple underlined choices; soften pricing selection and remove nested milestone/metric boxes. OpenUI metrics use unboxed large values and share a two-column layout when adjacent. Tables keep semantic headers and a screen-reader row-count caption, with fine dividers instead of toolbars and framed grids. Preserve draft/source distinctions, disclosures, company-scoped actions, both themes and mobile tap targets. Hide the upstream development inspector in founder previews.
+Use generous shared card padding and a quiet title without decorative category icons. Keep controls visible and keyboard accessible. Replace nested segmented-control shells with simple underlined choices; soften pricing selection and remove nested milestone/metric boxes. OpenUI metrics use unboxed large values and share a two-column layout when adjacent. Tables keep semantic headers and a screen-reader row-count caption, with fine dividers instead of toolbars and framed grids. Preserve draft/source distinctions, disclosures, company-scoped actions, both themes and mobile tap targets. Hide the upstream development inspector in the founder app.
 
 
 ## Visual prompt results — 16 October 2026
 
-The default company entry is the dashboard. Evidence/prospect mixes and delivery completion use data-derived rings with short legends. OpenUI's Table component projects compatible two-column numeric data into comparison bars; full original tables stay in Details, and mixed currencies/cadences stay as tables. Scenario lines connect only supplied endpoints and retain explicit synthetic labels, exact values, assumptions and constraints. Pricing choices use three tinted visual tiles. The charts use native SVG/CSS and existing beUI motion tokens; Bklit's rings, legends and quiet chart surfaces are design references, not a vendored dependency. All founder controls and full findings remain available. The multi-panel preview is a component catalog; one prompt does not automatically generate its entire contents.
+The default company entry is the dashboard. Evidence/prospect mixes and delivery completion use data-derived rings with short legends. OpenUI's Table component projects compatible two-column numeric data into comparison bars; full original tables stay in Details, and mixed currencies/cadences stay as tables. Scenario lines connect only supplied endpoints and retain explicit synthetic labels, exact values, assumptions and constraints. Pricing choices use three tinted visual tiles. The charts use native SVG/CSS and existing beUI motion tokens; Bklit's rings, legends and quiet chart surfaces are design references, not a vendored dependency. All founder controls and full findings remain available. The renderer test fixtures are a component catalog; one prompt does not automatically generate its entire contents.
 
 
 ## Field and scrollbar polish — 16 October 2026
