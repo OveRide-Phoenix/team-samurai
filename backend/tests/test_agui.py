@@ -41,7 +41,9 @@ def payload(**changes: object) -> dict[str, object]:
     }
 
 
-def fixture(tmp_path: Path) -> tuple[TestClient, dict[str, str], SqliteDb]:
+def fixture(
+    tmp_path: Path, model: _ToolSequenceModel | None = None
+) -> tuple[TestClient, dict[str, str], SqliteDb]:
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     public = (
         key.public_key()
@@ -65,7 +67,7 @@ def fixture(tmp_path: Path) -> tuple[TestClient, dict[str, str], SqliteDb]:
         create_app(
             db=db,
             settings=settings,
-            parent_model_factory=lambda: _ToolSequenceModel("read_company_state"),
+            parent_model_factory=lambda: model or _ToolSequenceModel("read_company_state"),
         )
     )
     return client, {"Authorization": f"Bearer {token}"}, db
@@ -184,3 +186,45 @@ def test_agui_can_read_and_cancel_before_first_model_response(
     assert "RunCancelled" in result.text
     assert stored.json()["status"] == "CANCELLED"
     assert "SAMURAI_PANEL=" not in result.text
+
+
+@pytest.mark.parametrize("area", ["overview", "research", "strategy", "verification", "sales"])
+def test_inline_agui_exposes_only_read_only_tools(tmp_path: Path, area: str) -> None:
+    model = _ToolSequenceModel("read_company_state")
+    client, headers, _ = fixture(tmp_path, model)
+    with client:
+        response = client.post(
+            "/agentos/agents/samurai/agui",
+            json=payload(forwardedProps={"team_area": area}),
+            headers=headers,
+        )
+    assert response.status_code == 200
+    assert '"type":"RUN_FINISHED"' in response.text
+    assert "read_company_state" in model.advertised_tools_json
+    for tool in ("run_company_journey", "create_launch_drafts", "analyze_metrics"):
+        assert tool not in model.advertised_tools_json
+
+
+@pytest.mark.parametrize("operation", ["journey", "launch_drafts", "metrics_analysis"])
+def test_inline_agui_rejects_approved_work_without_worker(tmp_path: Path, operation: str) -> None:
+    model = _ToolSequenceModel("read_company_state")
+    client, headers, db = fixture(tmp_path, model)
+    with client:
+        response = client.post(
+            "/agentos/agents/samurai/agui",
+            json=payload(
+                forwardedProps={
+                    "work_approval": {
+                        "operation": operation,
+                        "stage": "plan",
+                        "expected_revision": 0,
+                        "company_id": None,
+                    }
+                }
+            ),
+            headers=headers,
+        )
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Approved work requires Samurai's durable execution worker."
+    assert model.calls == 0
+    assert db.get_run("view-run") is None

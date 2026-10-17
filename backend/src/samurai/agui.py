@@ -125,11 +125,16 @@ class SamuraiAGUI(BaseInterface):
                     media_type="text/event-stream",
                     headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
                 )
+            if "work_approval" in props:
+                raise HTTPException(
+                    503, "Approved work requires Samurai's durable execution worker."
+                )
             agent = create_parent_agent(
                 self.db,
                 self.settings,
                 model=self.model_factory() if self.model_factory is not None else None,
                 team_area=area,
+                read_only=True,
             )
             return StreamingResponse(
                 _events(agent, run_input, user_id),
