@@ -444,6 +444,7 @@ class SamuraiParentAgent(Agent):
             instructions=instructions,
             add_history_to_context=True,
             num_history_runs=5,
+            tool_choice="validated",
             tool_call_limit=settings.agent_tool_call_limit,
             pre_hooks=[require_run_access] if executable else [reject_registry_execution],
             post_hooks=[_fail_closed_tool_errors],

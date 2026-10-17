@@ -139,7 +139,7 @@ h1,h2,h3,p { margin: 0; }
 .composer:focus-within { box-shadow: inset 0 0 0 1px var(--ring),0 8px 28px var(--shadow); }
 .composer-plus { margin: 0 0 2px; min-width: 40px; min-height: 40px; }
 .send-button { display: grid; place-items: center; height: 40px; width: 40px; border-radius: 50%; background: var(--primary); color: var(--primary-foreground); flex-shrink: 0; }
-.preview-caption { display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--secondary-text); margin-top: 11px; font-size: 11px; }
+.conversation-caption { display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--secondary-text); margin-top: 11px; font-size: 11px; }
 .scroll-bottom { position: absolute; bottom: 106px; left: 50%; transform: translateX(-50%); display: grid; place-items: center; background: var(--surface); width: 29px; height: 29px; border-radius: 50%; box-shadow: 0 2px 12px var(--shadow); }
 .storage-warning { font-size: 10px; color: var(--secondary-text); text-align: center; margin-top: 6px; }
 .error-note { background: var(--accent-soft); border-radius: 12px; padding: 12px; font-size: 12px; margin-bottom: 15px; }
@@ -179,7 +179,7 @@ h1,h2,h3,p { margin: 0; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (min-width:1600px) { :root { --home-width:385px; --content-width:640px; } .home-pane { padding-left:27px; padding-right:23px; } .home-heading h1 { font-size:22px; } }
 @media (max-width:1100px) { :root { --home-width:310px; } .topbar { padding:17px 18px; } .wordmark { font-size:24px; }.home-pane { padding-left:17px; padding-right:13px; } .conversation-scroll,.composer-dock { padding-left:24px; padding-right:24px; } .home-heading h1 { font-size:17px; } .compact-panel .offer-footer { align-items:flex-start; flex-direction:column; } }
-@media (max-width:760px) { :root { --home-width:0px; } .topbar { height:78px; padding:15px; } .wordmark { display:none; } .topbar-actions { gap:9px; }.account-button { height:35px; width:35px; font-size:18px; } .home-button { height:38px; width:38px; } .view-switch { left:48%; } .view-switch button { padding:9px 18px; font-size:12px; } .home-pane { z-index:15; top:76px; bottom:0; width:min(340px,88vw); padding:20px; background:var(--surface); backdrop-filter:blur(28px); box-shadow:15px 0 60px var(--shadow); border-radius:0 22px 0 0; } .conversation-scroll { padding:94px 18px 146px; } .conversation-intro { margin-left:3px; } .conversation-intro h2 { font-size:32px; } .composer-dock { padding:12px 14px 18px; } .preview-caption { font-size:10px; gap:4px; } .business-panel { padding:18px 17px 13px; } .offer-promise { font-size:19px; } .assistant-message > p { font-size:13px; } .company-content { padding:94px 20px 40px; } .company-content > h2 { font-size:34px; } .company-panels { grid-template-columns:1fr; } .compact-panel .offer-footer { flex-direction:row; align-items:center; } }
+@media (max-width:760px) { :root { --home-width:0px; } .topbar { height:78px; padding:15px; } .wordmark { display:none; } .topbar-actions { gap:9px; }.account-button { height:35px; width:35px; font-size:18px; } .home-button { height:38px; width:38px; } .view-switch { left:48%; } .view-switch button { padding:9px 18px; font-size:12px; } .home-pane { z-index:15; top:76px; bottom:0; width:min(340px,88vw); padding:20px; background:var(--surface); backdrop-filter:blur(28px); box-shadow:15px 0 60px var(--shadow); border-radius:0 22px 0 0; } .conversation-scroll { padding:94px 18px 146px; } .conversation-intro { margin-left:3px; } .conversation-intro h2 { font-size:32px; } .composer-dock { padding:12px 14px 18px; } .conversation-caption { font-size:10px; gap:4px; } .business-panel { padding:18px 17px 13px; } .offer-promise { font-size:19px; } .assistant-message > p { font-size:13px; } .company-content { padding:94px 20px 40px; } .company-content > h2 { font-size:34px; } .company-panels { grid-template-columns:1fr; } .compact-panel .offer-footer { flex-direction:row; align-items:center; } }
 @media (prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none!important; transition:none!important; scroll-behavior:auto!important; } }
 
 /* Company shell */
@@ -211,7 +211,6 @@ h1,h2,h3,p { margin: 0; }
 .company-intake > div { width: 100%; }
 .intake-field { height: 58px; background: var(--card); border: 1px solid var(--border); }
 .intake-input { font-size: 15px; padding-left: 22px; }
-.demo-link { padding: 0; height: auto; margin-top: 24px; font-size: 13px; color: var(--secondary-text); }
 .landing-team { padding-top: 76px; }
 .landing-team .team-panel { padding: 23px; }
 .landing-team-note { font-size: 13px; color: var(--secondary-text); text-align: center; margin-top: 17px; }
@@ -256,7 +255,7 @@ h1,h2,h3,p { margin: 0; }
 /* Original quiet controls; beUI is reserved for the animated view indicator. */
 .intake-input { width: 100%; height: 58px; border: 0; background: var(--card); border-radius: 30px; color: var(--foreground); padding: 0 22px; box-shadow: inset 0 1px var(--border); }
 .intake-input::placeholder { color: var(--secondary-text); }
-.primary-button,.new-company-link,.demo-link,.company-tile > button { display: inline-flex; align-items: center; gap: 10px; }
+.primary-button,.new-company-link,.company-tile > button { display: inline-flex; align-items: center; gap: 10px; }
 .company-tile { border: 0; }
 .empty-panel { text-align: left; }
 .home-button,.mode-toggle,.send-button,.action-card,.soft-button,.primary-button { transition: background .18s, box-shadow .18s, transform .18s; }
@@ -412,7 +411,6 @@ h1,h2,h3,p { margin: 0; }
 @media (max-width:760px) {
  .company-workspace:not(.dashboard-open) .home-pane > .home-heading { display: block; padding: 0 4px 12px; }
  .company-workspace:not(.dashboard-open) .home-selector-row > button { display: none; }
- .company-workspace:not(.dashboard-open) .main-pane { position: absolute; inset: 238px 0 0; height: auto; }
  .company-workspace:not(.dashboard-open) .conversation-scroll { padding-top: 18px; }
  .home-selector-row .company-name { font-size: 26px; }
  .dashboard-title { font-size: 30px; }
@@ -466,7 +464,7 @@ h1,h2,h3,p { margin: 0; }
 .onboarding-fields textarea.intake-input { height: 138px; resize: vertical; border-radius: 22px; padding: 16px 20px; line-height: 1.6; }
 .onboarding-actions { display: flex; align-items: center; justify-content: space-between; margin-top: 26px; gap: 20px; }
 .onboarding-actions .primary-button { margin-left: auto; }
-.intake-preview-note { color: var(--secondary-text); font-size: 11px; margin-top: 22px; }
+.intake-note { color: var(--secondary-text); font-size: 11px; margin-top: 22px; }
 .intake-error { font-size: 13px; color: var(--destructive); margin-top: 14px; }
 @media (max-width:760px) {
  .landing-content { padding-inline: 22px; }
@@ -615,8 +613,6 @@ h1,h2,h3,p { margin: 0; }
 .founder-evidence-gaps li + li { margin-top:5px; }
 .founder-attribution { color:var(--muted-foreground); }
 .founder-attribution a { display:inline-flex; margin-top:8px; color:var(--foreground); font-size:12px; }
-.founder-preview-update { position:fixed; right:20px; bottom:132px; z-index:30; }
-@media(max-width:760px) { .founder-preview-update { right:14px; bottom:148px; max-width:calc(100vw - 28px); } }
 .prospect-reason summary { justify-content:space-between; align-items:flex-start; }
 .prospect-reason summary > div { min-width:0; }
 .prospect-reason summary > svg { flex-shrink:0; margin-top:4px; }
@@ -727,8 +723,6 @@ h1,h2,h3,p { margin: 0; }
 .operations-list span,.operations-list small { color:var(--muted-foreground); font-size:11px; overflow-wrap:anywhere; }
 .scenario-inline-warning { margin:0 0 12px; color:var(--muted-foreground); font-size:11px; line-height:1.5; }
 .operations-result { margin:4px 0 16px; padding:14px; border:1px solid var(--border); border-radius:16px; }
-.operations-preview .landing-content { align-items:flex-start; }
-.operations-preview .landing-main { width:min(920px,100%); }
 @media(max-width:760px) { .operations-grid { grid-template-columns:1fr 1fr; } .operations-row { align-items:stretch; flex-direction:column; } .operations-row > * { width:100%; } }
 
 /* Quiet, shared panel chrome; the content carries the hierarchy. */
@@ -749,7 +743,7 @@ h1,h2,h3,p { margin: 0; }
   .business-panel .panel-tools .icon-button { width:36px; height:36px; }
   .declarative-blocks { gap:24px 16px; }
 }
-/* OpenUI auto-mounts its inspector in development; keep founder previews free of developer chrome. */
+/* OpenUI auto-mounts its inspector in development; keep the founder workspace free of developer chrome. */
 [data-openui-devtools-auto-mount],[data-openui-devtools-root] { display:none; }
 
 /* Result-first visual summaries, with the full evidence one disclosure away. */

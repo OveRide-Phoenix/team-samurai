@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import KnownPanel, { knownPanelComponent } from './KnownPanel';
 import { StandardPanelBody } from './StandardPanelBody';
 import { WorkDraftPanel } from './WorkDraftPanel';
-import { draftPreviewArtifacts, draftPreviewPanels } from './draftPreviews';
+import { draftPreviewArtifacts, draftPreviewPanels } from './testDraftFixtures';
 
 const render = (panel: typeof draftPreviewPanels[number]) => renderToStaticMarkup(createElement(KnownPanel, { panel, render: props => createElement(StandardPanelBody, { ...props, panel: props.panel as Extract<typeof props.panel, { kind: 'evidence' }>, compact: false, completedTasks: [], onComplete: () => undefined, shortlisted: [], onShortlist: () => undefined, approved: false, onApprove: () => undefined }) }));
 describe('OpenUI work draft reader', () => {

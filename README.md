@@ -1,8 +1,21 @@
 # Team Samurai — Software idea mentor
 
-An AI mentor for validating and implementing software ideas, developed for Google AI Builder Cup 2026. Describe an app, website or software enhancement and explore its problem, market, sales, product, resources and delivery in one connected workspace.
+An AI mentor for validating and improving software ideas before implementation,
+developed for Google AI Builder Cup 2026. Describe an app, website or software
+enhancement and examine its problem, market, sales, product, resources and validation.
+Iterate toward a reasoned go, revise or stop decision. Implementation follows a
+reviewed decision and the founder's explicit choice through the existing workflow.
 
-The idea map opens six independent aspects with checkpoints, notes and readiness lights. Readiness is a user assessment, not an invented success score. The existing backend journey and artifact lineage are reused; internal company terminology remains in IDs and API contracts for compatibility.
+Mentor keeps pinned panels beside chat; Idea map keeps the six-aspect graph beside
+that same conversation. Questions and useful structured responses use OpenUI in
+chat. The first intake call can draft reasonable starting points, with unknowns and
+assumptions labelled. Readiness lights and words stay inside the aspect boxes.
+Readiness is a user assessment, not a success score or independent validation.
+The existing backend journey and artifact lineage are reused; internal company
+terminology remains in IDs and API contracts for compatibility.
+
+Gemini's analysis, critique, evidence interpretation and revisions should drive the
+validation decision. A completed map or generated draft does not justify a go.
 
 See the [software idea mentor handoff](docs/idea-validation-handoff.md) for the six
 aspects, existing backend mappings, implementation entry points, verification and
@@ -71,7 +84,11 @@ They interact with one mentor and an idea map. Each aspect can be discussed inde
 
 For example, given connected analytics, the Analyst might report: “Your landing page gets traffic but conversion is only 0.8%. Here are the three changes I'd make.” This is an illustrative scenario, not an observed result or implemented capability.
 
-The journey is **validate demand → shape an offer → build what is needed → find customers → support sales and delivery → measure → improve**. Outputs from each stage inform the next. Documents, generated software, and campaigns support business progress; customers and revenue are not guaranteed.
+The primary journey is **first pass → challenge assumptions across six aspects →
+collect evidence → revise → go, revise or stop**. Small experiments and feasibility
+prototypes can progress independently. After a reviewed go and the founder's explicit
+choice, the existing approved workflow supports implementation and later sales and
+delivery work. Generated software and campaigns do not guarantee customers or revenue.
 
 ## Logical architecture
 
@@ -79,7 +96,7 @@ This is the target responsibility map, implemented incrementally with React and 
 
 ```mermaid
 flowchart TD
-    Founder["Founder: Build my business"] --> Workspace["React + CopilotKit: conversation, panels, evidence, approvals"]
+    Founder["Founder: Validate my software idea"] --> Workspace["React + CopilotKit: conversation, panels, evidence, approvals"]
     Workspace --> Boundary["AgentOS API: identity and action authorization"]
     Boundary --> Orchestrator["Agno Workflow: explicit stages and shared company context"]
     Orchestrator --> Research["Research: Researcher"]
@@ -130,7 +147,7 @@ team-samurai/
     └── samurai-logo/     # Existing shared brand assets
 ```
 
-The backend owns orchestration, execution, verification, integrations, authorization, app-owned workspace/company canonical state, and the local workspace-file lifecycle. The frontend owns the founder experience and renders server-projected structured company state; browser-local panels and drafts are not canonical state. The frontend serves the founder UI preview on port 4173. Authenticated local intake, streamed runs, cancellation, and saved-result recovery are implemented.
+The backend owns orchestration, execution, verification, integrations, authorization, app-owned workspace/company canonical state, and the local workspace-file lifecycle. The frontend owns the founder experience and renders server-projected structured company state; browser-local panels and drafts are not canonical state. The frontend serves the actual founder app on port 4173; preview routes and simulated transports are removed. Authenticated local intake, streamed runs, cancellation, and saved-result recovery are implemented.
 
 ## UI direction
 

@@ -1,5 +1,51 @@
 # Frontend contributor guide
 
+## Latest local app and responses — 17 October 2026
+
+The user explicitly removed preview modes. Localhost must run the actual app and
+configured backend. Do not restore LocalPanelPreview, query-driven demo routes,
+simulated transports, or a provider-free sample-data mode. Fixtures belong in
+tests only. Preserve legacy stored data without presenting it as a usable live
+idea. Ordinary answers can be text, OpenUI, or both; use UI only when useful.
+This supersedes all historical preview/demo instructions below.
+
+## Latest mentor entry and layout — 17 October 2026
+
+Keep readiness lights inside the aspect boxes, without visible status words.
+Place the filled-question count at the top right. The user rejected separate
+1–2–3 question buttons above graph nodes. Questions stay in the mentor conversation.
+Map clicks only select/highlight a card; they must not change the active chat,
+question, draft or scroll position. Invoke aspect mentors explicitly through the
+chat's mentor picker, retaining one continuous transcript and the current draft.
+
+The core product is validation and improvement across all six aspects. A complete
+map is a hypothesis set, not a go signal. The mentor challenges, tests and revises
+the idea before implementation; building follows a reviewed validation decision
+and the founder's explicit choice. Cofounder supplies layout inspiration only.
+
+The user supplied Cofounder's graph-left/chat-right layout for the Idea map tab.
+Keep Mentor and Idea map tabs: Mentor shows pinned panels left and chat right;
+Idea map shows the six-aspect graph left and that same chat right on desktop.
+Questions and generated OpenUI views belong in chat; panels remain pinnable.
+On mobile, Mentor opens first and the map has its
+own tab. Submitting the idea goes directly to a mentor greeting and first-pass
+analysis. Reuse the existing intake call to populate useful aspect drafts, label
+inferences, preserve unknowns and founder edits, and ask only the remaining gaps.
+This supersedes the three prerequisite pages and brief-only presentation below.
+It does not authorize downstream research, publishing, spending or deployment.
+
+## Chat-first refinement — 17 October 2026
+
+Mentor chat is the primary experience; the map is secondary navigation/progress.
+Guide Problem → Market → Sales → Product → Budget → Validation with ordered
+questions answered through the existing composer. Show one question at a time
+through a registered OpenUI component, retaining literal replies and structured
+OpenUI business results in chat. Do not restore three checkpoint form cards.
+Use themed readiness buttons and shared themed dropdowns. Keep all aspects
+accessible, preserve saved notes and frontend identities, and retain existing
+backend journey/approval scopes. Guided answers are browser-local context and
+must not imply independent validation or automatically invoke paid work.
+
 ## Current software-idea UX — 17 October 2026
 
 Replace visible company-building and role-chat navigation with an idea mentor and

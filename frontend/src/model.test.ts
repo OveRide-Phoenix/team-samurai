@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { beginBackendRun, panelIsOutdated, continueCompanyView, finishActivities, hasActiveBackendRun, isCancellableBackendRun, nextJourneyApproval, toggleSavedSelection, applyBackendEvent, recordBackendRun, initialCompanyPrompt, companyBriefSchema, chooseWorkflow, orderedPanels, movePanel, latestPanels, emptyCompanyView, eventSchema, panelSchema, portfolioSchema, restorePortfolio, companyViewSchema } from './model';
-import { onboardingPreview, demoTransport, initialWorkspace, offer, pricing, prospects, evidence, launchPlan } from './demo';
+import { initialWorkspace, offer, pricing, prospects, evidence, launchPlan } from './testFixtures';
 
 describe('backend-facing UI contract', () => {
   it('starts empty and migrates the old preview without losing company data', () => {
@@ -8,6 +8,7 @@ describe('backend-facing UI contract', () => {
     const migrated = restorePortfolio(null, JSON.stringify(initialWorkspace));
     expect(migrated.activeId).toBeNull();
     expect(migrated.companies[0].workspace).toEqual(initialWorkspace);
+    expect(emptyCompanyView().executionMode).toBe('live');
     expect(emptyCompanyView().messages).toEqual([]);
     expect(emptyCompanyView().pinned).toEqual([]);
   });
@@ -63,13 +64,6 @@ describe('backend-facing UI contract', () => {
     expect(latestPanels(workspace)).toEqual([updated]);
     expect(initialWorkspace.pinned).toEqual([offer]);
   });
-  it('stops a demo run without emitting a completed panel', async () => {
-    const controller = new AbortController();
-    const stream = demoTransport('Find customers', controller.signal)[Symbol.asyncIterator]();
-    expect((await stream.next()).value?.type).toBe('activity');
-    controller.abort();
-    await expect(stream.next()).rejects.toMatchObject({ name: 'AbortError' });
-  });
 });
 
 describe('dashboard panel order', () => {
@@ -93,30 +87,14 @@ describe('dashboard panel order', () => {
 
 describe('company prerequisites', () => {
   const brief = { idea: 'A repair service for bicycles', customer: 'Local cyclists', location: 'Pune', budget: '0', goal: 'One paying pilot' };
-  it('requires a complete brief and retains it through portfolio reload', () => {
+  it('accepts an idea before optional context and retains full saved briefs through reload', () => {
+    expect(companyBriefSchema.parse({ idea: 'A booking app for tutors' })).toMatchObject({ customer: '', location: '', budget: '', goal: '' });
     expect(companyBriefSchema.safeParse(brief).success).toBe(true);
     expect(companyBriefSchema.safeParse({ ...brief, customer: '   ' }).success).toBe(false);
     expect(companyBriefSchema.safeParse({ ...brief, idea: 'a'.repeat(1501) }).success).toBe(false);
     const saved = { version: 2, mode: 'light', activeId: 'brief', companies: [{ id: 'brief', name: 'Cycle Co', workspace: { ...emptyCompanyView(), brief } }] };
     expect(restorePortfolio(JSON.stringify(saved), null).companies[0].workspace.brief).toEqual(brief);
     expect(companyViewSchema.parse(initialWorkspace).brief).toBeUndefined();
-  });
-  it('uses the supplied brief without inventing dental fixtures and yields valid events', async () => {
-    const events = [];
-    for await (const raw of onboardingPreview(brief, new AbortController().signal)) events.push(eventSchema.parse(raw));
-    expect(events).toHaveLength(1);
-    expect(events.filter(e => e.type === 'activity')).toHaveLength(0);
-    const result = events.find(e => e.type === 'message');
-    expect(JSON.stringify(result)).toContain('Local cyclists');
-    expect(JSON.stringify(result)).toContain('Pune');
-    expect(JSON.stringify(result)).not.toContain('Dental');
-    expect(result?.type === 'message' && result.panel?.title).toBe('Company brief');
-  });
-  it('does not produce a brief when the initial preview was cancelled', async () => {
-    const controller = new AbortController();
-    const stream = onboardingPreview(brief, controller.signal)[Symbol.asyncIterator]();
-    controller.abort();
-    expect((await stream.next()).done).toBe(true);
   });
 });
 
@@ -191,7 +169,7 @@ describe('live workspace state', () => {
   it('sends all saved intake fields as founder input to the backend', () => {
     const prompt = initialCompanyPrompt({ idea: 'Cycle repair business', customer: 'Local cyclists', location: 'Pune', budget: '1000 INR', goal: 'First paid pilot' });
     const brief = JSON.parse(prompt.slice(prompt.indexOf('\n') + 1));
-    expect(brief).toEqual({ idea: 'Cycle repair business', target_customer: 'Local cyclists', geography: 'Pune', budget: '1000 INR', goal: 'First paid pilot' });
+    expect(brief).toEqual({ idea: 'Cycle repair business', target_customer: 'Local cyclists', geography: 'Pune', budget: '1000 INR', founder_skills: null, goal: 'First paid pilot' });
   });
   it('uses canonical eligibility and refuses blocked, running or stale approvals', () => {
     const companyId = '00000000-0000-4000-8000-000000000001';

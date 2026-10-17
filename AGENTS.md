@@ -2,6 +2,31 @@
 
 ## Current product direction — 17 October 2026
 
+The current UX work targets desktop only. Prioritize the side-by-side idea map
+and mentor conversation, and pinned panels in the Mentor tab. Do not spend more
+time implementing or validating mobile layouts unless the user requests it.
+
+Localhost runs the actual app and backend. Preview routes and simulated app
+transports are removed; test fixtures must remain test-only. Preserve legacy cache
+data without opening sample workspaces as live ideas.
+
+Mentor answers can be concise plain text, OpenUI, or both. Use structured views
+when they improve the answer; do not force every response into a panel.
+
+Gemini must be the solution: its analysis, evidence interpretation, critique and
+revision must materially improve the validation decision. Do not reduce it to a
+chat interface around predetermined outputs. Marketing and sales content, such as
+Instagram concepts and copy grounded in the validated audience and offer, is a
+follow-on capability; it does not expand today's validator scope or authorize
+publishing, outreach or spending.
+
+Validation and improvement across all six aspects are the primary product.
+Cofounder is a layout reference. Iterate on problem, alternatives, sales, product,
+resources and validation evidence before recommending a go/revise/stop decision.
+A filled map, a generated draft, or a founder's readiness assessment is not a go.
+Building follows a reviewed validation decision and the founder's explicit choice
+to proceed through the existing approved workflow. Discussion stays independent.
+
 The user now defines Samurai as a mentor/validator for **software ideas**: apps,
 websites and software enhancements. Use ideas we validate or implement, not companies
 we build. This supersedes the company-building positioning and role-based UX below.

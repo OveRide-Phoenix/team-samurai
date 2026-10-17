@@ -11,4 +11,6 @@ export const readinessLabels = { ready: 'Ready', 'in-progress': 'In progress', b
 export const aspectChecksSchema = z.record(z.string().min(1).max(80), z.strictObject({
   status: checkpointStatusSchema,
   note: z.string().max(4000),
+  origin: z.enum(['mentor', 'founder']).optional(),
+  basis: z.enum(['provided', 'inferred']).optional(),
 })).refine(checks => Object.keys(checks).length <= 18, 'At most eighteen checkpoints can be saved').default({});

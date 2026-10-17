@@ -4,7 +4,6 @@ import { declarativeResponse } from './DeclarativePanel';
 import { knownPanelComponent, onboardingPanelCatalog } from './KnownPanel';
 import { customFrameHeight, sandboxDocument } from './CustomPanel';
 import { filterProspects } from './StandardPanelBody';
-import { onboardingPreview } from './demo';
 import { createAgentosTransport, readAgentosRun } from './agentos';
 import { vi } from 'vitest';
 
@@ -78,11 +77,5 @@ describe('interactive panel controls', () => {
     expect(filterProspects(rows, 'All', ['a'])).toEqual(rows);
     expect(filterProspects(rows, 'Shortlisted', ['a', 'foreign'])).toEqual([rows[0]]);
     expect(filterProspects(rows, 'High fit', [])).toEqual([rows[0]]);
-  });
-  it('keeps fresh preview intake to the brief until the founder requests more work', async () => {
-    const output = [];
-    for await (const event of onboardingPreview({ idea: 'A fictional clinic receptionist', customer: 'Dental clinics', location: 'Bengaluru', budget: '₹50000', founderSkills: 'Python', goal: 'One pilot' }, new AbortController().signal)) output.push(event);
-    expect(output).toHaveLength(1);
-    expect(output[0]).toMatchObject({ type: 'message', panel: { title: 'Company brief', kind: 'evidence' } });
   });
 });

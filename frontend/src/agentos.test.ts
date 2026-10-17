@@ -427,7 +427,8 @@ describe('AgentOS transport wire boundary', () => {
 
   it('projects founder intake into a concise review panel while retaining full provenance', async () => {
     const brief = { idea: 'Cycle repairs for commuters', target_customer: 'Local cyclists', geography: 'Pune', budget: '1000 INR', founder_skills: null, goal: 'First paid pilot', supplied_context: [], assumptions: ['Demand is untested'], open_questions: ['Which neighborhood?'], next_actions: ['Interview cyclists'] };
-    const intake = { ...result.artifacts[0], artifact_type: 'intake', producer: 'intake', claims: [], sources: [], payload: { artifact_type: 'intake', brief } };
+    const idea_analysis = { summary: 'Test the problem before building.', starting_points: [{ checkpoint_id: 'minimum-product', answer: 'One booking flow.', basis: 'inferred' }] };
+    const intake = { ...result.artifacts[0], artifact_type: 'intake', producer: 'intake', claims: [], sources: [], payload: { artifact_type: 'intake', brief, idea_analysis } };
     serve(frame(wire('RunStarted')) + frame(wire('RunCompleted', { content: { ...result, artifacts: [intake] } })));
     const events = await collect(createAgentosTransport('session-1')('Build my company', new AbortController().signal));
     const event = events[0];
@@ -435,6 +436,7 @@ describe('AgentOS transport wire boundary', () => {
     expect(event.panel.title).toBe('Company brief');
     expect(event.panel.claims.find(claim => claim.claim.startsWith('First customers:'))).toMatchObject({ claim: 'First customers: Local cyclists', status: 'needs-check', detail: 'Founder supplied context, not market evidence', sources: [] });
     expect(event.panel.provenance).toEqual(intake);
+    expect(event.panel.idea_analysis).toEqual(idea_analysis);
     expect(event.text).not.toContain('artifact_id');
   });
 

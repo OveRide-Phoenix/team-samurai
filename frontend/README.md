@@ -1,47 +1,49 @@
 # Samurai UI
 
-The current UX is a software idea mentor: an idea-centered graph with six independently
-accessible aspects, eighteen checkpoints and saved user readiness assessments.
-Notes and assessments persist in the existing account-scoped browser cache. Existing
-backend journeys, APIs, approval guards and panel renderers are reused. The historical
-implementation notes below retain internal company names for compatibility. The
-normal route still uses the configured backend; `?preview=panels` demonstrates the
-same graph and controls with labelled illustrative data and no provider calls.
+Samurai is a chat-first mentor and validator for software ideas. Mentor keeps
+pinned panels on the left and the conversation on the right. Idea map puts the
+six-aspect graph on the left with the same conversation on the right.
+Map selection highlights a node; invoke an aspect mentor explicitly from chat.
 
-The React/Vite founder workspace for AI Idea → Company. New companies use the configured local AgentOS backend; existing and demo companies retain labelled Preview mode. Live Gemini runs may incur provider charges. The workspace does not send, publish or deploy; recorded production Node-proxy revisions used team-only Google IAP, with Google sign-in, live brief creation, and reload verified there rather than for the current source.
+Submitting an idea opens a mentor greeting and a first-pass analysis through the
+existing intake workflow. Useful aspect drafts are labelled provided/inferred;
+unknowns, founder edits and readiness assessments remain distinct from evidence.
+The mentor challenges assumptions and suggests improvements before recommending
+implementation. Answers can be concise text, useful OpenUI panels, or both.
 
 ## Run locally
 
-From the repository root, use `task frontend:setup` and `task frontend:dev`. Alternatively, use Node 24 from `frontend/`, then:
+From the repository root, use `task frontend:setup`, `task backend:dev` and
+`task frontend:dev`, following [local development](../docs/local-development.md).
+Open [Samurai](http://127.0.0.1:4173/). Localhost runs the actual app and configured
+AgentOS backend. Developer preview routes and simulated chat transports have been
+removed. Old query links open the ordinary app. Legacy sample caches are retained
+for compatibility but excluded from the idea list; real ideas reopen through the
+owned workspace directory. No browser data is silently deleted.
 
-```sh
-npm ci
-npm run dev
-```
+Node 24 and npm are the toolchain. The dev server binds to loopback. Keep local
+`AGENTOS_USER_TOKEN` in ignored `frontend/.env.local` and JWT trust in the backend;
+no provider key, service key or bearer token belongs in `VITE_` variables. Live
+Gemini calls may incur charges. Static hosting alone cannot serve the authenticated
+transport. See [GCP deployment](../docs/gcp-deployment.md) for the production boundary.
 
-Open http://127.0.0.1:4173. The former Next.js `/api/health` scaffold has been replaced. The server binds to loopback only.
+## Experience and boundaries
 
-## Included
+- One software idea, six independently discussable aspects, eighteen guided questions.
+- Desktop Mentor/Idea map views, pinned panels, themed menus and accessible controls.
+- One continuous transcript with explicit mentor invocation and retained drafts.
+- OpenUI renders guided controls and typed business views. Generated panels can be
+  pinned; custom interactive views stay in the existing isolated sandbox.
+- CopilotKit carries scoped AG-UI requests to Agno. Native run recovery, cancellation,
+  ownership, revisions, evidence gates and explicit execution approvals are retained.
+- Intake drafts, founder readiness and synthetic scenarios are not validated demand.
+  Research can remain insufficient; the app must not infer a go from a filled map.
+- Browser caches retain notes, panel state and drafts. Production caches use the
+  verified user's namespace. Checkpoint collaboration is not server-synchronized.
+- Marketing, sales and build outputs remain drafts. Nothing sends, spends, publishes
+  or deploys through the mentor conversation.
 
-- Hark-inspired atmospheric workspace, frosted Home panels, floating navigation, and top blur.
-- assistant-ui conversation runtime, message primitives, composer, cancellation, and custom tool rendering.
-- Interactive prospect filtering and shortlisting, offer review, pricing views, and pinning to Home.
-- Company view, light/dark modes, and accessible Radix dialogs.
-- Fresh landing and empty-company states, with an always-present preview team.
-- Multiple companies with isolated conversations, pinned panels, shortlists, and draft reviews.
-- Browser-local persistence; local preview retains the original dental-preview migration. Production caches use a SHA-256 namespace for the verified Google user before React mounts, without importing the legacy shared cache. Refresh after switching Google accounts; already-open tabs retain their loaded state until reload.
-- Subtle reduced-motion-aware transitions.
-- Be UI is used selectively for the sliding tab indicator; the core controls keep Samurai styling.
-- `liquid-glass-react` adds actual backdrop refraction to the navigation and composer without filtering their content. Safari and Firefox support is partial; local verification used Chromium.
-- Responsive mobile layout and reduced-motion support.
-
-## Backend handoff
-
-The backend is in `backend/`. New companies use the authenticated native AgentOS transport; legacy/sample companies use the labelled preview transport. See [BACKEND_CONTRACT.md](BACKEND_CONTRACT.md). Validated UI schemas live in `src/model.ts`, the live adapter in `src/agentos.ts`, and preview fixtures in `src/demo.ts`.
-
-Preview companies need no Gemini credentials. Live companies require the ignored server-side configuration described below. Provider secrets never enter the browser.
-
-## Checks
+## Verify
 
 ```sh
 npm run check
@@ -50,39 +52,14 @@ npm run test:sites
 npm run test:server
 ```
 
-The build emits `dist/client/` plus Sites packaging. Recorded Cloud Run revisions served these assets through the production Node server and proxied the allowed AgentOS API routes; that history does not show the current source is deployed. Static hosting alone cannot provide the authenticated live transport. See [Google Cloud deployment and CI/CD](../docs/gcp-deployment.md) for bootstrap, team access, and acceptance status.
+Deterministic fixtures are imported by tests only; there is no sample-data app mode.
+For browser acceptance, use an isolated real idea and the configured local backend.
+See the [handoff](../docs/idea-validation-handoff.md) for live results and limitations,
+[DESIGN.md](DESIGN.md) for visual rules and [BACKEND_CONTRACT.md](BACKEND_CONTRACT.md)
+for transport and persistence.
 
-## Open-source dependencies
-
-React, Vite, TypeScript, Tailwind CSS, assistant-ui, Radix UI, Lucide, Zod, and Vitest use permissive open-source licenses. Inter is distributed under the SIL Open Font License. No assistant-cloud account or paid UI service is required. Package versions are recorded in `package-lock.json`.
-
-Panels expand inside Home. Use Company or the expand control at the top of the left pane to open the full-width dashboard; Chat with Samurai returns to the retained conversation draft and scroll position. Settings use a themed dropdown; panel creation choices use a dialog.
-
-Generative UI catalog: offer, prospects, pricing, evidence review, and launch plan. Use Add a panel → Evidence review or Launch plan, or ask “Show sample validation evidence” / “Show sample launch plan”. Preview streams demonstrate template components; live streams render validated backend artifacts. Launch task checkmarks persist per company.
-
-The atmospheric mesh background uses `@paper-design/shaders-react` (Apache-2.0), the shader engine used by Be UI. It freezes under reduced motion and retains the existing CSS atmosphere when WebGL2 is unavailable.
-
-Company panels use masonry columns. Choose Edit card order in the settings dropdown, then drag a handle or use the earlier/later buttons; Done hides these controls. The order is saved per company in this browser. Switch companies from Home; the current company name appears once as a prominent heading. The expanded dashboard has no sidebar rail; its larger team card describes idle roles and shows activity during preview runs.
-
-The landing send button opens three required intake pages fetched from the backend. Idea, customers, location, budget, founder skills/resources and first milestone become the saved brief. Completing intake starts a cancellable live run once on first entry. Back preserves answers; leaving or reloading unfinished onboarding discards that draft. All page/view reveals use an 850 ms blur-and-grain fade, disabled for reduced motion.
-
-### Local UI integration — 11 October 2026
-
-New companies use native AgentOS SSE through the Vite server proxy. Configure `AGENTOS_USER_TOKEN` in ignored `frontend/.env.local` and the matching `JWT_VERIFICATION_KEY` in ignored `backend/.env`; restart the backend after changing its configuration. `GEMINI_MODEL` is locked to `gemini-3.5-flash-lite`, with no fallback. The original 2.5 Flash-Lite request returned HTTP 404 for this new account. The user then authorized 3.5 Flash-Lite on 12 October; verify its access separately. Existing and dental-demo companies retain Preview mode. Never call fixture tests proof of successful Gemini research. Local tokens are development-only. The intended production proxy verifies Google IAP assertions and mints short-lived per-user JWTs server-side; neither signing keys nor bearer tokens belong in `VITE_` variables.
-
-Team roles expand to show actual workflow start/completion history, retained per company and recovered from scoped backend runs. Missing evidence shows Researcher/Verifier blocked and Strategist waiting. A completed workflow is not proof of customer demand. Research remains insufficient without source evidence; Researcher has native Gemini Search enabled; provider access, quota, and supported source evidence must be checked separately.
-
-### CopilotKit generative UI
-Live companies now use the self-hosted CopilotKit runtime through Agno AG-UI, with the original assistant-ui chat and native run recovery/cancellation retained. The entry-form Company brief and later research, offer/pricing, delivery and prospect panels render through the decided declarative catalog. Composed views and sandboxed custom components use Samurai's typography and themes. See [the contract](../docs/generative-ui.md) for stages, architecture, validation and local-only verification limits. No cloud UI account or additional provider key is needed.
-
-### Inspect the interactive panels locally
-With the dev server running, open [all panels](http://127.0.0.1:4173/?preview=panels), [fresh intake](http://127.0.0.1:4173/?preview=intake), or the deterministic [founder artifact mapper](http://127.0.0.1:4173/?preview=founder). The founder preview invokes `companySnapshotEvents` with Task 11/12-shaped intake and strategy artifacts; it exercises truth, next-decision, evidence-gap, attribution, stable-ID, reload, and pin behavior without an AgentOS or provider call. The catalog uses the actual declarative renderers plus a sandboxed custom revenue scenario, with clearly labelled sample data and isolated preview storage. Review/shortlist/checklist changes persist locally. The fresh form shows only the Company brief until a founder action asks for the next sample stage. These routes make no AgentOS or Gemini requests and are excluded from production. The normal local route remains connected to CopilotKit/Agno.
-
-### Founder operations
-
-Authenticated live companies show one Founder operations card in Company view. It saves and supersedes explicit preferences/corrections, creates and disables bounded schedules, creates and runs deterministic scenarios, and reloads persisted scenario definitions, results, and schedule receipts from the backend. Scenario panels always say that their low/base/high outputs are synthetic assumptions rather than validation or observed demand. Viewer controls are disabled; the backend remains the authorization boundary.
-
-
-### OpenUI composed views
-
-Generated text, metric, list, and table compositions render through `@openuidev/react-lang` 1.0.1 with Samurai's existing theme. The backend and saved-panel JSON format remain compatible; CopilotKit still transports chat; OpenUI renders the business catalog, chat messages, reply composer, company-name entry and intake answer fields. The existing assistant-ui runtime and native cancellation remain in place; direct model-native OpenUI streaming is not implemented. Inspect Pilot comparison in the existing `?preview=panels` route; see [the generative UI contract](../docs/generative-ui.md#openui-composed-panels--16-october-2026).
+React, Vite, TypeScript, Tailwind CSS, assistant-ui, Radix UI, Lucide, Zod and Vitest
+use permissive licenses; Inter uses SIL Open Font License. Versions are locked in
+`package-lock.json`. OpenUI renders the typed catalog; direct model-native OpenUI
+streaming is not implemented. The atmospheric shader respects reduced motion and
+retains the CSS fallback when WebGL2 is unavailable.

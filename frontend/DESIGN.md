@@ -1,5 +1,63 @@
 # Samurai design contract
 
+Conversation layout reserves the composer's natural height with a flex column;
+long drafts and approval labels must never cover chat controls. Keep 24px at the
+end of the scroll area and keep the 44px scroll-to-latest button in its own row
+inside the composer dock, reserving space instead of covering chat controls.
+
+## Persistent map and mentor — Cofounder reference, 17 October 2026
+
+The user supplied Cofounder's map/conversation screenshot as the Idea map layout reference.
+Keep a spacious graph on the left (about 64%) and a persistent, framed conversation
+on the right (about 36%, minimum 380px) below the existing 84px header. Retain the
+Mentor / Idea map tabs. Mentor keeps pinned panels on the left and the same
+conversation on the right; generated panels remain pinnable from chat. The graph
+has a central idea, a quiet elliptical ring, dashed spokes, six floating aspect
+nodes with a readiness light inside each aspect box, no visible status word, and
+the filled-question count at the top right. Keep readiness in accessible labels
+and the legend. Map selection only highlights a card; it leaves the conversation,
+active question, draft and scroll position intact. The chat header offers an
+explicit aspect mentor picker, preserving the continuous transcript and current
+draft when invoked. Keep question controls in chat; do not show separate numbered
+buttons above map nodes. Use real saved draft and
+readiness counts; never fabricate running tasks or completion. Preserve Samurai's
+existing Inter, warm light / charcoal dark themes, atmosphere and button tokens.
+The screenshot defines layout and interaction; its brand, eight departments,
+marketing copy and pale-grey palette are adapted to the six-aspect Samurai product.
+On screens at or below 760px, Mentor fills the screen and Idea map is an explicit
+tab. Keep the original topology, compact labels and 44px touch targets there.
+
+Submitting the software idea opens Mentor immediately. The existing intake call
+returns a basic analysis and optional draft answers. The OpenUI welcome is visible
+while it runs; the completed first pass uses six expandable aspect rows in chat.
+Label provided context and mentor assumptions separately; missing answers stay
+open. Fill saved aspect notes without overwriting founder edits or assessments.
+Autofill never marks an aspect ready. Ask the next missing question, while every
+draft remains editable through chat. No customer/budget prerequisite forms.
+
+## Chat-first aspect journey — 17 October 2026
+
+The primary interaction is Mentor chat alongside the persistent idea map.
+Recommend Problem → Market → Sales → Product → Budget → Validation;
+each aspect has three ordered questions answered in the existing chat composer.
+Show one OpenUI question at a time, then continue to the next unanswered question
+and aspect. Never gate access to another aspect or claim that an answer proves
+readiness. Keep prior notes, assessments, drafts, approvals and backend scopes.
+
+Replace the three checkpoint form cards with a compact aspect summary. Questions,
+saved-answer disclosures, optional readiness choices and completion actions are
+registered OpenUI components in the conversation. Replies and existing business
+results also use the OpenUI renderer. Readiness uses 44px themed pressed buttons,
+not native dropdowns. Guided answers save locally and are clearly labelled;
+asking the live mentor remains an explicit action through the existing transport.
+
+Use the existing Inter scale, 8/12/16/24px spacing, 24px surfaces, theme tokens and
+focus treatment. Shared dropdowns use the installed Radix menu primitives with
+the same warm porcelain / smoky champagne surfaces, 44px options and keyboard
+selection. Preserve form names, values, reset behavior and disabled fieldsets.
+On phones, chat owns the content area; the aspect summary remains available on
+the map. No new dependency or decorative motion is required.
+
 ## Software idea mentor — 17 October 2026
 
 The current product is a mentor for validating and implementing software ideas.
@@ -11,8 +69,8 @@ not an image, a force simulation, or a sequence of locked stages.
 
 The idea sits at the center of six aspect nodes: Problem & demand, Market &
 alternatives, Sales & distribution, Product & technology, Budget & resources,
-and Validation & delivery. Clicking a node opens three checkpoints, notes, related
-aspects and existing result cards. The center returns to the overview. Each aspect
+and Validation & delivery. Clicking a node or the center only highlights it;
+invoke aspect mentors explicitly from the chat header. Each aspect
 can be discussed independently; dashed connections suggest shared assumptions.
 Missing evidence can constrain verified execution without locking discussion.
 
@@ -23,7 +81,7 @@ edges never carry essential information. Mobile uses the same six-node topology
 with short labels and readable full labels below. Chat uses the existing shell.
 
 The map uses floating 20px-radius aspect cards: a 36px Lucide icon well with a
-readiness light, a 14px name, three checkpoint marks and a ready count. The central
+readiness light, a 14px name and a filled count in its top-right corner. The central
 idea is a larger 200px frosted card with a 16px name; its full name remains in the
 button's accessible label and title. Solid curved spokes carry the hierarchy;
 faint dashed links carry the optional relationships. Use the existing surface,
@@ -37,7 +95,8 @@ no ambient movement or additional libraries are needed.
 Readiness is an explicit user assessment: amber #93601e (dark #efc27e), red uses
 --destructive, and green #32654d (dark #9bc6ab). Green requires all three checks
 marked ready; one blocked check makes only that aspect red. Unanswered checks
-remain amber. Always show status text and a legend; color is supplementary. Notes
+remain amber. Retain accessible status labels, hover titles and the visible legend;
+do not repeat status words inside cards. Notes
 and assessments persist in the current account's browser cache and are labelled
 as such, distinct from backend evidence. No aggregate success score is invented.
 
@@ -177,3 +236,10 @@ Generated business results settle into the requested card order after reveal,
 ahead of Files and Founder operations that load first. Preserve the same mounted
 cards and reading steps across workflow filters; utilities must not displace the
 brief below the fold on mobile merely because they arrived earlier.
+# Actual app and response format — 17 October 2026
+
+Localhost opens the actual app. Developer preview routes and simulated chat
+responses are removed. Deterministic fixtures belong in tests only. Mentor
+answers may be concise text, useful OpenUI views, or both; avoid forcing every
+answer into a component. Preserve the existing desktop map/chat and pinned-panel
+layouts. This supersedes historical preview guidance below.

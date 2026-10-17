@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { finishActivities, applyBackendEvent, emptyWorkspace, workspaceSchema, type Panel } from './model';
+import { applyBackendEvent, emptyWorkspace, workspaceSchema, type Panel } from './model';
 import { areaForPanel, conversationArea, messagesForArea, panelsForArea, panelsForAreas, selectedWorkflowAreas, toggleWorkflowArea } from './teamAreas';
-import { demoTransport, evidence, offer, pricing, prospects, launchPlan, previewBrief } from './demo';
+import { evidence, offer, pricing, prospects, launchPlan, briefFixture } from './testFixtures';
 import { createAgentosTransport, readAgentosRun } from './agentos';
 
-const brief = previewBrief({ idea: 'A clinic receptionist business', customer: 'Clinics', location: 'Pune', budget: '₹50000', goal: 'One pilot' });
+const brief = briefFixture({ idea: 'A clinic receptionist business', customer: 'Clinics', location: 'Pune', budget: '₹50000', goal: 'One pilot' });
 
 describe('focused company areas', () => {
   it('restores old workspaces without dropping their saved actions or panels', () => {
@@ -87,17 +87,6 @@ describe('focused company areas', () => {
     expect(panelsForAreas(panels, emptyWorkspace(), areas)).toEqual([prospects, evidence, offer]);
     const restored = workspaceSchema.parse(JSON.parse(JSON.stringify({ ...emptyWorkspace(), selectedAreas: areas })));
     expect(selectedWorkflowAreas(restored)).toEqual(areas);
-  });
-  it('can explore sample pricing from a different aspect without a forced handoff', async () => {
-    const events = [];
-    for await (const event of demoTransport('Change our pricing', new AbortController().signal, 'research')) events.push(event);
-    expect(events.some(event => event.type === 'message' && event.panel?.kind === 'pricing')).toBe(true);
-    expect(events.some(event => event.type === 'message' && event.handoff)).toBe(false);
-  });
-  it('labels cancelled preview activity without claiming a backend acknowledgement', () => {
-    const history = finishActivities([{ type: 'activity', agent: 'Sales', state: 'working', detail: 'Preparing a sample' }], 'cancelled', 'preview');
-    expect(history.at(-1)).toMatchObject({ state: 'stopped', detail: 'Preview stopped.' });
-    expect(history.at(-1)?.detail).not.toContain('backend');
   });
   it('validates, deduplicates and recovers a backend team handoff with its original area', async () => {
     const content = 'SAMURAI_HANDOFF=' + JSON.stringify({ area: 'strategy', text: 'Open Strategist to review pricing.', prerequisite: true });

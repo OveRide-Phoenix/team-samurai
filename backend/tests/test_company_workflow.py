@@ -43,6 +43,7 @@ from samurai.contracts import (
     CompanyState,
     FounderKnownFact,
     FounderTruth,
+    IdeaAnalysis,
     IntakeArtifact,
     IntakeDraft,
     ProductPlanArtifact,
@@ -295,7 +296,9 @@ class _StaticModel(Model):
         raw = self.content.model_dump_json()
         if isinstance(self.content, IntakeArtifact):
             raw = IntakeDraft(
-                brief=self.content.brief, founder_truth=self.content.founder_truth
+                brief=self.content.brief,
+                founder_truth=self.content.founder_truth,
+                idea_analysis=self.content.idea_analysis,
             ).model_dump_json()
         return ModelResponse(content=raw)
 
@@ -451,7 +454,21 @@ def test_founder_truth_round_trip_uses_trusted_framework_and_one_decision(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Given a fully supplied deterministic founder brief and model-authored diagnosis.
-    catalog, _ = _catalog()
+    catalog, models = _catalog()
+    original = IntakeArtifact.model_validate(models[Role.INTAKE].content)
+    analysis = IdeaAnalysis.model_validate(
+        {
+            "summary": "A promising problem hypothesis; demand remains untested.",
+            "starting_points": [
+                {
+                    "checkpoint_id": "minimum-product",
+                    "answer": "Test one call-to-booking journey.",
+                    "basis": "inferred",
+                }
+            ],
+        }
+    )
+    models[Role.INTAKE].content = original.model_copy(update={"idea_analysis": analysis})
 
     def catalog_factory(_settings: Settings) -> Mapping[Role, ConfiguredRole]:
         return catalog
@@ -466,6 +483,8 @@ def test_founder_truth_round_trip_uses_trusted_framework_and_one_decision(
     output = anyio.run(partial(_run_workflow, workflow, _complete_request(), state))
     result = WorkflowResult.model_validate(output.content)
     intake = IntakeArtifact.model_validate(result.artifacts[0].payload)
+    assert intake.idea_analysis == analysis
+    assert len(result.artifacts) == 1
 
     # Then truth stays separated and provenance comes from the verified catalog.
     assert tuple(item.text for item in intake.founder_truth.known) == ("Python and Next.js",)
