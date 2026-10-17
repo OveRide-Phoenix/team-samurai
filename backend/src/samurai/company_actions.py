@@ -46,9 +46,7 @@ def company_actions(state: CompanyState) -> tuple[ActionId, tuple[CompanyAction,
     product = latest.get(ArtifactType.PRODUCT_PLAN)
     verification = latest.get(ArtifactType.VERIFICATION)
     brief_ready = intake is not None and intake.status == "complete"
-    brief_reason = (
-        None if brief_ready else "Complete the company brief and its open questions first."
-    )
+    brief_reason = None if brief_ready else "Complete the idea brief and its open questions first."
     evidence_reason = None
     if not brief_ready:
         evidence_reason = brief_reason
@@ -89,7 +87,7 @@ def company_actions(state: CompanyState) -> tuple[ActionId, tuple[CompanyAction,
     ] = (
         (
             "brief",
-            "Refine brief" if intake else "Save brief",
+            "Refine idea brief" if intake else "Save idea brief",
             "Prepare my brief using stage=brief. Preserve my inputs and ask for missing context.",
             "journey",
             "brief",
@@ -98,7 +96,7 @@ def company_actions(state: CompanyState) -> tuple[ActionId, tuple[CompanyAction,
         ),
         (
             "research",
-            "Research again" if research_retry else "Research market",
+            "Research again" if research_retry else "Research problem & demand",
             "Research again using stage=research. Resolve gaps; stop before shaping the offer."
             if research_retry
             else "Research our market using stage=research. Stop before shaping the offer.",
@@ -113,7 +111,7 @@ def company_actions(state: CompanyState) -> tuple[ActionId, tuple[CompanyAction,
         ),
         (
             "strategy",
-            "Shape offer",
+            "Assess positioning & offer",
             "Shape our offer and positioning using stage=strategy. Stop before delivery planning.",
             "journey",
             "strategy",
@@ -122,7 +120,7 @@ def company_actions(state: CompanyState) -> tuple[ActionId, tuple[CompanyAction,
         ),
         (
             "plan",
-            "Plan delivery",
+            "Draft delivery plan",
             "Prepare our delivery plan using stage=plan from the existing research and offer.",
             "journey",
             "plan",
@@ -131,7 +129,7 @@ def company_actions(state: CompanyState) -> tuple[ActionId, tuple[CompanyAction,
         ),
         (
             "verify",
-            "Run verification",
+            "Check retained evidence",
             "Verify existing artifacts using stage=verify. Do not rerun upstream stages.",
             "journey",
             "verify",
@@ -140,7 +138,7 @@ def company_actions(state: CompanyState) -> tuple[ActionId, tuple[CompanyAction,
         ),
         (
             "sales",
-            "Prepare sales",
+            "Draft sales approach",
             "Prepare only kind=sales drafts from verified inputs. Do not contact anyone.",
             "launch_drafts",
             "plan",
@@ -149,7 +147,7 @@ def company_actions(state: CompanyState) -> tuple[ActionId, tuple[CompanyAction,
         ),
         (
             "builder",
-            "Prepare build draft",
+            "Draft software build",
             "Prepare only kind=builder reviewable drafts. Do not deploy or publish.",
             "launch_drafts",
             "plan",
@@ -158,7 +156,7 @@ def company_actions(state: CompanyState) -> tuple[ActionId, tuple[CompanyAction,
         ),
         (
             "marketer",
-            "Prepare marketing",
+            "Draft distribution material",
             "Prepare only kind=marketer reviewable drafts. Do not publish, send or spend.",
             "launch_drafts",
             "plan",
@@ -167,12 +165,12 @@ def company_actions(state: CompanyState) -> tuple[ActionId, tuple[CompanyAction,
         ),
         (
             "metrics",
-            "Review measurements",
+            "Review validation measurements",
             "Ask for measured values and provenance before analysis. Do not invent measurements.",
             "metrics_analysis",
             "plan",
             "overview",
-            None if intake else "Save your company brief first.",
+            None if intake else "Save your idea brief first.",
         ),
     )
     actions = tuple(

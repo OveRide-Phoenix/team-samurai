@@ -124,7 +124,7 @@ if TYPE_CHECKING:
 
 PARENT_AGENT_ID: Final = "samurai"
 PARENT_AGENT_NAME: Final = "Samurai"
-PARENT_DESCRIPTION: Final = "Build and improve one evidence-linked company with Samurai."
+PARENT_DESCRIPTION: Final = "Explore and validate a software idea with evidence-linked mentoring."
 REGISTRY_EXECUTION_ERROR: Final = "registered parent cannot execute"
 PARENT_COPY_UPDATE_ERROR: Final = "Samurai parent copy does not accept updates"
 TOOL_RESULT_MARKER: Final = "\nSAMURAI_WORKFLOW_RESULT="
@@ -141,10 +141,10 @@ CORE_EXECUTOR_AGENT_FIELDS: Final = (
 PARENT_BINDING_KEYS: Final = frozenset({"child_session_id", "company_id", "current_revision"})
 AGNO_SESSION_KEYS: Final = frozenset({"current_user_id", "current_session_id", "current_run_id"})
 STARTER_PROMPTS: Final = [
-    "Build my business: describe the idea, customer, geography, budget, founder skills, and goal.",
-    "Continue my company plan using the context and decisions already retained.",
-    "Create reviewable Builder, Marketer, and Sales drafts from my verified plan.",
-    "Analyze these provenance-labelled business metrics and recommend what to improve.",
+    "Explore my software idea: its users, problem, budget, skills and next validation goal.",
+    "Discuss an aspect of my idea using the context and decisions already retained.",
+    "Review product feasibility, technology, budget and resources, with assumptions visible.",
+    "Plan a small validation experiment and explain what evidence it could establish.",
 ]
 METRIC_INPUT_QUESTIONS: Final = (
     "What exact unit, UTC window_start, UTC window_end, and UTC collected_at apply to each metric?",
@@ -1620,9 +1620,9 @@ def create_parent_agent(  # noqa: C901, PLR0913, PLR0915 - bounded tool surface.
             *(
                 [
                     (
-                        "This turn is read-only. Answer from retained company state. "
-                        "New work requires a next-stage action and sending its draft. "
-                        "Do not claim new research or business execution has run."
+                        "This turn is read-only. Mentor from retained state; label assumptions. "
+                        "Missing inputs do not block discussion; saved work needs approval. "
+                        "Do not claim new research or execution has run."
                     )
                 ]
                 if read_only
