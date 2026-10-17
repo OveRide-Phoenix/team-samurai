@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict
 
 
 class IntakeQuestion(BaseModel):
-    """A required input supported by the company journey."""
+    """A required input supported by the existing software-idea journey."""
 
     model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
     id: Literal["idea", "customer", "location", "budget", "founderSkills", "goal"]
@@ -25,12 +25,12 @@ class IntakePage(BaseModel):
 
 INTAKE_PAGES = (
     IntakePage(
-        title="What do you want to build?",
+        title="What software idea do you want to explore?",
         questions=(
             IntakeQuestion(
                 id="idea",
-                label="Business idea",
-                placeholder="The problem you want to solve, and how.",
+                label="Software idea",
+                placeholder="An app, website or enhancement, and the problem it could solve.",
                 multiline=True,
             ),
         ),
@@ -40,13 +40,13 @@ INTAKE_PAGES = (
         questions=(
             IntakeQuestion(
                 id="customer",
-                label="Your first customers",
-                placeholder="For example, independent dental clinics",
+                label="Your first users or customers",
+                placeholder="For example, clinic staff who miss appointment calls",
             ),
             IntakeQuestion(
                 id="location",
                 label="Where will you start?",
-                placeholder="City, country or online market",
+                placeholder="Your first users: city, country or online market",
             ),
         ),
     ),
@@ -55,19 +55,19 @@ INTAKE_PAGES = (
         questions=(
             IntakeQuestion(
                 id="budget",
-                label="Starting budget",
+                label="Budget for testing and building",
                 placeholder="Amount and currency, or no budget yet",
             ),
             IntakeQuestion(
                 id="founderSkills",
                 label="Your skills and resources",
-                placeholder="What can you deliver yourself, and where do you need help?",
+                placeholder="Your skills, available time, existing tools and help you need",
                 multiline=True,
             ),
             IntakeQuestion(
                 id="goal",
-                label="Your first milestone",
-                placeholder="What would progress look like in 30 days?",
+                label="Your next validation milestone",
+                placeholder="What do you want to learn or test about this idea in 30 days?",
                 multiline=True,
             ),
         ),

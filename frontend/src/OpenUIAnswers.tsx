@@ -36,10 +36,10 @@ const CompanyName = defineComponent({
   component: ({ props }) => {
     const controls = useContext(CompanyNameContext);
     if (!controls) return null;
-    return <form className="company-intake" onSubmit={event => { event.preventDefault(); controls.onStart(); }}><input aria-label={props.label} placeholder="What will you call your company?" value={controls.name} onChange={event => controls.onName(event.target.value)} maxLength={80} className="intake-input" /><button type="submit" className="send-button intake-send" aria-label="Start company" aria-busy={controls.pending} disabled={controls.disabled}><ArrowUp size={20} /></button></form>;
+    return <form className="company-intake" onSubmit={event => { event.preventDefault(); controls.onStart(); }}><input aria-label={props.label} placeholder="Give your software idea a name" value={controls.name} onChange={event => controls.onName(event.target.value)} maxLength={80} className="intake-input" /><button type="submit" className="send-button intake-send" aria-label="Start idea" aria-busy={controls.pending} disabled={controls.disabled}><ArrowUp size={20} /></button></form>;
   },
 });
 const companyNameLibrary = createLibrary({ root: 'CompanyName', components: [CompanyName] });
 export function OpenUICompanyName(controls: CompanyNameControls) {
-  return <CompanyNameContext.Provider value={controls}><OpenUIRender library={companyNameLibrary} response={'root = CompanyName("Company name")'} /></CompanyNameContext.Provider>;
+  return <CompanyNameContext.Provider value={controls}><OpenUIRender library={companyNameLibrary} response={'root = CompanyName("Idea name")'} /></CompanyNameContext.Provider>;
 }

@@ -5,8 +5,8 @@ const pages: IntakePages = [
     "questions": [
       {
         "id": "idea",
-        "label": "Business idea",
-        "placeholder": "The problem you want to solve, and how.",
+        "label": "Software idea",
+        "placeholder": "The problem and the app, website or software enhancement that could solve it.",
         "multiline": true
       }
     ]

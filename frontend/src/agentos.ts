@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { IdeaArea } from './aspectState';
 import { companyActionIdSchema, companyActionSchema, agents, panelSchema, teamAreaSchema, type BackendRun, type EvidenceSource, type Message, type Panel, type TeamArea, type WorkEvent } from './model';
 
 const base = '/api/agentos/agents/samurai/runs';
@@ -165,11 +166,11 @@ export type AgentosApproval = {
   readonly teamArea?: TeamArea;
   readonly companyId: string;
 };
-export type ApprovedWorkDraft = { text: string; area: TeamArea; label: string; approval: AgentosApproval };
-export function editApprovedWorkDraft(draft: ApprovedWorkDraft | undefined, text: string, area: TeamArea): ApprovedWorkDraft | undefined {
+export type ApprovedWorkDraft = { readonly text: string; readonly area: IdeaArea; readonly label: string; readonly approval: AgentosApproval };
+export function editApprovedWorkDraft(draft: ApprovedWorkDraft | undefined, text: string, area: IdeaArea): ApprovedWorkDraft | undefined {
   return draft?.area === area ? { ...draft, text: text.trim() } : undefined;
 }
-export function approvedWorkForSubmission(draft: ApprovedWorkDraft | undefined, text: string, area: TeamArea, companyId: string | undefined, revision: number | undefined): AgentosApproval | undefined {
+export function approvedWorkForSubmission(draft: ApprovedWorkDraft | undefined, text: string, area: IdeaArea, companyId: string | undefined, revision: number | undefined): AgentosApproval | undefined {
   return draft && draft.text === text.trim() && draft.area === area && draft.approval.companyId === companyId && draft.approval.expectedRevision === revision ? draft.approval : undefined;
 }
 export type CopilotStart = (input: string, signal: AbortSignal, area?: TeamArea, approval?: AgentosApproval, submissionId?: string) => Promise<Response>;

@@ -49,7 +49,7 @@ function BriefPanel({ panel, onDiscuss }: Props & { panel: Extract<Panel, { kind
   const stop = briefStops[step];
   const fact = (label: string, text: string | undefined) => <div className="brief-step-fact"><span className="panel-kicker">{label}</span><BriefCopy text={text || 'Not shared yet'} /></div>;
   return <div className="interactive-brief brief-workflow">
-    <nav className="brief-step-track" aria-label="Company brief steps">{briefStops.map((label, index) => <button type="button" key={label} title={label} aria-label={`Step ${index + 1}: ${label}`} aria-current={index === step ? 'step' : undefined} onClick={() => setStep(index)}><span>{index + 1}</span></button>)}</nav>
+    <nav className="brief-step-track" aria-label="Idea brief steps">{briefStops.map((label, index) => <button type="button" key={label} title={label} aria-label={`Step ${index + 1}: ${label}`} aria-current={index === step ? 'step' : undefined} onClick={() => setStep(index)}><span>{index + 1}</span></button>)}</nav>
     <div className="brief-step-content" aria-live="polite" aria-atomic="true">
       <span className="brief-step-count">{step + 1} of {briefStops.length} · {stop}</span>
       <h4>{['Your idea', 'Who is it for?', 'Your starting point', 'Your first milestone', 'One next move'][step]}</h4>
@@ -63,7 +63,7 @@ function BriefPanel({ panel, onDiscuss }: Props & { panel: Extract<Panel, { kind
       </>}
     </div>
     <div className="brief-step-actions"><button type="button" className="soft-button" aria-label="Previous brief step" disabled={step === 0} onClick={() => setStep(current => Math.max(0, current - 1))}><ArrowLeft size={14} />Back</button>{step < briefStops.length - 1 ? <button type="button" className="samurai-action" aria-label="Next brief step" onClick={() => setStep(current => Math.min(briefStops.length - 1, current + 1))}>Next<ArrowRight size={14} /></button> : <button type="button" className="soft-button" onClick={() => setStep(0)}>Back to idea</button>}</div>
-    <Discussion label={step === 4 ? 'Talk it through' : 'Change this'} prompt={`Help me refine the ${stop.toLowerCase()} in my existing company brief. Ask what I want to change before updating it or starting research.`} onDiscuss={onDiscuss} />
+    <Discussion label={step === 4 ? 'Talk it through' : 'Change this'} prompt={`Help me refine the ${stop.toLowerCase()} in my existing idea brief. Ask what I want to change before updating it or starting research.`} onDiscuss={onDiscuss} />
   </div>;
 }
 

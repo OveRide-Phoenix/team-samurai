@@ -1,5 +1,10 @@
 # Backend and UX flow handoff
 
+**Current UX handoff:** see [Software idea mentor](idea-validation-handoff.md)
+(17 October 2026). It supersedes the role/filter and company-building UX below
+while preserving the existing backend journey. The dated acceptance records here
+remain historical evidence.
+
 Updated 14 October 2026.
 
 The next priority is to decide the founder UX flow by working through the backend and Agno workflow contracts. Preserve the accepted visual direction and use the existing panels to show real company state. Start with the first company created from the intake form; custom customer-created panels can follow later.

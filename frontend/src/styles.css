@@ -241,7 +241,7 @@ h1,h2,h3,p { margin: 0; }
   .company-workspace .home-pane .activity-row p { display: none; }
   .company-workspace .conversation-scroll { padding-top: 210px; }
   .company-workspace .company-content { padding-top: 210px; }
-  .company-workspace .view-switch { left: 125px; }
+  .company-workspace .view-switch { left: 65px; transform: translateY(-50%); }
   .view-switch button { padding: 9px 12px; }
   .topbar-actions { gap: 7px; }
   .account-button { display: none; }
@@ -327,7 +327,7 @@ h1,h2,h3,p { margin: 0; }
   .company-workspace.dashboard-open .home-pane > .team-panel { position: static; width: 100%; z-index: 2; background: var(--surface); backdrop-filter: blur(24px); }
   .company-workspace.dashboard-open .home-pane > .pinned-label { display: flex; font-size: 18px; min-height: 36px; }
   .company-workspace.dashboard-open .home-pane > .home-panels { display: grid; grid-template-columns: minmax(0,1fr); }
-  .company-workspace.dashboard-open .view-switch { left: 125px; }
+  .company-workspace.dashboard-open .view-switch { left: 65px; transform: translateY(-50%); }
 }
 
 .dashboard-chat { position: fixed; z-index: 16; bottom: 28px; left: calc(292px + (100% - 292px) / 2); transform: translateX(-50%); height: 48px; width: 320px; max-width: calc(100% - 28px); display: flex; align-items: center; gap: 12px; padding: 0 18px; border-radius: 28px; background: var(--glass); backdrop-filter: blur(24px); box-shadow: inset 0 1px var(--border); font-size: 14px; }
@@ -402,7 +402,7 @@ h1,h2,h3,p { margin: 0; }
 .order-done { gap: 6px; font-size: 13px; }
 @media (max-width:760px) { .company-workspace .account-button { display: grid; place-items: center; } }
 @media (max-width:760px) { .company-workspace .view-switch { transition: none; } }
-@media (max-width:360px) { .company-workspace .view-switch,.company-workspace.dashboard-open .view-switch { left: 112px; } .company-workspace .view-switch [role='tab'] { padding-inline: 5px; } }
+@media (max-width:360px) { .company-workspace .view-switch,.company-workspace.dashboard-open .view-switch { left: 65px; } .company-workspace .view-switch [role='tab'] { padding-inline: 5px; } }
 
 .home-selector-row { justify-content: flex-end; }
 .home-selector-row .company-name { flex: 1; min-width: 0; margin: 0; font-size: 28px; font-weight: 700; line-height: 1.15; letter-spacing: -.04em; color: var(--foreground); overflow-wrap: anywhere; }

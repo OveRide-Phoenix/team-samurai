@@ -1,5 +1,17 @@
 # Team Samurai — Contributor Instructions
 
+## Current product direction — 17 October 2026
+
+The user now defines Samurai as a mentor/validator for **software ideas**: apps,
+websites and software enhancements. Use ideas we validate or implement, not companies
+we build. This supersedes the company-building positioning and role-based UX below.
+Preserve the existing backend structure and journey; the requested rework is the UX.
+Six aspect nodes surround the idea: Problem & demand, Market & alternatives, Sales &
+distribution, Product & technology, Budget & resources, and Validation & delivery.
+All aspects are independently discussable; related gaps are soft links. The existing
+workflow guards still protect approved execution and verified outputs. Keep internal
+company IDs, storage keys, routes, artifact formats and roles for compatibility.
+
 This is the parent repository for **AI Idea → Company**, a general-purpose company-building product also being developed for Google AI Builder Cup 2026. Build a useful long-term product while keeping the competition demo focused and demonstrable.
 
 ## Working conventions

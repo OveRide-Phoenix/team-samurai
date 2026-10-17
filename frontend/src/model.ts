@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { teamAreaSchema, workflowAreaSchema, ideaAreaSchema, aspectChecksSchema, type IdeaArea } from './aspectState';
+export { teamAreaSchema, workflowAreaSchema } from './aspectState';
 
 const frameworkAttribution = z.strictObject({
   id: z.enum(['founder_truth', 'offer_diagnostic']), version: z.string().regex(/^\d+\.\d+\.\d+$/), attribution: z.string().min(1).max(20_000),
@@ -50,9 +52,7 @@ export const panelSchema = z.discriminatedUnion('kind', [
   z.strictObject({ ...basePanel, kind: z.literal('scenario'), provenance: z.record(z.string(), z.unknown()).refine(value => value.label === 'synthetic_scenario_not_validation'), synthetic_label: z.literal('synthetic_scenario_not_validation'), company_revision: z.number().int().min(0), result_sha256: z.string().regex(/^[a-f0-9]{64}$/), horizon_days: z.number().int().min(1).max(365), assumptions: z.array(scenarioAssumption).min(1).max(10), trajectories: z.tuple([scenarioTrajectory, scenarioTrajectory, scenarioTrajectory]), formulas: z.array(z.strictObject({ metric: shortText, expression: z.literal('end = baseline * (1 + delta_percent / 100)'), baseline_input: scenarioNumber, assumption: shortText.nullable() })).max(20), constraints: z.array(z.strictObject({ constraint: shortText, label: z.enum(['low', 'base', 'high']), metric: shortText, operator: z.enum(['minimum', 'maximum']), threshold: scenarioNumber, actual: scenarioNumber, unit: shortText, violated: z.boolean() })).max(30) }),
 ]);
 export type Panel = z.infer<typeof panelSchema>;
-export const teamAreaSchema = z.enum(["overview", "research", "strategy", "verification", "sales"]);
 export type TeamArea = z.infer<typeof teamAreaSchema>;
-export const workflowAreaSchema = teamAreaSchema.exclude(["overview"]);
 export type WorkflowArea = z.infer<typeof workflowAreaSchema>;
 export const companyActionIdSchema = z.enum(['brief', 'research', 'strategy', 'plan', 'verify', 'sales', 'builder', 'marketer', 'metrics']);
 export const companyActionSchema = z.strictObject({
@@ -62,7 +62,7 @@ export const companyActionSchema = z.strictObject({
 }).refine(action => action.eligible === (action.blocked_reason === null), 'Blocked actions need a reason');
 export type CompanyAction = z.infer<typeof companyActionSchema>;
 export const messageSchema = z.object({
-  id: z.string(), role: z.enum(['user', 'assistant']), text: z.string(), panel: panelSchema.optional(), backendRunId: z.string().optional(), area: teamAreaSchema.optional(), handoff: teamAreaSchema.optional(), handoffPrerequisite: z.boolean().optional(),
+  id: z.string(), role: z.enum(['user', 'assistant']), text: z.string(), panel: panelSchema.optional(), backendRunId: z.string().optional(), area: teamAreaSchema.optional(), aspect: ideaAreaSchema.optional(), handoff: teamAreaSchema.optional(), handoffPrerequisite: z.boolean().optional(),
 });
 export type Message = z.infer<typeof messageSchema>;
 export const agents = ['Researcher', 'Strategist', 'Verifier', 'Sales'] as const;
@@ -87,7 +87,7 @@ const backendRunStatusSchema = z.enum(['submitting', 'queued', 'running', 'recov
 export const backendRunSchema = z.object({
   submissionId: z.string().uuid().optional(), runId: z.string().min(1).optional(), status: backendRunStatusSchema,
   companyId: z.string().uuid().optional(), revision: z.number().int().min(0).optional(), lastEventIndex: z.number().int().min(0).optional(),
-  attempt: z.number().int().min(0).optional(), maxAttempts: z.number().int().min(1).optional(), failureReason: z.string().min(1).max(2000).optional(), area: teamAreaSchema.optional(),
+  attempt: z.number().int().min(0).optional(), maxAttempts: z.number().int().min(1).optional(), failureReason: z.string().min(1).max(2000).optional(), area: teamAreaSchema.optional(), aspect: ideaAreaSchema.optional(),
 }).refine(run => Boolean(run.runId) || (['submitting', 'recovering'].includes(run.status) && Boolean(run.submissionId)), 'A backend run needs a run or submission ID');
 export type BackendRun = z.infer<typeof backendRunSchema>;
 export const workspaceSchema = z.object({
@@ -97,8 +97,8 @@ export const workspaceSchema = z.object({
   actions: z.array(companyActionSchema).max(9).default([]), nextAction: companyActionIdSchema.nullable().default(null),
   brief: companyBriefSchema.optional(),
   selectedArea: teamAreaSchema.default("overview"),
-  selectedAreas: z.array(workflowAreaSchema).max(4).refine(items => new Set(items).size === items.length).optional(),
-  drafts: z.partialRecord(teamAreaSchema, z.string().max(4000)).default({}),
+  selectedAreas: z.array(workflowAreaSchema).max(6).refine(items => new Set(items).size === items.length).optional(), aspectChecks: aspectChecksSchema,
+  drafts: z.partialRecord(ideaAreaSchema, z.string().max(4000)).default({}),
   activityLog: z.array(activitySchema).max(100).default([]),
   version: z.literal(1), messages: z.array(messageSchema).max(200), pinned: z.array(panelSchema).max(12),
   completedTasks: z.array(z.string()).max(400).default([]),
@@ -123,7 +123,7 @@ export const portfolioSchema = z.object({
   (value.activeId === null || value.companies.some(company => company.id === value.activeId)));
 export type Portfolio = z.infer<typeof portfolioSchema>;
 export function emptyWorkspace(): Workspace {
-  return { actions: [], nextAction: null, selectedArea: 'overview', selectedAreas: [], drafts: {}, executionMode: 'preview', activityLog: [], version: 1, messages: [], pinned: [], completedTasks: [], panelOrder: [], shortlist: [], approvedOffers: [], theme: 'sky' };
+  return { actions: [], nextAction: null, selectedArea: 'overview', selectedAreas: [], aspectChecks: {}, drafts: {}, executionMode: 'preview', activityLog: [], version: 1, messages: [], pinned: [], completedTasks: [], panelOrder: [], shortlist: [], approvedOffers: [], theme: 'sky' };
 }
 export const emptyCompanyView = emptyWorkspace;
 export function continueCompanyView(workspace: CompanyView, companyId: string, revision: number): CompanyView {
@@ -187,10 +187,10 @@ export function recordBackendRun(workspace: Workspace, run: BackendRun): Workspa
   if (workspace.backendRun?.companyId && run.companyId && workspace.backendRun.companyId !== run.companyId) throw new Error('The backend result belongs to another company.');
   return { ...workspace, backendRun: backendRunSchema.parse({ ...workspace.backendRun, ...run }), messages: run.area && run.runId ? workspace.messages.map(message => message.role === 'assistant' && message.backendRunId === run.runId && message.area !== run.area ? { ...message, area: run.area } : message) : workspace.messages };
 }
-export function beginBackendRun(workspace: Workspace, submissionId: string, area?: TeamArea): Workspace {
+export function beginBackendRun(workspace: Workspace, submissionId: string, area?: TeamArea, aspect?: IdeaArea): Workspace {
   if (hasActiveBackendRun(workspace.backendRun)) throw new Error('A backend run is already active.');
   return { ...workspace, backendRun: backendRunSchema.parse({
-    submissionId, status: 'submitting', ...(area ? { area } : {}),
+    submissionId, status: 'submitting', ...(area ? { area } : {}), ...(aspect ? { aspect } : {}),
     ...(workspace.backendRun?.companyId ? { companyId: workspace.backendRun.companyId } : {}),
     ...(workspace.backendRun?.revision !== undefined ? { revision: workspace.backendRun.revision } : {}),
   }) };
@@ -220,7 +220,7 @@ export function nextJourneyApproval(workspace: Workspace): JourneyApproval | und
 }
 export function applyBackendEvent(workspace: Workspace, runId: string, event: Extract<WorkEvent, { type: 'message' }>): Workspace {
   if (workspace.messages.some(message => message.backendRunId === runId && message.text === event.text && JSON.stringify(message.panel) === JSON.stringify(event.panel))) return workspace;
-  const message: Message = { id: crypto.randomUUID(), backendRunId: runId, area: workspace.backendRun?.area || 'overview', ...(event.handoff ? { handoff: event.handoff, handoffPrerequisite: event.handoffPrerequisite } : {}), role: 'assistant', text: event.text, ...(event.panel ? { panel: event.panel } : {}) };
+  const message: Message = { id: crypto.randomUUID(), backendRunId: runId, area: workspace.backendRun?.area || 'overview', ...(workspace.backendRun?.aspect ? { aspect: workspace.backendRun.aspect } : {}), ...(event.handoff ? { handoff: event.handoff, handoffPrerequisite: event.handoffPrerequisite } : {}), role: 'assistant', text: event.text, ...(event.panel ? { panel: event.panel } : {}) };
   return { ...workspace, messages: [...workspace.messages, message].slice(-200), pinned: event.panel ? workspace.pinned.map(panel => panel.id === event.panel?.id ? event.panel : panel) : workspace.pinned };
 }
 export function initialCompanyPrompt(brief: CompanyBrief): string {

@@ -1,14 +1,20 @@
 # Backend
 
-Owns the server-side behavior for **AI Idea → Company**. Read the root [AGENTS.md](../AGENTS.md) and [logical architecture](../README.md#logical-architecture) first.
+Owns the server-side behavior for **Samurai**, a mentor and validator for software ideas: apps, websites and software enhancements. Read the root [AGENTS.md](../AGENTS.md) and [logical architecture](../README.md#logical-architecture) first.
 
 ## Responsibilities
 
 - Authenticate requests and enforce company access and authorization for consequential actions.
-- Coordinate research, strategy, product work, building, marketing, sales, analysis, and verification around shared company state.
+- Reuse the existing research, strategy, product planning, draft and verification journey around shared idea state; preserve its company identity and persistence contracts.
 - Integrate Gemini and approved tools; retain evidence, decisions, artifact lineage, and explicit uncertainties.
 - Persist work status, approvals, results, and business measurements, and expose structured data to the frontend.
 - Execute authorized integrations and jobs with observable success and failure outcomes.
+
+## Mentoring and execution
+
+The founder can discuss six aspects independently: Problem & demand, Market & alternatives, Sales & distribution, Product & technology, Budget & resources, and Validation & delivery. Idea is the shared overview. Missing evidence or technical decisions are labelled gaps and assumptions; they do not lock another conversation. Area suggestions are optional. Ordinary authenticated chat can read owned state and compose a draft comparison or estimate without an intake artifact or research. The mentor's software-only scope is prompt guidance, not a keyword classifier.
+
+The frontend maps these aspects onto the existing `team_area` values: `overview` for Idea, `research` for problem/demand and market/alternatives, `strategy` for product/technology and budget/resources, `sales` for sales/distribution, and `verification` for validation/delivery. The backend journey, API schema, saved identities, action eligibility and evidence gates are unchanged. Canonical workflow artifacts still require explicit approved work and supported inputs; discussion and generated views do not establish verified outputs. No provider or service is added for an aspect.
 
 ## Current local acceptance boundary
 

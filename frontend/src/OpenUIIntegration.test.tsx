@@ -46,7 +46,7 @@ describe('OpenUI across founder interactions', () => {
     const html = renderToStaticMarkup(createElement(OpenUICompanyName, { name: 'Samurai', pending: true, disabled: true, onName: () => undefined, onStart: () => undefined }));
     expect(html).toContain('value="Samurai"');
     expect(html).toContain('maxLength="80"');
-    expect(html).toContain('aria-label="Start company"');
+    expect(html).toContain('aria-label="Start idea"');
     expect(html).toContain('aria-busy="true"');
     expect(html).toContain('disabled=""');
   });

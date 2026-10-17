@@ -48,7 +48,7 @@ export function Onboarding({ name, onCancel, onComplete, previewPages }: { name:
       <h1 ref={heading} tabIndex={-1}>{page.title}</h1>
       <OpenUIAnswers questions={page.questions} answers={answers} error={Boolean(error)} onAnswer={(id, value) => { setAnswers(current => ({ ...current, [id]: value })); setError(''); }} />
       {error && <p id="intake-error" className="intake-error" role="alert">{error}</p>}
-      <div className="onboarding-actions">{step > 0 && <button type="button" className="soft-button" onClick={() => { setError(''); setStep(step - 1); }}><ArrowLeft size={16} />Back</button>}<button className="primary-button" type="submit">{step === pages.length - 1 ? 'Build my company' : 'Continue'}<ArrowRight size={17} /></button></div>
+      <div className="onboarding-actions">{step > 0 && <button type="button" className="soft-button" onClick={() => { setError(''); setStep(step - 1); }}><ArrowLeft size={16} />Back</button>}<button className="primary-button" type="submit">{step === pages.length - 1 ? 'Explore my idea' : 'Continue'}<ArrowRight size={17} /></button></div>
       <p className="intake-preview-note">{previewPages ? 'UI preview · No provider calls' : 'Live Samurai workflow · Nothing is sent or published'}</p>
     </form>
   </div>;

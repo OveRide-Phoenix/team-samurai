@@ -1,5 +1,13 @@
 # Samurai UI
 
+The current UX is a software idea mentor: an idea-centered graph with six independently
+accessible aspects, eighteen checkpoints and saved user readiness assessments.
+Notes and assessments persist in the existing account-scoped browser cache. Existing
+backend journeys, APIs, approval guards and panel renderers are reused. The historical
+implementation notes below retain internal company names for compatibility. The
+normal route still uses the configured backend; `?preview=panels` demonstrates the
+same graph and controls with labelled illustrative data and no provider calls.
+
 The React/Vite founder workspace for AI Idea → Company. New companies use the configured local AgentOS backend; existing and demo companies retain labelled Preview mode. Live Gemini runs may incur provider charges. The workspace does not send, publish or deploy; recorded production Node-proxy revisions used team-only Google IAP, with Google sign-in, live brief creation, and reload verified there rather than for the current source.
 
 ## Run locally
