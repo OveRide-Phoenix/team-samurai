@@ -227,7 +227,11 @@ def test_intake_model_schema_excludes_server_owned_provenance() -> None:
     schema = catalog[Role.INTAKE].agent.output_schema
     assert isinstance(schema, type)
     assert issubclass(schema, BaseModel)
-    assert set(schema.model_fields) == {"brief", "founder_truth"}
+    assert set(schema.model_fields) == {"brief", "founder_truth", "idea_analysis"}
     prepared = prepare_response_schema(schema)
     assert isinstance(prepared, Schema)
     assert "additional_properties" not in prepared.model_dump_json(exclude_none=True)
+    assert prepared.properties is not None
+    analysis = prepared.properties["idea_analysis"]
+    assert analysis.properties is not None
+    assert analysis.properties["starting_points"].max_items is None

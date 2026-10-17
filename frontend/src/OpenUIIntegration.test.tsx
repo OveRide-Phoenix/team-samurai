@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import KnownPanel, { businessPanelLibrary, businessPanelResponse } from './KnownPanel';
 import { answerLibrary, answerResponse, OpenUIAnswers, OpenUICompanyName } from './OpenUIAnswers';
 import { chatLibrary, messageResponse, OpenUIMessageText } from './OpenUIChat';
-import { evidence, launchPlan, offer, pricing, prospects, previewBrief } from './demo';
+import { evidence, launchPlan, offer, pricing, prospects, briefFixture } from './testFixtures';
 import { panelSchema } from './model';
 
 const brief = { idea: 'An AI receptionist', customer: 'Clinics', location: 'Bengaluru', budget: '₹50,000', founderSkills: 'Product design', goal: 'One clinic pilot' };
@@ -20,7 +20,7 @@ describe('OpenUI across founder interactions', () => {
       panelSchema.parse({ id, kind: 'custom', title: 'Requested calculator', note, html: '<p>Draft</p>', css: '', javascript: '' }),
       panelSchema.parse({ id, kind: 'scenario', title: 'Scenario', note: 'Synthetic', provenance: { label: 'synthetic_scenario_not_validation' }, synthetic_label: 'synthetic_scenario_not_validation', company_revision: 1, result_sha256: 'a'.repeat(64), horizon_days: 30, assumptions: [{ name: 'Growth', target_metric: 'revenue', low_delta_percent: -10, base_delta_percent: 0, high_delta_percent: 10 }], trajectories: ['low', 'base', 'high'].map(label => ({ label, metrics: [{ metric: 'revenue', unit: 'INR', points: [{ day: 0, value: 100 }, { day: 30, value: 100 }] }] })), formulas: [], constraints: [] }),
     ];
-    for (const panel of [previewBrief(brief), evidence, offer, pricing, launchPlan, prospects, ...extras]) {
+    for (const panel of [briefFixture(brief), evidence, offer, pricing, launchPlan, prospects, ...extras]) {
       const result = parse(businessPanelResponse(panel), businessPanelLibrary);
       expect(result.meta.errors).toEqual([]);
       expect(result.root?.props.panel).toEqual(panel);

@@ -1,5 +1,51 @@
 # Frontend contributor guide
 
+## Latest local app and responses — 17 October 2026
+
+The user explicitly removed preview modes. Localhost must run the actual app and
+configured backend. Do not restore LocalPanelPreview, query-driven demo routes,
+simulated transports, or a provider-free sample-data mode. Fixtures belong in
+tests only. Preserve legacy stored data without presenting it as a usable live
+idea. Ordinary answers can be text, OpenUI, or both; use UI only when useful.
+This supersedes all historical preview/demo instructions below.
+
+## Latest mentor entry and layout — 17 October 2026
+
+Keep readiness lights inside the aspect boxes, without visible status words.
+Place the filled-question count at the top right. The user rejected separate
+1–2–3 question buttons above graph nodes. Questions stay in the mentor conversation.
+Map clicks only select/highlight a card; they must not change the active chat,
+question, draft or scroll position. Invoke aspect mentors explicitly through the
+chat's mentor picker, retaining one continuous transcript and the current draft.
+
+The core product is validation and improvement across all six aspects. A complete
+map is a hypothesis set, not a go signal. The mentor challenges, tests and revises
+the idea before implementation; building follows a reviewed validation decision
+and the founder's explicit choice. Cofounder supplies layout inspiration only.
+
+The user supplied Cofounder's graph-left/chat-right layout for the Idea map tab.
+Keep Mentor and Idea map tabs: Mentor shows pinned panels left and chat right;
+Idea map shows the six-aspect graph left and that same chat right on desktop.
+Questions and generated OpenUI views belong in chat; panels remain pinnable.
+On mobile, Mentor opens first and the map has its
+own tab. Submitting the idea goes directly to a mentor greeting and first-pass
+analysis. Reuse the existing intake call to populate useful aspect drafts, label
+inferences, preserve unknowns and founder edits, and ask only the remaining gaps.
+This supersedes the three prerequisite pages and brief-only presentation below.
+It does not authorize downstream research, publishing, spending or deployment.
+
+## Chat-first refinement — 17 October 2026
+
+Mentor chat is the primary experience; the map is secondary navigation/progress.
+Guide Problem → Market → Sales → Product → Budget → Validation with ordered
+questions answered through the existing composer. Show one question at a time
+through a registered OpenUI component, retaining literal replies and structured
+OpenUI business results in chat. Do not restore three checkpoint form cards.
+Use themed readiness buttons and shared themed dropdowns. Keep all aspects
+accessible, preserve saved notes and frontend identities, and retain existing
+backend journey/approval scopes. Guided answers are browser-local context and
+must not imply independent validation or automatically invoke paid work.
+
 ## Current software-idea UX — 17 October 2026
 
 Replace visible company-building and role-chat navigation with an idea mentor and
@@ -19,7 +65,7 @@ UI identity on saved runs so recovery returns replies to the originating aspect.
 
 Samurai's first slice uses React, TypeScript, Vite, Tailwind, assistant-ui, Radix, Lucide, and Zod. Follow root AGENTS.md and ponytail. Keep structured panel validation and the explicit sample-data/activity labels. Agent provider secrets belong on the backend. The authenticated AgentOS integration is implemented; BACKEND_CONTRACT.md records the interface.
 
-Run the local server yourself and open the preview in the browser available to this environment. Do not give the user server-start instructions when you can run it.
+Run the local server yourself and open the actual app in the browser available to this environment. Do not give the user server-start instructions when you can run it.
 
 Before making substantial visual changes, use the Product Design plugin's `get-context` skill when the visual source is unclear or no longer matches the current goal. When the user gives durable prototype-specific design feedback, preferences, or decisions, record them in `AGENTS.md`.
 
@@ -29,7 +75,7 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 
 ## Identity refinement — 11 October 2026
 
-The user wants Samurai to feel its own while keeping the airy atmosphere and top blur. Their latest preference supersedes the initial dark-direction choice: do not force the logo colors or turn the workspace dark. Reduce decorative labels, repetitive helper copy, and idle-agent descriptions. Keep essential data provenance and preview labels readable, and preserve chat, panel actions, and visible progress during work.
+The user wants Samurai to feel its own while keeping the airy atmosphere and top blur. Their latest preference supersedes the initial dark-direction choice: do not force the logo colors or turn the workspace dark. Reduce decorative labels, repetitive helper copy, and idle-agent descriptions. Keep essential data provenance and draft labels readable, and preserve chat, panel actions, and visible progress during work.
 
 ## Company workspace and final visual direction
 
@@ -65,15 +111,15 @@ Workspace settings open as a themed anchored dropdown, including Edit card order
 
 Expanded Company view is a full-width dashboard, without the sidebar action stack or Add a panel row. Place the single bold company name at the far left above the content. The team becomes a larger dashboard card: idle agents explain their role; activity details take precedence while work runs. Keep the header plus action, edit-mode Done and collapse control available. Company switching stays exclusive to portfolio Home.
 
-Landing has no AI → COMPANY kicker. Center the floating company-name intake. Start company opens three required prerequisite pages (business idea; customer/location; budget/first milestone), currently placeholder definitions for backend handoff. Save the validated brief with its company and create only after completion. Start an explicitly labelled, cancellable preview run on first entry; do not imply live research. All page/view reveals use the same 850 ms ease-in-out blur and transient grain, including returning to Chat, with reduced motion disabled.
+Landing has no AI → COMPANY kicker. Center the floating company-name intake. Start company opens three required prerequisite pages (business idea; customer/location; budget/first milestone), currently placeholder definitions for backend handoff. Save the validated brief with its company and create only after completion. The former simulated initial run has been removed; use the actual approved intake workflow. All page/view reveals use the same 850 ms ease-in-out blur and transient grain, including returning to Chat, with reduced motion disabled.
 
 ## Repository consolidation
 
-The user requested moving the working UI from `ui/` to `frontend/`. Preserve its React/Vite runtime and all existing behavior; the Next.js health-only scaffold is superseded. Use npm with exact direct versions and the generated lockfile. `task frontend:setup` installs the UI independently of backend setup; `task frontend:dev` runs on port 4173. Run `npm run check` and `npm run build`. Follow applicable OMo and Ponytail skills. Local JWT-authenticated native AgentOS SSE plumbing is implemented; verify model access separately. New companies use the live transport, legacy/demo companies remain Preview. Recorded production Node-proxy revisions validated Google IAP and supplied per-user JWTs; Google sign-in, live brief creation, and reload were verified there rather than for the current source. Never expose provider keys, service keys, JWT configuration or bearer tokens in VITE_ variables.
+The user requested moving the working UI from `ui/` to `frontend/`. Preserve its React/Vite runtime and all existing behavior; the Next.js health-only scaffold is superseded. Use npm with exact direct versions and the generated lockfile. `task frontend:setup` installs the UI independently of backend setup; `task frontend:dev` runs on port 4173. Run `npm run check` and `npm run build`. Follow applicable OMo and Ponytail skills. Local JWT-authenticated native AgentOS SSE plumbing is implemented; verify model access separately. All usable ideas use the live transport; legacy samples remain archived. Recorded production Node-proxy revisions validated Google IAP and supplied per-user JWTs; Google sign-in, live brief creation, and reload were verified there rather than for the current source. Never expose provider keys, service keys, JWT configuration or bearer tokens in VITE_ variables.
 
 ### Local UI integration — 11 October 2026
 
-New companies use native AgentOS SSE through the Vite server proxy. Configure `AGENTOS_USER_TOKEN` in ignored `frontend/.env.local` and the matching `JWT_VERIFICATION_KEY` in ignored `backend/.env`; restart the backend after changing its configuration. `GEMINI_MODEL` is locked to `gemini-3.5-flash-lite`, with no fallback. The original 2.5 Flash-Lite request returned HTTP 404 for this new account. The user then authorized 3.5 Flash-Lite on 12 October; verify its access separately. Existing and dental-demo companies retain Preview mode. Never call fixture tests proof of successful Gemini research. Recorded production Node revisions supplied the IAP-authenticated proxy; static hosting alone cannot support live authenticated runs.
+New companies use native AgentOS SSE through the Vite server proxy. Configure `AGENTOS_USER_TOKEN` in ignored `frontend/.env.local` and the matching `JWT_VERIFICATION_KEY` in ignored `backend/.env`; restart the backend after changing its configuration. `GEMINI_MODEL` is locked to `gemini-3.5-flash-lite`, with no fallback. The original 2.5 Flash-Lite request returned HTTP 404 for this new account. The user then authorized 3.5 Flash-Lite on 12 October; verify its access separately. All usable ideas now use the actual backend; legacy sample caches are preserved separately and no preview runtime remains. Never call fixture tests proof of successful Gemini research. Recorded production Node revisions supplied the IAP-authenticated proxy; static hosting alone cannot support live authenticated runs.
 
 The deployed IAP frontend has historical single-account live-brief and reload evidence. The second-account browser check was explicitly skipped; automated owner-isolation coverage is not a substitute for that live exercise. The native queue/recovery scenario is independently verified only in local PostgreSQL/Redis resources, not deployed Cloud Run. Task 7 terminal cancellation/exhaustion UI evidence is locally accepted at `1a4c6a9`, and Task 10's provider-free readiness runner at `76c9884`. Founder Platform Task 9 is accepted locally at `5eea8dea4c4469c39e6682879d637d5ca3dcf0f8`: focused file tests passed 39 with no skips, the full backend run passed 266 with 105 environment-gated skips, and the frontend run passed 130; this is not authorized GitHub Actions coverage.
 
@@ -93,7 +139,7 @@ The user explicitly requires every generated view to match Samurai's visual dire
 
 Standard panels must be useful interactive views: brief Overview/Inputs and a refine draft; evidence filters and source disclosures; offer inclusion/review controls; selectable pricing hypotheses; a persistent delivery checklist; filterable prospects and a persistent shortlist. Do not replace these with paragraphs or raw artifact fields. Custom views inherit the same shared controls through the first important CSS layer, reject inline style attributes via CSP, use a transparent shell and size to their content. User interaction never implies external execution.
 
-Development-only previews are `?preview=panels` and `?preview=intake`. They use labelled illustrative data, isolated preview storage and no AgentOS/provider calls. The production entry excludes this loader. Keep intake preview brief-first, and keep the normal live route unchanged.
+Preview query routes and their loader were removed at the user’s request. Localhost opens the actual app and backend; deterministic data belongs in tests only.
 
 The user prefers less default text. Keep idle role descriptions, pricing explanations, prospect reasons, owners and full notes behind existing disclosures. Keep essential values, evidence status and a short draft/sample/assumption indicator visible. Shorten labels and action text without removing callbacks or underlying content.
 
@@ -104,7 +150,7 @@ Company has a centered liquid-glass workflow filter bar with independently toggl
 
 Each selected role starts with a full-width dashboard and the original floating bottom chat bar. Opening the bar reveals panels on the left and its focused conversation on the right; closing restores the dashboard. Mobile opens the conversation in the content area and the close control returns to panels. Keep the conversation mounted and retain drafts and scroll position. The centered workflow filter uses actual backdrop refraction, a restrained tint and clear icon circles. Selected filters stay visibly pressed; mobile shows all four choices without horizontal clipping. Keep area drafts, selected area, saved actions and old workspace data. Main Chat remains the company-wide conversation. A suggested handoff opens the other area with the original request as a draft; it never submits automatically. Preserve cancellation and single-run behavior when navigating during work. Do not redesign intake in this pass; company creation remains brief-first.
 
-Scope requests through the exact typed team_area navigation choice in CopilotKit forwardedProps. Backend tool/stage guards enforce execution scope and prerequisites; topic redirection uses the bounded handoff tool and scope instructions. Keep identity/state/tools/dependency overrides rejected and JWT scopes unchanged. Backend model access is verified separately from the labelled local preview.
+Scope requests through the exact typed team_area navigation choice in CopilotKit forwardedProps. Backend tool/stage guards enforce execution scope and prerequisites; topic redirection uses the bounded handoff tool and scope instructions. Keep identity/state/tools/dependency overrides rejected and JWT scopes unchanged. Verify backend model access through the actual local app separately from provider-free tests.
 
 Opening or closing the floating chat bar slides panel positions with a gentle spring; do not blur or replay grain for this motion. Other page/view reveals retain their existing timing. One workflow focuses its conversation; zero or multiple selected workflows use the general Samurai conversation and existing general backend scope. Clearing filters fades the chat back to general context. Keep typed single-area transport validation, run cancellation, keyboard focus and reduced motion. Persist filter selections and migrate the previous single choice without discarding saved work.
 
@@ -114,7 +160,7 @@ Workflow selections retain click order; a newly selected or reselected workflow 
 
 Removing a workflow reverses the same 850 ms page reveal before its cards leave the layout. Keep outgoing cards mounted and in their slots until completion, with interaction disabled. Rapid reselection reverses the in-progress fade without losing card state. Remaining cards then move smoothly to fill the gap; reduced motion removes immediately.
 
-Home retains the original portfolio layout: the centered idea heading, floating company-name field and saved company tiles. The local panel preview Home button and intake cancel return to the normal portfolio Home; do not replace Home with an isolated demo-entry screen when refining the Company dashboard. Preview workspaces stay in their separate cache.
+Home retains the original portfolio layout: the centered idea heading, floating company-name field and saved company tiles. The Home button and intake cancel return to the normal portfolio Home. Preserve archived legacy sample data without opening it as live ideas.
 
 Do not show search controls anywhere in the product UI: Home, workspace headers, prospect cards or generated tables. Remove the Cmd/Ctrl+K search shortcut. Keep workflow filters, prospect fit/shortlist filters and panel actions.
 

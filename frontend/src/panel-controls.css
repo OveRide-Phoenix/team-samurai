@@ -51,3 +51,12 @@ select option { background:var(--background); color:var(--foreground); }
 .samurai-custom :is(th,td) { padding:10px; text-align:left; border-bottom:1px solid var(--border)!important; }
 .samurai-custom :is(img,svg,canvas) { max-width:100%; }
 @media(prefers-reduced-motion:reduce) { .samurai-custom * { animation:none!important; transition:none!important; } }
+
+.themed-select { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; min-width:0; min-height:46px; padding:12px 14px; border:1px solid var(--field-border); border-radius:16px; background:var(--field-fill); color:var(--foreground); text-align:left; font-size:13px; }
+.themed-select > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.themed-select > svg { flex-shrink:0; color:var(--secondary-text); }
+.themed-select:hover:not(:disabled),.themed-select[data-state='open'] { border-color:var(--ring); }
+.themed-select-menu { min-width:var(--radix-dropdown-menu-trigger-width); max-width:min(400px,calc(100vw - 28px)); max-height:var(--radix-dropdown-menu-content-available-height); overflow:auto; background:var(--glass-tint); backdrop-filter:blur(18px); }
+.themed-select-option { min-height:44px; justify-content:space-between; }
+.themed-select-option > span:first-child { overflow-wrap:anywhere; }
+.themed-select-option[aria-checked='true'] { background:var(--accent-soft); color:var(--foreground); }

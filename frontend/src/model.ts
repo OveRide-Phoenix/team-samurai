@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { fillAspectStartingPoints, ideaAnalysisSchema } from './ideaAnalysis';
 import { teamAreaSchema, workflowAreaSchema, ideaAreaSchema, aspectChecksSchema, type IdeaArea } from './aspectState';
 export { teamAreaSchema, workflowAreaSchema } from './aspectState';
 
@@ -20,7 +21,7 @@ const acceptedArtifactEvidenceSource = knowledgeProvenance.extend({ kind: z.lite
 export const evidenceSourceSchema = z.union([externalEvidenceSource, legacyExternalEvidenceSource, workspaceFileEvidenceSource, acceptedArtifactEvidenceSource]);
 export type EvidenceSource = z.infer<typeof evidenceSourceSchema>;
 const panelKnowledgeSources = z.array(z.union([workspaceFileEvidenceSource, acceptedArtifactEvidenceSource])).min(1).max(5).refine(sources => new Set(sources.map(source => source.chunk_id)).size === sources.length);
-const basePanel = { id: z.string(), title: z.string(), note: z.string(), provenance: z.record(z.string(), z.unknown()).optional(), founder_context: founderPanelContext.optional(), knowledge_sources: panelKnowledgeSources.optional() };
+const basePanel = { id: z.string(), title: z.string(), note: z.string(), provenance: z.record(z.string(), z.unknown()).optional(), founder_context: founderPanelContext.optional(), knowledge_sources: panelKnowledgeSources.optional(), idea_analysis: ideaAnalysisSchema.optional() };
 export const panelBlockSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('text'), text: shortText }),
   z.strictObject({ kind: z.literal('metric'), label: shortText, value: shortText, detail: shortText }),
@@ -73,14 +74,13 @@ export const eventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('message'), text: z.string(), panel: panelSchema.optional(), handoff: teamAreaSchema.optional(), handoffPrerequisite: z.boolean().optional() }),
 ]);
 export type WorkEvent = z.infer<typeof eventSchema>;
-export type Transport = (input: string, signal: AbortSignal, area?: TeamArea) => AsyncIterable<WorkEvent>;
 export const companyBriefSchema = z.object({
   idea: z.string().trim().min(8).max(1500),
-  customer: z.string().trim().min(3).max(300),
-  location: z.string().trim().min(2).max(120),
-  budget: z.string().trim().min(1).max(120),
-  goal: z.string().trim().min(3).max(500),
-  founderSkills: z.string().trim().min(3).max(500).optional(),
+  customer: z.string().trim().min(3).max(300).or(z.literal('')).default(''),
+  location: z.string().trim().min(2).max(120).or(z.literal('')).default(''),
+  budget: z.string().trim().min(1).max(120).or(z.literal('')).default(''),
+  goal: z.string().trim().min(3).max(500).or(z.literal('')).default(''),
+  founderSkills: z.string().trim().min(3).max(500).or(z.literal('')).optional(),
 });
 export type CompanyBrief = z.infer<typeof companyBriefSchema>;
 const backendRunStatusSchema = z.enum(['submitting', 'queued', 'running', 'recovering', 'paused', 'completed', 'cancelled', 'failed']);
@@ -119,11 +119,13 @@ export const companySchema = z.object({
 });
 export const portfolioSchema = z.object({
   version: z.literal(2), companies: z.array(companySchema).max(50), activeId: z.string().nullable(), mode: z.enum(['light', 'dark']),
+  legacyCompanies: z.array(companySchema).max(50).optional(),
 }).refine(value => new Set(value.companies.map(company => company.id)).size === value.companies.length &&
+  (value.legacyCompanies?.length ?? 0) + value.companies.filter(company => company.workspace.executionMode !== 'live').length <= 50 &&
   (value.activeId === null || value.companies.some(company => company.id === value.activeId)));
 export type Portfolio = z.infer<typeof portfolioSchema>;
 export function emptyWorkspace(): Workspace {
-  return { actions: [], nextAction: null, selectedArea: 'overview', selectedAreas: [], aspectChecks: {}, drafts: {}, executionMode: 'preview', activityLog: [], version: 1, messages: [], pinned: [], completedTasks: [], panelOrder: [], shortlist: [], approvedOffers: [], theme: 'sky' };
+  return { actions: [], nextAction: null, selectedArea: 'overview', selectedAreas: [], aspectChecks: {}, drafts: {}, executionMode: 'live', activityLog: [], version: 1, messages: [], pinned: [], completedTasks: [], panelOrder: [], shortlist: [], approvedOffers: [], theme: 'sky' };
 }
 export const emptyCompanyView = emptyWorkspace;
 export function continueCompanyView(workspace: CompanyView, companyId: string, revision: number): CompanyView {
@@ -131,24 +133,23 @@ export function continueCompanyView(workspace: CompanyView, companyId: string, r
 }
 export function restorePortfolio(saved: string | null, legacy: string | null): Portfolio {
   if (saved) {
-    try { return portfolioSchema.parse(JSON.parse(saved)); } catch { /* Recover a valid legacy preview if available. */ }
+    try {
+      const portfolio = portfolioSchema.parse(JSON.parse(saved));
+      const legacyCompanies = portfolio.companies.filter(company => company.workspace.executionMode !== 'live');
+      if (!legacyCompanies.length) return portfolio;
+      const companies = portfolio.companies.filter(company => company.workspace.executionMode === 'live');
+      return { ...portfolio, companies, activeId: companies.some(company => company.id === portfolio.activeId) ? portfolio.activeId : null, legacyCompanies: [...(portfolio.legacyCompanies ?? []), ...legacyCompanies] };
+    } catch { /* Recover valid legacy data if available. */ }
   }
   if (legacy) {
     try {
       const workspace = workspaceSchema.parse(JSON.parse(legacy));
-      return { version: 2, activeId: null, mode: 'light', companies: [{ id: 'legacy-dental', name: 'Dental receptionist', workspace }] };
+      return { version: 2, activeId: null, mode: 'light', companies: [], legacyCompanies: [{ id: 'legacy-dental', name: 'Dental receptionist', workspace }] };
     } catch { /* Invalid browser data starts a fresh portfolio. */ }
   }
   return { version: 2, companies: [], activeId: null, mode: 'light' };
 }
 
-export function readWorkspace(initial: Workspace): Workspace {
-  try {
-    const saved = localStorage.getItem(storageKey);
-    return saved ? workspaceSchema.parse(JSON.parse(saved)) : initial;
-  } catch { return initial; }
-}
-export const readCompanyView = readWorkspace;
 
 export function chooseWorkflow(input: string): 'prospects' | 'offer' | 'pricing' | 'evidence' | 'launch-plan' | 'help' {
   if (/evidence|validate|validation|assumption|source|risk/i.test(input)) return 'evidence';
@@ -221,21 +222,21 @@ export function nextJourneyApproval(workspace: Workspace): JourneyApproval | und
 export function applyBackendEvent(workspace: Workspace, runId: string, event: Extract<WorkEvent, { type: 'message' }>): Workspace {
   if (workspace.messages.some(message => message.backendRunId === runId && message.text === event.text && JSON.stringify(message.panel) === JSON.stringify(event.panel))) return workspace;
   const message: Message = { id: crypto.randomUUID(), backendRunId: runId, area: workspace.backendRun?.area || 'overview', ...(workspace.backendRun?.aspect ? { aspect: workspace.backendRun.aspect } : {}), ...(event.handoff ? { handoff: event.handoff, handoffPrerequisite: event.handoffPrerequisite } : {}), role: 'assistant', text: event.text, ...(event.panel ? { panel: event.panel } : {}) };
-  return { ...workspace, messages: [...workspace.messages, message].slice(-200), pinned: event.panel ? workspace.pinned.map(panel => panel.id === event.panel?.id ? event.panel : panel) : workspace.pinned };
+  return fillAspectStartingPoints({ ...workspace, messages: [...workspace.messages, message].slice(-200), pinned: event.panel ? workspace.pinned.map(panel => panel.id === event.panel?.id ? event.panel : panel) : workspace.pinned }, event.panel);
 }
 export function initialCompanyPrompt(brief: CompanyBrief): string {
-  return `Prepare only my company brief using stage="brief", then wait for my decision before research or planning. These are inputs and hypotheses, not verified facts. Preserve missing evidence and request clarification when needed.\n${JSON.stringify({ idea: brief.idea, target_customer: brief.customer, geography: brief.location, budget: brief.budget, founder_skills: brief.founderSkills, goal: brief.goal })}`;
+  return `Welcome me as my software-idea mentor. Use stage="brief" to save my idea and produce idea_analysis: a concise first pass and useful starting points across the six aspects. Infer draft hypotheses where reasonable and preserve genuine gaps. Do not run research, strategy, planning or external actions. These inputs and drafts are not verified facts.\n${JSON.stringify({ idea: brief.idea, target_customer: brief.customer || null, geography: brief.location || null, budget: brief.budget || null, founder_skills: brief.founderSkills || null, goal: brief.goal || null })}`;
 }
 
 export function toggleSavedSelection(ids: readonly string[], id: string, limit: number): string[] {
   return ids.includes(id) ? ids.filter(item => item !== id) : [...ids, id].slice(-limit);
 }
 
-export function finishActivities(history: Workspace['activityLog'], status: BackendRun['status'], mode: 'live' | 'preview' = 'live'): Workspace['activityLog'] {
+export function finishActivities(history: Workspace['activityLog'], status: BackendRun['status']): Workspace['activityLog'] {
   if (['submitting', 'queued', 'running', 'recovering', 'paused'].includes(status)) return history;
   const latest = Object.values(Object.fromEntries(history.map(activity => [activity.agent, activity])));
   const pending = latest.filter(activity => activity.state === 'working');
   const state = status === 'cancelled' || status === 'failed' ? 'stopped' : 'waiting';
-  const detail = mode === 'preview' ? status === 'cancelled' ? 'Preview stopped.' : status === 'failed' ? 'Preview failed.' : 'Preview finished.' : status === 'cancelled' ? 'The backend acknowledged cancellation.' : status === 'failed' ? 'The backend run failed.' : 'The run finished without a completion event for this step.';
+  const detail = status === 'cancelled' ? 'The backend acknowledged cancellation.' : status === 'failed' ? 'The backend run failed.' : 'The run finished without a completion event for this step.';
   return [...history, ...pending.map(activity => ({ ...activity, state, detail } satisfies z.infer<typeof activitySchema>))].slice(-100);
 }

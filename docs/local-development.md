@@ -106,14 +106,14 @@ download headers and bytes, denied mutation, oversized rejection, deletion,
 and empty scoped cleanup. Use only a disposable PostgreSQL schema and remove
 the temporary key, storage directory, schema, and server after the check.
 
-## Frontend UI preview
+## Actual frontend app
 
 ```sh
 task frontend:setup
 task frontend:dev
 ```
 
-The founder UI runs at `http://127.0.0.1:4173/` from `frontend/`. It includes onboarding, chat, panels, and the company dashboard with labelled preview data. Frontend setup only needs Node/npm and does not start the backend or database. The former Next.js `/api/health` scaffold is removed. New companies use authenticated native AgentOS through the local Vite proxy; existing/sample companies remain Preview. Prerequisites come from the backend, and Team shows actual workflow step history. Live Gemini intake/research and saved-result recovery were exercised locally, with research stopping at missing source evidence. Production IAP authentication and the Node proxy were verified against recorded deployed revisions; that historical result does not show that the current local source is deployed. Source-supported live strategy and launch drafts remain pending.
+The founder UI runs at `http://127.0.0.1:4173/` from `frontend/`. It includes software-idea onboarding, the mentor conversation, pinned panels, and the six-aspect idea map. Frontend setup only needs Node/npm and does not start the backend or database. The former Next.js `/api/health` scaffold is removed. Every usable idea uses authenticated native AgentOS through the local Vite proxy. Legacy sample caches are preserved in a bounded archive and do not open as live ideas. Start the configured backend with `task backend:dev` for actual app use; the JWT setup is documented below. Prerequisites come from the backend, and Team shows actual workflow step history. Live Gemini intake/research and saved-result recovery were exercised locally, with research stopping at missing source evidence. Production IAP authentication and the Node proxy were verified against recorded deployed revisions; that historical result does not show that the current local source is deployed. Source-supported live strategy and launch drafts remain pending.
 
 ## Frontend-to-AgentOS contract
 
@@ -121,7 +121,7 @@ The implemented frontend integration uses the installed AgentOS OpenAPI referenc
 
 For streaming journeys, consume the SSE lifecycle and use the returned run identifier with the authenticated run-read and cancel routes under `/agentos/agents/samurai/runs/{run_id}`. Handle terminal completion, errors, and cancellation before rendering a final result; do not infer completion from a connection closing. The backend enforces user isolation and validates the request body, so the frontend must not send framework-owned context or bypass the backend with a direct model call.
 
-`BACKEND_URL` is reserved and is not consumed by the current UI preview. Do not put `OS_SECURITY_KEY`, `GOOGLE_API_KEY`, JWT verification configuration, or user bearer tokens in `VITE_` or other browser-exposed variables.
+`BACKEND_URL` is reserved and is not consumed by the frontend. Do not put `OS_SECURITY_KEY`, `GOOGLE_API_KEY`, JWT verification configuration, or user bearer tokens in `VITE_` or other browser-exposed variables.
 
 ## Founder operations and restart acceptance
 
@@ -200,7 +200,7 @@ Use an approved test brief only. Keep keys, account details, and private founder
 
 ### Local UI integration — 11 October 2026
 
-New companies use native AgentOS SSE through the Vite server proxy. Configure `AGENTOS_USER_TOKEN` in ignored `frontend/.env.local` and the matching `JWT_VERIFICATION_KEY` in ignored `backend/.env`; restart the backend after changing its configuration. `GEMINI_MODEL` is locked to `gemini-3.5-flash-lite`, with no fallback. The original 2.5 Flash-Lite request returned HTTP 404 for this new account. The user then authorized 3.5 Flash-Lite on 12 October; verify its access separately. Existing and dental-demo companies retain Preview mode. Never call fixture tests proof of successful Gemini research. The static production build contains no proxy; live use requires the existing production proxy/auth integration and an authorized deployment.
+New companies use native AgentOS SSE through the Vite server proxy. Configure `AGENTOS_USER_TOKEN` in ignored `frontend/.env.local` and the matching `JWT_VERIFICATION_KEY` in ignored `backend/.env`; restart the backend after changing its configuration. `GEMINI_MODEL` is locked to `gemini-3.5-flash-lite`, with no fallback. The original 2.5 Flash-Lite request returned HTTP 404 for this new account. The user then authorized 3.5 Flash-Lite on 12 October; verify its access separately. All usable ideas now use the actual backend; legacy sample caches are preserved separately and no preview runtime remains. Never call fixture tests proof of successful Gemini research. The static production build contains no proxy; live use requires the existing production proxy/auth integration and an authorized deployment.
 
 The 11 October free-tier test had Google Search disabled. That is historical: the current paid-account policy enables native Search only for Researcher (`agents.py`), with every role kept on 3.5 Flash-Lite. Research without source support still stops at insufficient evidence. The current full-flow integration has not yet made paid calls; live test costs must fit the separately authorized aggregate allowance.
 

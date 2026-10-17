@@ -1,5 +1,63 @@
 # Samurai design contract
 
+Conversation layout reserves the composer's natural height with a flex column;
+long drafts and approval labels must never cover chat controls. Keep 24px at the
+end of the scroll area and keep the 44px scroll-to-latest button in its own row
+inside the composer dock, reserving space instead of covering chat controls.
+
+## Persistent map and mentor — Cofounder reference, 17 October 2026
+
+The user supplied Cofounder's map/conversation screenshot as the Idea map layout reference.
+Keep a spacious graph on the left (about 64%) and a persistent, framed conversation
+on the right (about 36%, minimum 380px) below the existing 84px header. Retain the
+Mentor / Idea map tabs. Mentor keeps pinned panels on the left and the same
+conversation on the right; generated panels remain pinnable from chat. The graph
+has a central idea, a quiet elliptical ring, dashed spokes, six floating aspect
+nodes with a readiness light inside each aspect box, no visible status word, and
+the filled-question count at the top right. Keep readiness in accessible labels
+and the legend. Map selection only highlights a card; it leaves the conversation,
+active question, draft and scroll position intact. The chat header offers an
+explicit aspect mentor picker, preserving the continuous transcript and current
+draft when invoked. Keep question controls in chat; do not show separate numbered
+buttons above map nodes. Use real saved draft and
+readiness counts; never fabricate running tasks or completion. Preserve Samurai's
+existing Inter, warm light / charcoal dark themes, atmosphere and button tokens.
+The screenshot defines layout and interaction; its brand, eight departments,
+marketing copy and pale-grey palette are adapted to the six-aspect Samurai product.
+On screens at or below 760px, Mentor fills the screen and Idea map is an explicit
+tab. Keep the original topology, compact labels and 44px touch targets there.
+
+Submitting the software idea opens Mentor immediately. The existing intake call
+returns a basic analysis and optional draft answers. The OpenUI welcome is visible
+while it runs; the completed first pass uses six expandable aspect rows in chat.
+Label provided context and mentor assumptions separately; missing answers stay
+open. Fill saved aspect notes without overwriting founder edits or assessments.
+Autofill never marks an aspect ready. Ask the next missing question, while every
+draft remains editable through chat. No customer/budget prerequisite forms.
+
+## Chat-first aspect journey — 17 October 2026
+
+The primary interaction is Mentor chat alongside the persistent idea map.
+Recommend Problem → Market → Sales → Product → Budget → Validation;
+each aspect has three ordered questions answered in the existing chat composer.
+Show one OpenUI question at a time, then continue to the next unanswered question
+and aspect. Never gate access to another aspect or claim that an answer proves
+readiness. Keep prior notes, assessments, drafts, approvals and backend scopes.
+
+Replace the three checkpoint form cards with a compact aspect summary. Questions,
+saved-answer disclosures, optional readiness choices and completion actions are
+registered OpenUI components in the conversation. Replies and existing business
+results also use the OpenUI renderer. Readiness uses 44px themed pressed buttons,
+not native dropdowns. Guided answers save locally and are clearly labelled;
+asking the live mentor remains an explicit action through the existing transport.
+
+Use the existing Inter scale, 8/12/16/24px spacing, 24px surfaces, theme tokens and
+focus treatment. Shared dropdowns use the installed Radix menu primitives with
+the same warm porcelain / smoky champagne surfaces, 44px options and keyboard
+selection. Preserve form names, values, reset behavior and disabled fieldsets.
+On phones, chat owns the content area; the aspect summary remains available on
+the map. No new dependency or decorative motion is required.
+
 ## Software idea mentor — 17 October 2026
 
 The current product is a mentor for validating and implementing software ideas.
@@ -11,8 +69,8 @@ not an image, a force simulation, or a sequence of locked stages.
 
 The idea sits at the center of six aspect nodes: Problem & demand, Market &
 alternatives, Sales & distribution, Product & technology, Budget & resources,
-and Validation & delivery. Clicking a node opens three checkpoints, notes, related
-aspects and existing result cards. The center returns to the overview. Each aspect
+and Validation & delivery. Clicking a node or the center only highlights it;
+invoke aspect mentors explicitly from the chat header. Each aspect
 can be discussed independently; dashed connections suggest shared assumptions.
 Missing evidence can constrain verified execution without locking discussion.
 
@@ -23,7 +81,7 @@ edges never carry essential information. Mobile uses the same six-node topology
 with short labels and readable full labels below. Chat uses the existing shell.
 
 The map uses floating 20px-radius aspect cards: a 36px Lucide icon well with a
-readiness light, a 14px name, three checkpoint marks and a ready count. The central
+readiness light, a 14px name and a filled count in its top-right corner. The central
 idea is a larger 200px frosted card with a 16px name; its full name remains in the
 button's accessible label and title. Solid curved spokes carry the hierarchy;
 faint dashed links carry the optional relationships. Use the existing surface,
@@ -37,7 +95,8 @@ no ambient movement or additional libraries are needed.
 Readiness is an explicit user assessment: amber #93601e (dark #efc27e), red uses
 --destructive, and green #32654d (dark #9bc6ab). Green requires all three checks
 marked ready; one blocked check makes only that aspect red. Unanswered checks
-remain amber. Always show status text and a legend; color is supplementary. Notes
+remain amber. Retain accessible status labels, hover titles and the visible legend;
+do not repeat status words inside cards. Notes
 and assessments persist in the current account's browser cache and are labelled
 as such, distinct from backend evidence. No aggregate success score is invented.
 
@@ -95,7 +154,7 @@ Known views use purpose-built interactive layouts, not paragraphs of artifact fi
 
 Shared controls live in `src/panel-controls.css`, used by the host and the custom-view shell. Custom components get a transparent, content-sized frame and a first important CSS layer that protects theme tokens, typography and control styling from generated CSS. Inline style attributes are rejected by the frame CSP. A size-only message accepts only the exact opaque iframe window and bounded integer height; it cannot invoke host functions. The previous fixed tinted calculator block is removed.
 
-Local development exposes labelled sample previews at `?preview=panels` and `?preview=intake`; production excludes that loader. They make no backend or provider calls.
+Local development opens the actual app and backend. The sample-route loader and simulated transports have been removed; fixtures belong in tests only.
 
 Default panels keep copy concise: idle team roles show names/icons with descriptions on expansion; pricing explanations, prospect reasons, owners and notes sit behind disclosures. Brief labels and actions are short. Preserve primary values, evidence status, scenario labels and every saved action. No information is discarded to make the view lighter.
 
@@ -106,7 +165,7 @@ Company has a centered liquid-glass workflow filter bar with independently toggl
 
 Each selected role starts with a full-width dashboard and the original floating bottom chat bar. Opening the bar reveals panels on the left and its focused conversation on the right; closing restores the dashboard. Mobile opens the conversation in the content area and the close control returns to panels. Keep the conversation mounted and retain drafts and scroll position. The centered workflow filter uses actual backdrop refraction, a restrained tint and clear icon circles. Selected filters stay visibly pressed; mobile shows all four choices without horizontal clipping. Keep area drafts, selected area, saved actions and old workspace data. Main Chat remains the company-wide conversation. A suggested handoff opens the other area with the original request as a draft; it never submits automatically. Preserve cancellation and single-run behavior when navigating during work. Do not redesign intake in this pass; company creation remains brief-first.
 
-Scope requests through the exact typed team_area navigation choice in CopilotKit forwardedProps. Backend tool/stage guards enforce execution scope and prerequisites; topic redirection uses the bounded handoff tool and scope instructions. Keep identity/state/tools/dependency overrides rejected and JWT scopes unchanged. Backend model access is verified separately from the labelled local preview.
+Scope requests through the exact typed team_area navigation choice in CopilotKit forwardedProps. Backend tool/stage guards enforce execution scope and prerequisites; topic redirection uses the bounded handoff tool and scope instructions. Keep identity/state/tools/dependency overrides rejected and JWT scopes unchanged. Verify backend model access through the actual local app separately from provider-free tests.
 
 Opening or closing the floating chat bar slides panel positions with a gentle spring; do not blur or replay grain for this motion. Other page/view reveals retain their existing timing. One workflow focuses its conversation; zero or multiple selected workflows use the general Samurai conversation and existing general backend scope. Clearing filters fades the chat back to general context. Keep typed single-area transport validation, run cancellation, keyboard focus and reduced motion. Persist filter selections and migrate the previous single choice without discarding saved work.
 
@@ -116,7 +175,7 @@ Workflow selections retain click order; a newly selected or reselected workflow 
 
 Removing a workflow reverses the same 850 ms page reveal before its cards leave the layout. Keep outgoing cards mounted and in their slots until completion, with interaction disabled. Rapid reselection reverses the in-progress fade without losing card state. Remaining cards then move smoothly to fill the gap; reduced motion removes immediately.
 
-Home retains the original portfolio layout: the centered idea heading, floating company-name field and saved company tiles. The local panel preview Home button and intake cancel return to the normal portfolio Home; do not replace Home with an isolated demo-entry screen when refining the Company dashboard. Preview workspaces stay in their separate cache.
+Home retains the original portfolio layout: the centered idea heading, floating company-name field and saved company tiles. The Home button and intake cancel return to the normal portfolio Home. Preserve archived legacy sample data without opening it as live ideas.
 
 Do not show search controls anywhere in the product UI: Home, workspace headers, prospect cards or generated tables. Remove the Cmd/Ctrl+K search shortcut. Keep workflow filters, prospect fit/shortlist filters and panel actions.
 
@@ -125,17 +184,17 @@ The Chat sidebar uses the plus control beside Pinned to add panels. Do not repea
 
 ## OpenUI composed views — 16 October 2026
 
-OpenUI owns the text/metric/list/table composition renderer. Its allowlisted components retain the existing `declarative-*` markup, Inter, theme tokens, native table semantics and scroll container. The surrounding BusinessPanel still owns title, pinning and assumptions. The shared preview includes an illustrative Pilot comparison; no new visual theme or chat shell is introduced.
+OpenUI owns the text/metric/list/table composition renderer. Its allowlisted components retain the existing `declarative-*` markup, Inter, theme tokens, native table semantics and scroll container. The surrounding BusinessPanel still owns title, pinning and assumptions. Test fixtures include an illustrative Pilot comparison; no new visual theme or chat shell is introduced.
 
 
 ## Calm panels — 16 October 2026
 
-Use generous shared card padding and a quiet title without decorative category icons. Keep controls visible and keyboard accessible. Replace nested segmented-control shells with simple underlined choices; soften pricing selection and remove nested milestone/metric boxes. OpenUI metrics use unboxed large values and share a two-column layout when adjacent. Tables keep semantic headers and a screen-reader row-count caption, with fine dividers instead of toolbars and framed grids. Preserve draft/source distinctions, disclosures, company-scoped actions, both themes and mobile tap targets. Hide the upstream development inspector in founder previews.
+Use generous shared card padding and a quiet title without decorative category icons. Keep controls visible and keyboard accessible. Replace nested segmented-control shells with simple underlined choices; soften pricing selection and remove nested milestone/metric boxes. OpenUI metrics use unboxed large values and share a two-column layout when adjacent. Tables keep semantic headers and a screen-reader row-count caption, with fine dividers instead of toolbars and framed grids. Preserve draft/source distinctions, disclosures, company-scoped actions, both themes and mobile tap targets. Hide the upstream development inspector in the founder app.
 
 
 ## Visual prompt results — 16 October 2026
 
-The default company entry is the dashboard. Evidence/prospect mixes and delivery completion use data-derived rings with short legends. OpenUI's Table component projects compatible two-column numeric data into comparison bars; full original tables stay in Details, and mixed currencies/cadences stay as tables. Scenario lines connect only supplied endpoints and retain explicit synthetic labels, exact values, assumptions and constraints. Pricing choices use three tinted visual tiles. The charts use native SVG/CSS and existing beUI motion tokens; Bklit's rings, legends and quiet chart surfaces are design references, not a vendored dependency. All founder controls and full findings remain available. The multi-panel preview is a component catalog; one prompt does not automatically generate its entire contents.
+The default company entry is the dashboard. Evidence/prospect mixes and delivery completion use data-derived rings with short legends. OpenUI's Table component projects compatible two-column numeric data into comparison bars; full original tables stay in Details, and mixed currencies/cadences stay as tables. Scenario lines connect only supplied endpoints and retain explicit synthetic labels, exact values, assumptions and constraints. Pricing choices use three tinted visual tiles. The charts use native SVG/CSS and existing beUI motion tokens; Bklit's rings, legends and quiet chart surfaces are design references, not a vendored dependency. All founder controls and full findings remain available. The renderer test fixtures are a component catalog; one prompt does not automatically generate its entire contents.
 
 
 ## Field and scrollbar polish — 16 October 2026
@@ -170,10 +229,16 @@ disclosures, and keep workflow-filter toggles from resetting the reading step.
 These are draft outputs, not evidence coverage scores. Supplied measurements
 show their actual value, unit, period and source, without rounding tiny values
 to zero or claiming independent verification. No button here sends outreach,
-publishes, deploys or changes backend approval. The isolated `?preview=drafts`
-route uses illustrative fixtures and the same canonical projection/renderer.
+publishes, deploys or changes backend approval. Illustrative renderer fixtures are test-only; no sample-data app route remains.
 
 Generated business results settle into the requested card order after reveal,
 ahead of Files and Founder operations that load first. Preserve the same mounted
 cards and reading steps across workflow filters; utilities must not displace the
 brief below the fold on mobile merely because they arrived earlier.
+# Actual app and response format — 17 October 2026
+
+Localhost opens the actual app. Developer preview routes and simulated chat
+responses are removed. Deterministic fixtures belong in tests only. Mentor
+answers may be concise text, useful OpenUI views, or both; avoid forcing every
+answer into a component. Preserve the existing desktop map/chat and pinned-panel
+layouts. This supersedes historical preview guidance below.

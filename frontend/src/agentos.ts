@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ideaAnalysisSchema } from './ideaAnalysis';
 import type { IdeaArea } from './aspectState';
 import { companyActionIdSchema, companyActionSchema, agents, panelSchema, teamAreaSchema, type BackendRun, type EvidenceSource, type Message, type Panel, type TeamArea, type WorkEvent } from './model';
 
@@ -57,7 +58,7 @@ const researchPayload = z.strictObject({
 });
 export const verificationPayloadSchema = z.strictObject({ artifact_type: z.literal('verification'), checked_artifact_ids: z.array(uuid).min(1).max(100), outcome: z.enum(['verified', 'needs_input', 'needs_rework']) });
 const payload = z.discriminatedUnion('artifact_type', [
-  z.strictObject({ artifact_type: z.literal('intake'), brief, founder_truth: founderTruth.optional(), frameworks: z.array(frameworkMetadata).max(2).optional() }),
+  z.strictObject({ artifact_type: z.literal('intake'), brief, founder_truth: founderTruth.optional(), frameworks: z.array(frameworkMetadata).max(2).optional(), idea_analysis: ideaAnalysisSchema.nullable().optional() }),
   researchPayload,
   z.strictObject({ artifact_type: z.literal('strategy'), ideal_customer_profile: text, positioning: text, offer: text, pricing_assumptions: strings, offer_diagnostic: offerDiagnostic.nullable().optional() }),
   z.strictObject({ artifact_type: z.literal('product_plan'), minimum_viable_offering: strings, delivery_requirements: strings, user_stories: strings, roadmap: strings }),
@@ -269,7 +270,7 @@ function resultEvents(result: WorkflowResult | CompanySnapshot, seen: Set<string
       });
       panels.push({ id, kind: 'evidence', title: data.artifact_type === 'builder_draft' ? 'Build draft' : data.artifact_type === 'marketing_draft' ? 'Marketing drafts' : data.artifact_type === 'sales_draft' ? 'Sales drafts' : 'Performance review', note, claims: drafts.map((claim, index) => ({ id: `${id}-draft-${index}`, claim, status: 'needs-check', detail: data.artifact_type === 'analysis' ? 'Based on founder supplied measurements; review before acting' : 'Generated draft; not sent, published or executed', sources: [] })) });
     }
-    for (const panel of panels) events.push({ type: 'message', text: '', panel: panelSchema.parse({ ...panel, ...knowledge, provenance: item }) });
+    for (const panel of panels) events.push({ type: 'message', text: '', panel: panelSchema.parse({ ...panel, ...knowledge, ...(data.artifact_type === 'intake' && data.idea_analysis ? { idea_analysis: data.idea_analysis } : {}), provenance: item }) });
   }
   const outcomeKey = 'outcome' in result ? `outcome:${result.company_id}:${result.revision}:${result.outcome}` : '';
   if ('outcome' in result && result.outcome === 'insufficient_evidence' && !seen.has(outcomeKey)) {

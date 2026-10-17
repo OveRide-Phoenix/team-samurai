@@ -1,16 +1,17 @@
 """Contract boundary scenarios kept together for lineage coverage. # noqa: SIZE_OK."""
 
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Literal, get_args
 from uuid import UUID, uuid4
 
 import pytest
-from pydantic import HttpUrl, ValidationError
+from pydantic import HttpUrl, TypeAdapter, ValidationError
 
 from samurai.contracts import (
     AnalysisArtifact,
     ArtifactEnvelope,
     ArtifactType,
+    AspectStartingPoint,
     Assumption,
     CompanyBrief,
     CompanyMismatchError,
@@ -19,6 +20,7 @@ from samurai.contracts import (
     FounderMetricInput,
     FounderTruth,
     FrameworkReference,
+    IdeaAnalysis,
     IntakeArtifact,
     InvalidArtifactTransitionError,
     MeasuredResult,
@@ -37,6 +39,42 @@ from samurai.contracts import (
 )
 
 NOW = datetime(2026, 10, 11, tzinfo=UTC)
+
+
+def test_initial_analysis_is_bounded_unverified_and_backwards_compatible() -> None:
+    point = {
+        "checkpoint_id": "minimum-product",
+        "answer": "Test one booking flow.",
+        "basis": "inferred",
+    }
+    analysis = IdeaAnalysis.model_validate(
+        {"summary": "Demand is untested.", "starting_points": [point]}
+    )
+    artifact = IntakeArtifact(brief=_brief(), idea_analysis=analysis)
+    assert IntakeArtifact.model_validate_json(artifact.model_dump_json()).idea_analysis == analysis
+    assert "idea_analysis" not in IntakeArtifact(brief=_brief()).model_dump(mode="json")
+    checkpoint_ids = TypeAdapter(tuple[str, ...]).validate_python(
+        get_args(AspectStartingPoint.model_fields["checkpoint_id"].annotation)
+    )
+    points = [{**point, "checkpoint_id": checkpoint_id} for checkpoint_id in checkpoint_ids]
+    assert (
+        len(
+            IdeaAnalysis.model_validate(
+                {"summary": "Draft", "starting_points": points}
+            ).starting_points
+        )
+        == 18
+    )
+    with pytest.raises(ValidationError, match="unique"):
+        _ = IdeaAnalysis.model_validate({"summary": "Draft", "starting_points": [*points, point]})
+    for points in (
+        [point, point],
+        [{**point, "checkpoint_id": "unknown"}],
+        [{**point, "basis": "verified"}],
+        [{**point, "answer": "x" * 2001}],
+    ):
+        with pytest.raises(ValidationError):
+            _ = IdeaAnalysis.model_validate({"summary": "Draft", "starting_points": points})
 
 
 def _brief() -> CompanyBrief:

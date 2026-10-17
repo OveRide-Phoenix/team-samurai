@@ -330,11 +330,55 @@ class OfferDiagnostic(Contract):
         return self
 
 
+class AspectStartingPoint(Contract):
+    """An unverified draft answer, never evidence or a readiness assessment."""
+
+    checkpoint_id: Literal[
+        "customer-problem",
+        "demand-evidence",
+        "riskiest-assumption",
+        "existing-alternatives",
+        "market-opportunity",
+        "differentiation",
+        "first-buyers",
+        "distribution",
+        "willingness-to-pay",
+        "minimum-product",
+        "technical-feasibility",
+        "data-and-security",
+        "build-budget",
+        "skills-and-team",
+        "running-costs",
+        "validation-experiment",
+        "implementation-roadmap",
+        "release-and-learning",
+    ]
+    answer: str = Field(min_length=1, max_length=2000)
+    basis: Literal["provided", "inferred"]
+
+
+class IdeaAnalysis(Contract):
+    """First-pass software-idea mentoring retained with the original intake."""
+
+    summary: str = Field(min_length=1, max_length=800)
+    # Gemini rejects maxItems here; known IDs plus uniqueness already cap this at 18.
+    starting_points: tuple[AspectStartingPoint, ...]
+
+    @model_validator(mode="after")
+    def unique_checkpoints(self) -> Self:
+        """Keep one starting point per known question."""
+        ids = [point.checkpoint_id for point in self.starting_points]
+        if len(ids) != len(set(ids)):
+            raise PydanticCustomError("duplicate_checkpoint", "Starting points must be unique")
+        return self
+
+
 class IntakeDraft(Contract):
     """Model-authored intake; trusted provenance is attached by the workflow."""
 
     brief: CompanyBrief
     founder_truth: FounderTruth
+    idea_analysis: IdeaAnalysis | None = None
 
 
 class IntakeArtifact(Contract):
@@ -342,6 +386,7 @@ class IntakeArtifact(Contract):
     brief: CompanyBrief
     founder_truth: FounderTruth = FounderTruth()
     frameworks: tuple[FrameworkReference, ...] = ()
+    idea_analysis: IdeaAnalysis | None = Field(default=None, exclude_if=_exclude_none)
 
     @model_validator(mode="after")
     def validate_frameworks(self) -> Self:

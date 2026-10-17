@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import json
-from typing import Annotated, Final, Literal
+from typing import Annotated, Final, Literal, cast
 from uuid import NAMESPACE_URL, uuid5
 
 from agno.run import RunContext  # noqa: TC002 - Agno resolves tool annotations at runtime.
@@ -100,7 +100,15 @@ def compose_panel(
     title: str,
     blocks: list[object],
 ) -> str:
-    """Compose text, metric, list and table blocks; reuse panel_key to update the view."""
+    """Compose a useful draft view; reuse panel_key to update it.
+
+    Each block uses exactly one shape, with no extra fields:
+    {"kind":"text","text":"..."};
+    {"kind":"metric","label":"...","value":"...","detail":"..."};
+    {"kind":"list","title":"...","items":["..."]};
+    {"kind":"table","columns":["..."],"rows":[["..."]]}.
+    Text blocks have no title or detail field; put all prose in text.
+    """
     panel = DeclarativePanel.model_validate(
         {"id": _panel_id(run_context, panel_key), "title": title, "blocks": blocks}
     )
@@ -128,6 +136,15 @@ def create_custom_panel(  # noqa: PLR0913 - typed presentation tool contract.
 
 
 _schema = DeclarativePanel.model_json_schema()
+# Agno's Gemini adapter supports anyOf/enum, but drops oneOf/const.
+_schema["properties"]["blocks"]["items"] = {
+    "anyOf": _schema["properties"]["blocks"]["items"]["oneOf"]
+}
+for _block_type in (TextBlock, MetricBlock, ListBlock, TableBlock):
+    _kind = cast(
+        "dict[str, JsonValue]", _schema["$defs"][_block_type.__name__]["properties"]["kind"]
+    )
+    _kind["enum"] = [_kind.pop("const")]
 COMPOSE_PARAMETERS: Final = TypeAdapter(dict[str, JsonValue]).validate_python(
     {
         "type": "object",
@@ -148,6 +165,7 @@ def presentation_tools() -> list[Function]:
     return [
         Function(
             name="compose_panel",
+            description=compose_panel.__doc__,
             entrypoint=compose_panel,
             parameters=COMPOSE_PARAMETERS,
             skip_entrypoint_processing=True,

@@ -1,8 +1,21 @@
 # Team Samurai — Software idea mentor
 
-An AI mentor for validating and implementing software ideas, developed for Google AI Builder Cup 2026. Describe an app, website or software enhancement and explore its problem, market, sales, product, resources and delivery in one connected workspace.
+An AI mentor for validating and improving software ideas before implementation,
+developed for Google AI Builder Cup 2026. Describe an app, website or software
+enhancement and examine its problem, market, sales, product, resources and validation.
+Iterate toward a reasoned go, revise or stop decision. Implementation follows a
+reviewed decision and the founder's explicit choice through the existing workflow.
 
-The idea map opens six independent aspects with checkpoints, notes and readiness lights. Readiness is a user assessment, not an invented success score. The existing backend journey and artifact lineage are reused; internal company terminology remains in IDs and API contracts for compatibility.
+Mentor keeps pinned panels beside chat; Idea map keeps the six-aspect graph beside
+that same conversation. Questions and useful structured responses use OpenUI in
+chat. The first intake call can draft reasonable starting points, with unknowns and
+assumptions labelled. Readiness lights and words stay inside the aspect boxes.
+Readiness is a user assessment, not a success score or independent validation.
+The existing backend journey and artifact lineage are reused; internal company
+terminology remains in IDs and API contracts for compatibility.
+
+Gemini's analysis, critique, evidence interpretation and revisions should drive the
+validation decision. A completed map or generated draft does not justify a go.
 
 See the [software idea mentor handoff](docs/idea-validation-handoff.md) for the six
 aspects, existing backend mappings, implementation entry points, verification and
@@ -12,7 +25,7 @@ review walkthrough.
 
 Product direction, UI principles, and competition requirements are documented in [AGENTS.md](AGENTS.md). Samurai brand assets are available in [assets/samurai-logo](assets/samurai-logo).
 
-The repository has the React/Vite founder UI in [frontend/](frontend/), local PostgreSQL in Podman, environment templates, and locked dependencies. The UI has onboarding, chat, generative panels, and a company dashboard. New companies connect to local AgentOS through the authenticated Vite proxy; existing and demo companies retain labelled Preview mode. The production frontend Node server behind team-only Google IAP, including Google sign-in, live brief creation, and reload, was verified in recorded deployed revisions; that historical result does not show that the current source is deployed. See [deployment and CI/CD](docs/gcp-deployment.md). When a Gemini model is configured, the current parent-agent source registers one ordinary AgentOS agent, **Samurai**, as the conversational entry point. It has four bounded business tools: run or continue the company journey, create launch drafts, analyze provenance-labelled metrics, and read current company state. The nine specialist roles remain internal workflow executors.
+The repository has the React/Vite founder UI in [frontend/](frontend/), local PostgreSQL in Podman, environment templates, and locked dependencies. The UI has onboarding, chat, generative panels, and a company dashboard. All usable ideas connect to local AgentOS through the authenticated Vite proxy. Legacy sample caches are archived without blocking the real idea directory or new idea creation. The production frontend Node server behind team-only Google IAP, including Google sign-in, live brief creation, and reload, was verified in recorded deployed revisions; that historical result does not show that the current source is deployed. See [deployment and CI/CD](docs/gcp-deployment.md). When a Gemini model is configured, the current parent-agent source registers one ordinary AgentOS agent, **Samurai**, as the conversational entry point. It has four bounded business tools: run or continue the company journey, create launch drafts, analyze provenance-labelled metrics, and read current company state. The nine specialist roles remain internal workflow executors.
 
 ## Current readiness status
 
@@ -38,12 +51,12 @@ Use the task commands from the repository root. They create missing private conf
 task setup          # prepare private backend configuration and locked Python dependencies
 task backend:dev    # ensure setup, start PostgreSQL, then serve AgentOS on 127.0.0.1:8000
 task health         # check Samurai PostgreSQL and /agentos/health without a model call
-task frontend:dev   # founder UI preview on 127.0.0.1:4173
+task frontend:dev   # actual founder app on 127.0.0.1:4173
 ```
 
 In a second terminal, use `task db:status`, `task db:logs`, or `task db:stop`. `db:stop` preserves the Samurai volume and does not touch Reporting or other Podman services. See [the local development guide](docs/local-development.md) for prerequisites, JWT AgentOS testing, safe repeat behavior, and the technical-console/UI boundary.
 
-The separate [Founder operations acceptance record](docs/local-development.md#founder-operations-and-restart-acceptance) covers disposable loopback PostgreSQL/Redis services and task-owned ports 8200/4200, leaving the user's 4173 preview untouched. It exercised the actual application factory and BFF with synthetic local identities and no provider calls; its ignored harness is evidence, not a fresh-checkout setup dependency.
+The separate [Founder operations acceptance record](docs/local-development.md#founder-operations-and-restart-acceptance) covers disposable loopback PostgreSQL/Redis services and task-owned ports 8200/4200, leaving the user's app on port 4173 untouched. It exercised the actual application factory and BFF with synthetic local identities and no provider calls; its ignored harness is evidence, not a fresh-checkout setup dependency.
 
 The local AgentOS screenshots demonstrate the saved **Samurai Local** connection, a retained journey, and state recall. They are sanitized local QA evidence, intentionally excluded from Git; the rendered output is a technical AgentOS console with raw structured JSON, not the React/Vite founder workspace.
 
@@ -71,7 +84,11 @@ They interact with one mentor and an idea map. Each aspect can be discussed inde
 
 For example, given connected analytics, the Analyst might report: “Your landing page gets traffic but conversion is only 0.8%. Here are the three changes I'd make.” This is an illustrative scenario, not an observed result or implemented capability.
 
-The journey is **validate demand → shape an offer → build what is needed → find customers → support sales and delivery → measure → improve**. Outputs from each stage inform the next. Documents, generated software, and campaigns support business progress; customers and revenue are not guaranteed.
+The primary journey is **first pass → challenge assumptions across six aspects →
+collect evidence → revise → go, revise or stop**. Small experiments and feasibility
+prototypes can progress independently. After a reviewed go and the founder's explicit
+choice, the existing approved workflow supports implementation and later sales and
+delivery work. Generated software and campaigns do not guarantee customers or revenue.
 
 ## Logical architecture
 
@@ -79,7 +96,7 @@ This is the target responsibility map, implemented incrementally with React and 
 
 ```mermaid
 flowchart TD
-    Founder["Founder: Build my business"] --> Workspace["React + CopilotKit: conversation, panels, evidence, approvals"]
+    Founder["Founder: Validate my software idea"] --> Workspace["React + CopilotKit: conversation, panels, evidence, approvals"]
     Workspace --> Boundary["AgentOS API: identity and action authorization"]
     Boundary --> Orchestrator["Agno Workflow: explicit stages and shared company context"]
     Orchestrator --> Research["Research: Researcher"]
@@ -130,7 +147,7 @@ team-samurai/
     └── samurai-logo/     # Existing shared brand assets
 ```
 
-The backend owns orchestration, execution, verification, integrations, authorization, app-owned workspace/company canonical state, and the local workspace-file lifecycle. The frontend owns the founder experience and renders server-projected structured company state; browser-local panels and drafts are not canonical state. The frontend serves the founder UI preview on port 4173. Authenticated local intake, streamed runs, cancellation, and saved-result recovery are implemented.
+The backend owns orchestration, execution, verification, integrations, authorization, app-owned workspace/company canonical state, and the local workspace-file lifecycle. The frontend owns the founder experience and renders server-projected structured company state; browser-local panels and drafts are not canonical state. The frontend serves the actual founder app on port 4173; preview routes and simulated transports are removed. Authenticated local intake, streamed runs, cancellation, and saved-result recovery are implemented.
 
 ## UI direction
 

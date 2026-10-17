@@ -12,6 +12,24 @@ Owns the server-side behavior for **Samurai**, a mentor and validator for softwa
 
 ## Mentoring and execution
 
+The 17 October local live follow-up exercised all six aspects, retained eighteen
+intake drafts and returned insufficient research rather than a go. Ordinary
+answers can be text, a useful panel, or both. The model adapter preserves the
+strict compose-panel JSON Schema through Google's native declaration because
+Agno's converter drops union and extra-field constraints. Parent calls use
+`validated` mode, which still permits text; server-side validation remains strict.
+See [the handoff](../docs/idea-validation-handoff.md) for failures, fixes, usage
+limits and the current local evidence boundary. This is not a deployment record.
+
+Submitting an idea now uses the existing brief-stage intake call for a concise
+first-pass analysis. Its optional additive `idea_analysis` field stores a summary
+and up to eighteen unique, bounded starting points (`provided` or `inferred`) with
+the intake artifact. Older artifacts remain readable. These are mentoring drafts,
+not evidence, a go signal or permission to run downstream stages. Missing founder
+context remains null; customer, budget and technical gaps are discussed in chat.
+Guided replies use the existing read-only parent for critical feedback. Keep the
+same identity, authorization, queue, cancellation and stage prerequisites.
+
 The founder can discuss six aspects independently: Problem & demand, Market & alternatives, Sales & distribution, Product & technology, Budget & resources, and Validation & delivery. Idea is the shared overview. Missing evidence or technical decisions are labelled gaps and assumptions; they do not lock another conversation. Area suggestions are optional. Ordinary authenticated chat can read owned state and compose a draft comparison or estimate without an intake artifact or research. The mentor's software-only scope is prompt guidance, not a keyword classifier.
 
 The frontend maps these aspects onto the existing `team_area` values: `overview` for Idea, `research` for problem/demand and market/alternatives, `strategy` for product/technology and budget/resources, `sales` for sales/distribution, and `verification` for validation/delivery. The backend journey, API schema, saved identities, action eligibility and evidence gates are unchanged. Canonical workflow artifacts still require explicit approved work and supported inputs; discussion and generated views do not establish verified outputs. No provider or service is added for an aspect.

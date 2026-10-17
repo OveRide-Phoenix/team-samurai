@@ -36,6 +36,7 @@ describe('OpenUI business panels', () => {
     expect(html).toContain('class="declarative-blocks"');
     expect(html).toContain('scope="col"');
     expect(html).toContain('panel-table-scroll');
+    expect(html).toContain('role="region" aria-label="Comparison table" tabindex="0"');
   });
 
   it('keeps OpenUI expressions, HTML and escaped characters as literal text', () => {

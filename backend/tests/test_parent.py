@@ -425,6 +425,7 @@ def test_parent_exposes_bounded_business_and_presentation_tools(tmp_path: pathli
         Settings.model_validate({}),
     )
     assert agent.id == PARENT_AGENT_ID
+    assert agent.tool_choice == "validated"
     assert agent.tool_call_limit == Settings.model_validate({}).agent_tool_call_limit
     raw_tools = cast("object", agent.tools)
     assert isinstance(raw_tools, list)

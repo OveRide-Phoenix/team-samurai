@@ -5,14 +5,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import ceil
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar, Final, Literal, Self
+from typing import TYPE_CHECKING, ClassVar, Final, Literal, Self, cast, override
 
 from agno.job_queue import QueueConfig, RedisCoordination
 from agno.models.google import Gemini
+from google.genai.types import GenerateContentConfig, Tool
 from pydantic import Field, PostgresDsn, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from samurai.panels import COMPOSE_PARAMETERS
+
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from agno.db.base import BaseDb
 
 PRODUCTION_JWT_KEY_REQUIRED: Final = "JWT_VERIFICATION_KEY is required in production"
@@ -113,9 +118,27 @@ def create_queue_config(settings: Settings, store: BaseDb) -> QueueConfig | None
     )
 
 
-def create_model(settings: Settings) -> Gemini:
+class SamuraiGemini(Gemini):
+    """Preserve the strict panel schema that Agno's Schema converter drops."""
+
+    @override
+    def get_request_params(self, *args: object, **kwargs: object) -> dict[str, object]:
+        build = cast("Callable[..., dict[str, object]]", super().get_request_params)
+        params = build(*args, **kwargs)
+        config = params.get("config")
+        if isinstance(config, GenerateContentConfig):
+            for tool in cast("list[object]", config.tools or []):
+                if isinstance(tool, Tool):
+                    for declaration in tool.function_declarations or []:
+                        if declaration.name == "compose_panel":
+                            declaration.parameters = None
+                            declaration.parameters_json_schema = COMPOSE_PARAMETERS
+        return params
+
+
+def create_model(settings: Settings) -> SamuraiGemini:
     """Return a fresh Gemini model for one agent or workflow use."""
-    return Gemini(
+    return SamuraiGemini(
         id=settings.gemini_model,
         api_key=settings.google_api_key.get_secret_value(),
         max_output_tokens=settings.gemini_max_output_tokens,

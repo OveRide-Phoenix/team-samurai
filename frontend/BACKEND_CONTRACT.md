@@ -1,10 +1,10 @@
 # Frontend / AgentOS integration
 
-The local founder UI adapts the installed Agno native SSE API using `src/agentos.ts`. New companies use the live transport; existing/demo companies remain explicitly Preview. The local Vite server injects a signed user JWT from ignored `.env.local`; provider and service keys never reach the browser.
+The local founder UI adapts the installed Agno native SSE API using `src/agentos.ts`. All usable ideas use the live transport. Legacy sample caches remain readable for compatibility but are not opened by the app. The local Vite server injects a signed user JWT from ignored `.env.local`; provider and service keys never reach the browser.
 
 ## Existing seam
 
-`Transport` in `src/model.ts` accepts user text and an `AbortSignal`, then yields validated `WorkEvent` objects. `src/App.tsx` consumes the events to update the left-pane activity and assistant-ui conversation. `demoTransport` is restricted to preview companies. Live requests use `createAgentosTransport(company.id)`.
+`createAgentosTransport` accepts user text and an `AbortSignal`, then yields validated `WorkEvent` objects. `src/App.tsx` consumes the events to update the left-pane activity and assistant-ui conversation. Live requests use `createAgentosTransport(company.id)`.
 
 ```ts
 type Transport = (input: string, signal: AbortSignal) => AsyncIterable<WorkEvent>;
@@ -54,9 +54,9 @@ Supported panel kinds are `offer`, `pricing`, `prospects`, `evidence`, and `laun
 ## State ownership and current limits
 
 - Chat, pins, shortlisted IDs, reviewed drafts, and the durable run receipt currently live in owner-scoped browser localStorage. They are UI preferences and a reconnect pointer, not durable backend approvals, researched prospects, or sent outreach.
-- Preview fixtures use a dental scenario. New companies submit their validated brief to the real backend.
+- Renderer fixtures are test-only. All usable ideas submit their validated brief to the real backend; legacy samples remain archived.
 - Backend artifacts retain validated evidence, citations, assumptions and lineage. Explicit journey-stage approval is server-confirmed; token-by-token prose and connected measurements are not implemented.
-- The verifier in the demo validates structure only. Never interpret it as verification of market facts.
+- Deterministic renderer fixtures are test inputs, never verification of market facts.
 - Provider credentials belong on the backend. The frontend must not contain a Gemini API key or Firebase Admin credential.
 
 ## Multi-company state
@@ -79,12 +79,11 @@ The existing assistant-ui `business_panel` tool renders validated panel objects 
 
 Knowledge references on an Intake, Strategy, Research, or Verifier artifact map to `knowledge_sources` on the existing stable panel ID. Their trust/hash/revision/chunk details remain progressively disclosed. The renderer uses `GET /api/agentos/samurai/workspaces/{workspace_id}/files/{file_id}` only to resolve authorized metadata, and `GET .../{file_id}/download` only after a user action. Both calls use same-origin credentials and `X-Samurai-Client`; browser URLs never contain an access token or a storage locator. A deleted or revoked file stays represented as provenance and reports only `Download unavailable.`
 
-Development fixture: `/?preview=knowledge&workspaceId=<authorized-workspace-uuid>` renders an illustrative external source, uploaded-file provenance, and accepted-artifact provenance through the real mapper. The fixture has no embedded token or mock authorization response. Browser acceptance must point it at a task-owned synthetic authenticated BFF/backend harness; fixture rendering by itself is not file-download acceptance.
 - Founder intake and strategy artifacts may map their validated `founder_truth` or `offer_diagnostic` into optional `founder_context` on existing evidence, offer, and pricing panels. It carries a next decision, visible evidence gaps, and a reviewed framework attribution (`id`, semantic version, attribution, repository, immutable revision, and the matching GitHub tree URL). Attribution is rendered separately from claims and never changes a claim's evidence status. Existing saved panels omit this optional field and continue to parse.
 - `launch-plan`: `tasks` with unique `id`, `title`, `owner`, `timing`, and `detail`. Checkmarks and progress are local founder controls, not execution by an agent. Completion is stored per company in `completedTasks` using serialized `[panelId, taskId]` pairs.
 - Reuse a panel ID for a revised result. The dashboard deduplicates it and pinned content updates to the latest payload. Keep task IDs stable when preserving completed steps; use a new ID when replacing a task.
 
-Existing saved workspaces migrate with an empty `completedTasks` list. The evidence and launch samples are deterministic previews, not outputs from a connected model. Live runs use the native server API; template streams remain limited to Preview companies.
+Existing saved workspaces migrate with an empty `completedTasks` list. Renderer samples live in tests only. All app runs use the native server API; simulated transports and preview routes are removed.
 
 ## Server-owned prerequisite intake
 
@@ -212,3 +211,17 @@ The final 16-call / 8-Search-query ledger estimates INR 16.71 conservatively, as
 free Search allowance, bookkeeping INR 100/USD and an 18% reserve. This is not a
 verified invoice or quoted exchange rate. Paid services are stopped; no cloud
 deployment, outreach or publication occurred.
+## Additive intake analysis — 17 October 2026
+
+The existing intake artifact may include `idea_analysis`: `{summary,
+starting_points: [{checkpoint_id, answer, basis}]}`. The checkpoint ID is one of the
+eighteen catalog IDs; answers are bounded to 2000 characters, the summary to 800,
+and IDs are unique. `basis` is `provided` or `inferred`, never verified. The same
+brief-stage model call produces and persists this field. Old artifacts omit it.
+The frontend projects it on the brief panel and fills only empty local aspect
+notes, preserving edits and assessments. Stream recovery and snapshot hydration
+use the same projection. Deploy compatible frontend/backend revisions together;
+older strict frontend payload parsers do not accept the new field.
+Entry requires only the software idea; other brief fields are sent as null until
+supplied. Existing execution prerequisites still apply. Guided answers are saved
+locally and submitted as bounded untrusted context for read-only mentor feedback.

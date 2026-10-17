@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyBackendEvent, beginBackendRun, emptyWorkspace, recordBackendRun, workspaceSchema } from './model';
 import { actionAreas, areaForPanel, aspectReadiness, conversationArea, messagesForArea, panelChoiceAreas, panelsForAreas, teamAreas, workflowAreas } from './teamAreas';
 import { approvedWorkForSubmission, editApprovedWorkDraft } from './agentos';
-import { evidence, launchPlan, pricing, prospects, offer } from './demo';
+import { evidence, launchPlan, pricing, prospects, offer } from './testFixtures';
 
 describe('idea aspect readiness', () => {
   it('keeps all six aspects available when the idea has no results', () => {

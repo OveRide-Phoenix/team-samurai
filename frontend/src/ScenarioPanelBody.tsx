@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Panel } from './model';
 import { ScenarioLines } from './PanelCharts';
+import { ThemedSelect } from './ThemedSelect';
 
 type ScenarioPanel = Extract<Panel, { kind: 'scenario' }>;
 const display = (value: number | string) => Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -11,7 +12,7 @@ export function ScenarioPanelBody({ panel }: { readonly panel: ScenarioPanel }) 
   const trajectories = panel.trajectories.flatMap(trajectory => { const value = trajectory.metrics.find(item => item.metric === metric.metric && item.unit === metric.unit); return value ? [{ label: trajectory.label, points: value.points }] : []; });
   return <div className="scenario-result">
     <div className="scenario-warning" role="note"><strong>Synthetic scenario, not validation</strong></div>
-    {panel.trajectories[0].metrics.length > 1 && <label className="scenario-metric">Compare <select value={selected} onChange={event => setSelected(Number(event.target.value))}>{panel.trajectories[0].metrics.map((item, index) => <option key={item.metric} value={index}>{item.metric.replaceAll('_', ' ')} · {item.unit}</option>)}</select></label>}
+    {panel.trajectories[0].metrics.length > 1 && <label className="scenario-metric">Compare <ThemedSelect label="Compare metric" value={String(selected)} onChange={value => setSelected(Number(value))} options={panel.trajectories[0].metrics.map((item, index) => ({ value: String(index), label: `${item.metric.replaceAll('_', ' ')} · ${item.unit}` }))} /></label>}
     <p className="scenario-chart-label">{metric.metric.replaceAll('_', ' ')} · {metric.unit}</p>
     <ScenarioLines trajectories={trajectories} horizon={panel.horizon_days} />
     <div className="scenario-grid" aria-label="Low, base, and high scenario results">{panel.trajectories.map(trajectory => <section key={trajectory.label}><span>{trajectory.label}</span>{trajectory.metrics.filter(item => item.metric === metric.metric && item.unit === metric.unit).map(metric => <div key={metric.metric}><strong>{display(metric.points[1].value)}</strong></div>)}</section>)}</div>

@@ -607,6 +607,7 @@ class _Journey:
                     brief=brief,
                     founder_truth=founder_truth,
                     frameworks=_intake_frameworks(),
+                    idea_analysis=proposed.idea_analysis,
                 ),
                 producer=Role.INTAKE,
                 status="needs_input"

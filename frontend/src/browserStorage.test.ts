@@ -1,6 +1,21 @@
 import { expect, it, vi } from 'vitest';
 import { loadPortfolio, persistPortfolio, portfolioStorageKey, resolveBrowserScope } from './browserStorage';
 import { emptyCompanyView, portfolioKey, storageKey } from './model';
+import { shouldLoadWorkspaceDirectory } from './workspaces';
+
+it('archives a full selected sample cache without blocking the real directory or a new idea', () => {
+  const old = { version: 2, mode: 'light', activeId: 'sample-49', companies: Array.from({ length: 50 }, (_, index) => ({ id: `sample-${index}`, name: `Sample ${index}`, workspace: { ...emptyCompanyView(), executionMode: 'preview' } })) };
+  const saved = JSON.stringify(old);
+  const restored = loadPortfolio({ getItem: key => key === portfolioKey ? saved : null }, { kind: 'development' });
+  expect(restored.activeId).toBeNull();
+  expect(shouldLoadWorkspaceDirectory(restored.activeId)).toBe(true);
+  expect(restored.companies).toEqual([]);
+  expect(restored.legacyCompanies).toEqual(old.companies);
+  const next = { ...restored, companies: [{ id: 'real', name: 'Real idea', workspace: emptyCompanyView() }] };
+  const reloaded = loadPortfolio({ getItem: key => key === portfolioKey ? JSON.stringify(next) : null }, { kind: 'development' });
+  expect(reloaded.companies.map(company => company.id)).toEqual(['real']);
+  expect(reloaded.legacyCompanies).toEqual(old.companies);
+});
 
 it('does not request identity in development', async () => {
   const request = vi.fn<typeof fetch>();
@@ -22,7 +37,7 @@ it('isolates saved companies for two authenticated identities without migrating 
 it('preserves development legacy migration', async () => {
   const scope = await resolveBrowserScope(false);
   const storage = { getItem: (key: string) => key === storageKey ? JSON.stringify(emptyCompanyView()) : null };
-  expect(loadPortfolio(storage, scope).companies[0].id).toBe('legacy-dental');
+  expect(loadPortfolio(storage, scope).legacyCompanies?.[0].id).toBe('legacy-dental');
   expect(portfolioStorageKey(scope)).toBe(portfolioKey);
 });
 

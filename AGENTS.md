@@ -2,6 +2,31 @@
 
 ## Current product direction — 17 October 2026
 
+The current UX work targets desktop only. Prioritize the side-by-side idea map
+and mentor conversation, and pinned panels in the Mentor tab. Do not spend more
+time implementing or validating mobile layouts unless the user requests it.
+
+Localhost runs the actual app and backend. Preview routes and simulated app
+transports are removed; test fixtures must remain test-only. Preserve legacy cache
+data without opening sample workspaces as live ideas.
+
+Mentor answers can be concise plain text, OpenUI, or both. Use structured views
+when they improve the answer; do not force every response into a panel.
+
+Gemini must be the solution: its analysis, evidence interpretation, critique and
+revision must materially improve the validation decision. Do not reduce it to a
+chat interface around predetermined outputs. Marketing and sales content, such as
+Instagram concepts and copy grounded in the validated audience and offer, is a
+follow-on capability; it does not expand today's validator scope or authorize
+publishing, outreach or spending.
+
+Validation and improvement across all six aspects are the primary product.
+Cofounder is a layout reference. Iterate on problem, alternatives, sales, product,
+resources and validation evidence before recommending a go/revise/stop decision.
+A filled map, a generated draft, or a founder's readiness assessment is not a go.
+Building follows a reviewed validation decision and the founder's explicit choice
+to proceed through the existing approved workflow. Discussion stays independent.
+
 The user now defines Samurai as a mentor/validator for **software ideas**: apps,
 websites and software enhancements. Use ideas we validate or implement, not companies
 we build. This supersedes the company-building positioning and role-based UX below.
@@ -59,7 +84,7 @@ The [architecture map in README.md](README.md#logical-architecture) describes re
 ### Local onboarding and plans
 
 - Use the root Taskfile for repeatable local setup: `task setup`, `task backend:dev`, `task health`, and optional `task frontend:dev`. Do not replace private `.env` files, recreate the Samurai database unnecessarily, or touch Reporting services.
-- Read [docs/local-development.md](docs/local-development.md) before changing startup behavior. The AgentOS console is a technical backend test surface with raw structured JSON; the custom founder UI is a local preview in `frontend/`; local frontend/backend plumbing and provider intake are implemented; grounded research outcomes still require source verification.
+- Read [docs/local-development.md](docs/local-development.md) before changing startup behavior. The AgentOS console is a technical backend test surface with raw structured JSON; the actual founder app runs from `frontend/`; local frontend/backend plumbing and provider intake are implemented; grounded research outcomes still require source verification.
 - [`.omo/plans/`](.omo/plans/README.md) contains portable status records only. Keep new runtime boulders, ledgers, screenshots, evidence, credentials, and local browser artifacts ignored; retain already tracked historical records.
 
 The founder operations integration keeps this boundary: learning, schedules, and deterministic scenarios are authenticated backend routes mounted under `/agentos`, reached by the narrow server-side `/api/agentos/...` proxy. Learning is untrusted preference context and may not alter authorization or canonical state. Schedules are limited to `workspace_review` and `scenario_recompute`; scenarios are assumption checks labelled `synthetic_scenario_not_validation`. Preserve company revision and `state_sha256` pins, backend membership checks, same-transaction scheduled recomputation, and UUID idempotency for scenario writes. Do not turn these local deterministic scenarios into claims about demand or source-backed business validation.
@@ -202,7 +227,7 @@ Target the overall prizes first: **Winner — USD 10,000**, **First Runner-up �
 
 ### Local UI integration — 11 October 2026
 
-New companies use native AgentOS SSE through the Vite server proxy. Configure `AGENTOS_USER_TOKEN` in ignored `frontend/.env.local` and the matching `JWT_VERIFICATION_KEY` in ignored `backend/.env`; restart the backend after changing its configuration. `GEMINI_MODEL` is locked to `gemini-3.5-flash-lite`, with no fallback. The original 2.5 Flash-Lite request returned HTTP 404 for this new account. The user then authorized 3.5 Flash-Lite on 12 October; verify its access separately. Existing and dental-demo companies retain Preview mode. Never call fixture tests proof of successful Gemini research. Recorded deployed revisions supplied the IAP-authenticated production proxy; local preview remains distinct from that historical cloud acceptance.
+New companies use native AgentOS SSE through the Vite server proxy. Configure `AGENTOS_USER_TOKEN` in ignored `frontend/.env.local` and the matching `JWT_VERIFICATION_KEY` in ignored `backend/.env`; restart the backend after changing its configuration. `GEMINI_MODEL` is locked to `gemini-3.5-flash-lite`, with no fallback. The original 2.5 Flash-Lite request returned HTTP 404 for this new account. The user then authorized 3.5 Flash-Lite on 12 October; verify its access separately. Legacy sample caches are archived; every usable idea uses the actual backend. Never call fixture tests proof of successful Gemini research. Recorded deployed revisions supplied the IAP-authenticated production proxy; current local execution remains distinct from that historical cloud acceptance.
 
 ### Superseded model configuration — 12 October 2026
 The temporary `gemini-3.8-flash` restoration is historical context only. The following paid-account Flash-Lite policy supersedes it; do not restore 3.8 from this record.
