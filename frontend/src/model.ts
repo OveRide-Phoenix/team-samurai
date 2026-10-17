@@ -119,7 +119,9 @@ export const companySchema = z.object({
 });
 export const portfolioSchema = z.object({
   version: z.literal(2), companies: z.array(companySchema).max(50), activeId: z.string().nullable(), mode: z.enum(['light', 'dark']),
+  legacyCompanies: z.array(companySchema).max(50).optional(),
 }).refine(value => new Set(value.companies.map(company => company.id)).size === value.companies.length &&
+  (value.legacyCompanies?.length ?? 0) + value.companies.filter(company => company.workspace.executionMode !== 'live').length <= 50 &&
   (value.activeId === null || value.companies.some(company => company.id === value.activeId)));
 export type Portfolio = z.infer<typeof portfolioSchema>;
 export function emptyWorkspace(): Workspace {
@@ -131,12 +133,18 @@ export function continueCompanyView(workspace: CompanyView, companyId: string, r
 }
 export function restorePortfolio(saved: string | null, legacy: string | null): Portfolio {
   if (saved) {
-    try { return portfolioSchema.parse(JSON.parse(saved)); } catch { /* Recover a valid legacy preview if available. */ }
+    try {
+      const portfolio = portfolioSchema.parse(JSON.parse(saved));
+      const legacyCompanies = portfolio.companies.filter(company => company.workspace.executionMode !== 'live');
+      if (!legacyCompanies.length) return portfolio;
+      const companies = portfolio.companies.filter(company => company.workspace.executionMode === 'live');
+      return { ...portfolio, companies, activeId: companies.some(company => company.id === portfolio.activeId) ? portfolio.activeId : null, legacyCompanies: [...(portfolio.legacyCompanies ?? []), ...legacyCompanies] };
+    } catch { /* Recover valid legacy data if available. */ }
   }
   if (legacy) {
     try {
       const workspace = workspaceSchema.parse(JSON.parse(legacy));
-      return { version: 2, activeId: null, mode: 'light', companies: [{ id: 'legacy-dental', name: 'Dental receptionist', workspace }] };
+      return { version: 2, activeId: null, mode: 'light', companies: [], legacyCompanies: [{ id: 'legacy-dental', name: 'Dental receptionist', workspace }] };
     } catch { /* Invalid browser data starts a fresh portfolio. */ }
   }
   return { version: 2, companies: [], activeId: null, mode: 'light' };

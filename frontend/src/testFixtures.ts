@@ -44,7 +44,7 @@ export const launchPlan: Panel = {
   ],
 };
 export const initialWorkspace: Workspace = { actions: [], nextAction: null, selectedArea: 'overview', aspectChecks: {}, drafts: {},
-  executionMode: 'preview', activityLog: [],
+  executionMode: 'live', activityLog: [],
   version: 1, theme: 'sky', pinned: [offer], completedTasks: [], panelOrder: [], shortlist: [], approvedOffers: [],
   messages: [
     { id: 'intro-user', role: 'user', text: 'I want to build an AI receptionist for Indian dental clinics.' },
@@ -58,4 +58,3 @@ export function briefFixture(input: CompanyBrief): Extract<Panel, { kind: 'evide
   const fields = [['Idea', brief.idea], ['First customers', brief.customer], ['Market', brief.location], ['Budget', brief.budget], ['Founder skills', brief.founderSkills], ['First milestone', brief.goal]];
   return { id: 'test-company-brief', kind: 'evidence', title: 'Company brief', note: '', claims: fields.flatMap(([label, value], index) => value ? [{ id: `brief-${index}`, claim: `${label}: ${value}`, status: 'hypothesis', detail: 'Founder supplied context, not market evidence', sources: [] }] : []) };
 }
-

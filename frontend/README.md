@@ -17,8 +17,8 @@ From the repository root, use `task frontend:setup`, `task backend:dev` and
 `task frontend:dev`, following [local development](../docs/local-development.md).
 Open [Samurai](http://127.0.0.1:4173/). Localhost runs the actual app and configured
 AgentOS backend. Developer preview routes and simulated chat transports have been
-removed. Old query links open the ordinary app. Legacy sample caches are retained
-for compatibility but excluded from the idea list; real ideas reopen through the
+removed. Old query links open the ordinary app. Legacy sample caches are archived
+within the same scoped browser cache, freeing the active idea limit; real ideas reopen through the
 owned workspace directory. No browser data is silently deleted.
 
 Node 24 and npm are the toolchain. The dev server binds to loopback. Keep local

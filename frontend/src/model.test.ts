@@ -7,7 +7,8 @@ describe('backend-facing UI contract', () => {
     expect(restorePortfolio(null, null).companies).toEqual([]);
     const migrated = restorePortfolio(null, JSON.stringify(initialWorkspace));
     expect(migrated.activeId).toBeNull();
-    expect(migrated.companies[0].workspace).toEqual(initialWorkspace);
+    expect(migrated.companies).toEqual([]);
+    expect(migrated.legacyCompanies?.[0].workspace).toEqual(initialWorkspace);
     expect(emptyCompanyView().executionMode).toBe('live');
     expect(emptyCompanyView().messages).toEqual([]);
     expect(emptyCompanyView().pinned).toEqual([]);
@@ -131,7 +132,8 @@ describe('live workspace state', () => {
     const restored = restorePortfolio(JSON.stringify({ version: 2, mode: 'light', activeId: 'one', companies: [{ id: 'one', name: 'One', workspace: live }, { id: 'two', name: 'Demo', workspace: legacy }] }), null);
     expect(restored.companies[0].workspace.executionMode).toBe('live');
     expect(restored.companies[0].workspace.backendRun).toEqual(live.backendRun);
-    expect(restored.companies[1].workspace.executionMode).toBe('preview');
+    expect(restored.companies).toHaveLength(1);
+    expect(restored.legacyCompanies?.[0].workspace.executionMode).toBe('preview');
   });
   it('continues a hydrated editor company at the returned revision', () => {
     const companyId = '00000000-0000-4000-8000-000000000001';

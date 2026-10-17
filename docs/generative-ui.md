@@ -38,7 +38,12 @@ References: [CopilotKit / Agno](https://docs.copilotkit.ai/agno), [Agno AG-UI](h
 
 ## Local interactive review
 
-Start the frontend with `npm run dev`, then open `http://127.0.0.1:4173/?preview=panels` to inspect all six actual catalog renderers and an interactive custom revenue scenario. Open `http://127.0.0.1:4173/?preview=intake` for the actual three-page form and brief-first sequence; later sample work starts only on a founder action. These development-only views use isolated browser preview storage and labelled fictional data, with no AgentOS or Gemini calls. They demonstrate UI behavior, not business verification or live generated output. The normal local route retains the real CopilotKit/Agno connection.
+Start the frontend and configured backend with the documented Task commands,
+then open `http://127.0.0.1:4173/`. This is the actual app. The former panel/intake
+sample routes and simulated transports are removed. Create an isolated real idea
+for browser checks; submitting or sending can call Gemini. Provider-free renderer,
+transport and persistence checks run through the test suite only. See
+[the current handoff](idea-validation-handoff.md) for the six-aspect live results.
 
 Interactive UI follow-up: 87 frontend tests, 39 production-server tests, 4 packaging tests, TypeScript and the production build passed. Browser checks covered the six catalog views, discussion drafts without submission, saved review/checklist/shortlist state, filtering, pricing selection, custom calculations, brief-first intake, desktop/mobile and both themes. A styling stress case attempted conflicting fonts, colors and squared controls; computed styles retained Inter, Samurai colors, rounded controls and a transparent shell. No provider call or deployment was made. The local frontend was left running for the requested review.
 
@@ -62,7 +67,7 @@ Composed panels now use [OpenUI React Lang](https://github.com/thesysdev/openui/
 
 The stored panel schema, stable IDs, pinning, replacement, reload recovery, draft labels, known interactive business panels, and custom-frame sandbox remain unchanged. CopilotKit still handles authenticated chat transport; OpenUI now owns the business-panel catalog and chat/answer controls. This is an OpenUI rendering integration, not model-native OpenUI output or incremental UI streaming; no token savings are claimed. Adopting direct model-generated OpenUI would require a separate bounded backend contract and live acceptance.
 
-The existing `?preview=panels` fixture includes Pilot comparison with all four OpenUI block types. Verification: 153 frontend tests, TypeScript, production build, and browser checks at 1440px desktop and 390px mobile in both themes. Focused tests exercise literal expression/HTML escaping, table shape and size validation, and saved-data round trips. No provider calls or deployment were performed.
+Historical fixture verification (the sample route has since been removed) covered Pilot comparison with all four OpenUI block types. Verification: 153 frontend tests, TypeScript, production build, and browser checks at 1440px desktop and 390px mobile in both themes. Focused tests exercise literal expression/HTML escaping, table shape and size validation, and saved-data round trips. No provider calls or deployment were performed.
 
 
 Visual refinement: the shared panel shell now uses quieter titles, more space, simple choice tabs and softer pricing selection. The OpenUI library renders unboxed metrics, adjacent metric pairs, restrained lists and borderless comparison tables; row counts remain in an accessible caption. Draft/evidence distinctions and all saved actions are retained. OpenUI provides the bounded rendering mechanism; these design choices come from Samurai's component library, not automatic styling by the framework.

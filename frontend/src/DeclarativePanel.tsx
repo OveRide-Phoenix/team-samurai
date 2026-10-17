@@ -23,7 +23,7 @@ const Table = defineComponent({
 });
 function ComparisonTable(props: { columns: string[]; rows: string[][] }) {
   const items = numericComparison(props.columns, props.rows);
-  const table = <div className="declarative-table"><div className="panel-table-scroll"><table><caption className="sr-only">Comparison · {props.rows.length} rows</caption><thead><tr>{props.columns.map((column, index) => <th scope="col" key={index}>{column}</th>)}</tr></thead><tbody>{props.rows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody></table></div></div>;
+  const table = <div className="declarative-table"><div className="panel-table-scroll" role="region" aria-label="Comparison table" tabIndex={0}><table><caption className="sr-only">Comparison · {props.rows.length} rows</caption><thead><tr>{props.columns.map((column, index) => <th scope="col" key={index}>{column}</th>)}</tr></thead><tbody>{props.rows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody></table></div></div>;
   return items ? <><ComparisonBars items={items} label={props.columns.join(' · ')} /><details className="panel-details"><summary>View comparison table</summary>{table}</details></> : table;
 }
 const Column = defineComponent({

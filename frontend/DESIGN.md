@@ -154,7 +154,7 @@ Known views use purpose-built interactive layouts, not paragraphs of artifact fi
 
 Shared controls live in `src/panel-controls.css`, used by the host and the custom-view shell. Custom components get a transparent, content-sized frame and a first important CSS layer that protects theme tokens, typography and control styling from generated CSS. Inline style attributes are rejected by the frame CSP. A size-only message accepts only the exact opaque iframe window and bounded integer height; it cannot invoke host functions. The previous fixed tinted calculator block is removed.
 
-Local development exposes labelled sample previews at `?preview=panels` and `?preview=intake`; production excludes that loader. They make no backend or provider calls.
+Local development opens the actual app and backend. The sample-route loader and simulated transports have been removed; fixtures belong in tests only.
 
 Default panels keep copy concise: idle team roles show names/icons with descriptions on expansion; pricing explanations, prospect reasons, owners and notes sit behind disclosures. Brief labels and actions are short. Preserve primary values, evidence status, scenario labels and every saved action. No information is discarded to make the view lighter.
 
@@ -229,8 +229,7 @@ disclosures, and keep workflow-filter toggles from resetting the reading step.
 These are draft outputs, not evidence coverage scores. Supplied measurements
 show their actual value, unit, period and source, without rounding tiny values
 to zero or claiming independent verification. No button here sends outreach,
-publishes, deploys or changes backend approval. The isolated `?preview=drafts`
-route uses illustrative fixtures and the same canonical projection/renderer.
+publishes, deploys or changes backend approval. Illustrative renderer fixtures are test-only; no sample-data app route remains.
 
 Generated business results settle into the requested card order after reveal,
 ahead of Files and Founder operations that load first. Preserve the same mounted

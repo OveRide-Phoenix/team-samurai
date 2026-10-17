@@ -67,7 +67,7 @@ It does not authorize publication, outreach or spending.
    Sending a guided answer saves its tagged question/answer locally and asks the
    existing live mentor for critical feedback without execution approval. On success
    it advances; failures/cancellation retain the answer and question for retry.
-   Preview uses explicit provider-free fixtures. Readiness remains the user's assessment.
+   Deterministic fixtures are test-only. Readiness remains the user's assessment.
 4. Every aspect remains accessible without prerequisites. Map clicks only highlight
    the selected card: chat history, active question, composer draft and scroll stay
    unchanged. Use the chat header's aspect mentor picker to explicitly change the
@@ -151,9 +151,11 @@ backend contract and stage implementation references.
 Localhost now opens the actual app at `http://127.0.0.1:4173/`. All developer
 preview routes, their loader and simulated app transports have been removed.
 Old query links fall through to the actual app. Test fixtures stay test-only;
-legacy browser caches are retained but sample workspaces are not opened.
+legacy samples are retained in the same scoped cache’s bounded `legacyCompanies` archive.
+A selected sample clears to Home, loads the real directory and leaves all fifty
+active idea slots available. No stored conversation or panel is deleted.
 
-The acceptance scope is desktop only. TypeScript and 221 frontend tests in 23
+The acceptance scope is desktop only. TypeScript and 222 frontend tests in 23
 files passed after preview removal. Six obsolete simulated-transport tests were
 removed along with that implementation; real adapter, cancellation, recovery,
 permissions and hydration regressions remain. The earlier production build and

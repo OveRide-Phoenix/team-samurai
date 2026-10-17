@@ -126,8 +126,7 @@ export function App({ scope }: { readonly scope: BrowserScope }) {
       if (openGuard.current.isCurrent(request)) setOpeningCompanyId(null);
     }
   };
-  const liveCompanies = portfolio.companies.filter(item => item.workspace.executionMode === 'live');
-  const company = liveCompanies.find(item => item.id === portfolio.activeId);
+  const company = portfolio.companies.find(item => item.id === portfolio.activeId);
   const updateCompanyView = (update: CompanyView | ((current: CompanyView) => CompanyView), persistNow = false): boolean => {
     if (!company) return false;
     return updatePortfolio(current => ({ ...current, companies: current.companies.map(item => item.id === company.id ? {
@@ -143,7 +142,7 @@ export function App({ scope }: { readonly scope: BrowserScope }) {
         <OpenUICompanyName name={name} pending={startingCompany} disabled={!name.trim() || portfolio.companies.length >= 50 || startingCompany || openGuard.current.isPending()} onName={value => { setName(value); setCompanyCreationRetry(null); }} onStart={() => { void startCompany(); }} />
         {portfolio.companies.length >= 50 && <p className="empty-note">You can save up to 50 ideas in this browser.</p>}
         {directory.length > 0 && <section className="company-library" aria-label="Shared ideas"><h2>Shared ideas</h2><div className="company-grid">{directory.map(item => <div className="company-tile" key={item.company.company_id}><button onClick={() => void openShared(item)} disabled={startingCompany || openingCompanyId === item.company.company_id} aria-busy={openingCompanyId === item.company.company_id}><Building2 size={20} /><span><strong>{companyName(item.workspace, item.company)}</strong><small>{item.workspace.role === 'viewer' ? 'Viewer · Read-only' : 'Shared workspace'}</small></span><ArrowRight size={16} /></button></div>)}</div></section>}
-        {liveCompanies.length > 0 && <section className="company-library" aria-label="Your ideas"><h2>Your ideas</h2><div className="company-grid">{liveCompanies.map(item => <div className="company-tile" key={item.id}><button onClick={() => open(item.id)}><Building2 size={20} /><span><strong>{item.name}</strong><small>{item.workspace.messages.length ? 'Continue exploring' : 'Ready for your idea'}</small></span><ArrowRight size={16} /></button></div>)}</div></section>}
+        {portfolio.companies.length > 0 && <section className="company-library" aria-label="Your ideas"><h2>Your ideas</h2><div className="company-grid">{portfolio.companies.map(item => <div className="company-tile" key={item.id}><button onClick={() => open(item.id)}><Building2 size={20} /><span><strong>{item.name}</strong><small>{item.workspace.messages.length ? 'Continue exploring' : 'Ready for your idea'}</small></span><ArrowRight size={16} /></button></div>)}</div></section>}
       </>}</div></main>
       {!reservation && <TransitionGrain />}{directoryError && <p className="storage-warning" role="alert">{directoryError}</p>}{storageError && <p className="storage-warning" role="status">Browser storage is unavailable. This session won’t be saved.</p>}
     </div>}</MotionConfig>;
