@@ -29,8 +29,12 @@ tab. Keep the original topology, compact labels and 44px touch targets there.
 
 Submitting the software idea opens Mentor immediately. The existing intake call
 returns a basic analysis and optional draft answers. The OpenUI welcome is visible
-while it runs; the completed first pass uses six expandable aspect rows in chat.
-Label provided context and mentor assumptions separately; missing answers stay
+while it runs; the completed first pass explains the autofill in chat, with a
+visible starting point for each of the six aspects before any disclosure is opened.
+Use the actual intake answers in journey order, with full notes under each aspect's
+existing disclosure. Reuse the 12/13/14px text, 8/12/16/24px spacing, quiet dividers
+and theme tokens; do not add another panel shell. Explain that drafts need validation
+and invite corrections in chat. Label provided context and mentor assumptions separately; missing answers stay
 open. Fill saved aspect notes without overwriting founder edits or assessments.
 Autofill never marks an aspect ready. Ask the next missing question, while every
 draft remains editable through chat. No customer/budget prerequisite forms.
