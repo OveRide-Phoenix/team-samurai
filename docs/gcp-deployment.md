@@ -284,6 +284,22 @@ Integrated [GitHub checks](https://github.com/OveRide-Phoenix/team-samurai/actio
 Each subsequent main push, including documentation changes, triggers another checked rollout. Use its Actions summary for the current and previous revision/digest pair; the names above are acceptance snapshots, not a promise that those revisions remain latest. The user skipped the live rejection/second-account browser exercise; forced rollback and long-running timeout recovery were also not exercised. The live IAM allowlist was verified to contain only the approved team account. Missing/invalid identity and cross-owner read/cancel rejection have automated coverage. The temporary local private signer was removed after acceptance; its pinned Secret Manager version remains in use.
 
 
+## Public judge rollout — 17 October 2026
+
+The [public guest acceptance record](public-guest-access.md) supersedes the earlier
+team-only frontend configuration for the approved seven-day window. Backend JWT
+checks remain active. Frontend guest mode serves anonymous HTTP 200; deployment
+checks validate the configured mode instead of always expecting an IAP redirect.
+
+Before enabling the queue, configure the backend HTTP startup probe at
+`/agentos/health`; the previous TCP-only probe is insufficient and the rollout
+script rejects it before mutation. Set service and revision minimum/maximum to
+one, 1 vCPU / 2 GiB, instance-based billing and private VPC egress. The approved
+Basic Redis instance has AUTH enabled and its URL is a pinned Secret Manager
+version. Follow the acceptance record for migration backup, retained data,
+verification limits and the 24 October rollback. Do not extend paid hosting
+implicitly through another deployment.
+
 ## References
 
 - [Cloud Run request timeout](https://docs.cloud.google.com/run/docs/configuring/request-timeout)

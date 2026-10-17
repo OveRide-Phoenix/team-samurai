@@ -186,3 +186,7 @@ The authenticated `/agentos/agents/samurai/agui` interface uses the native durab
 Guest admission is opt-in (`GUEST_ACCESS_ENABLED=false` by default). Migration
 `0005_guest_usage` adds shared daily counters. Production guests additionally require
 the durable queue; see [public guest access](../docs/public-guest-access.md) before activation.
+
+Production queue and guest access were enabled on 17 October 2026 for the approved
+seven-day Mumbai judge window. Backend JWT checks remain required. See the
+[acceptance snapshot and expiry runbook](../docs/public-guest-access.md).

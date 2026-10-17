@@ -82,10 +82,11 @@ With the dev server running, open [all panels](http://127.0.0.1:4173/?preview=pa
 
 Authenticated live companies show one Founder operations card in Company view. It saves and supersedes explicit preferences/corrections, creates and disables bounded schedules, creates and runs deterministic scenarios, and reloads persisted scenario definitions, results, and schedule receipts from the backend. Scenario panels always say that their low/base/high outputs are synthetic assumptions rather than validation or observed demand. Viewer controls are disabled; the backend remains the authorization boundary.
 
-The production BFF defaults to `FRONTEND_AUTH_MODE=iap`. The staged `guest` mode
+The BFF defaults to `FRONTEND_AUTH_MODE=iap`. Production uses `guest` during the
+approved seven-day judge window beginning 17 October 2026. Guest mode
 creates signed browser identities while retaining scoped server-to-server JWTs.
 See [public guest access](../docs/public-guest-access.md) for limits, cookie lifetime,
-verification scope and the blocked production activation sequence.
+verification scope, expiry and rollback instructions.
 
 ### OpenUI composed views
 
