@@ -1,8 +1,12 @@
-# Team Samurai — AI Idea → Company
+# Team Samurai — Software idea mentor
 
-An AI company-building workspace, developed as a general-purpose product and for Google AI Builder Cup 2026. Founders describe a business idea and work with one connected system to validate demand, shape an offer, find customers, coordinate delivery, and improve through business feedback.
+An AI mentor for validating and implementing software ideas, developed for Google AI Builder Cup 2026. Describe an app, website or software enhancement and explore its problem, market, sales, product, resources and delivery in one connected workspace.
 
-Software generation is a supporting capability when the company needs it. The product's goal is business progress, not simply generating an app.
+The idea map opens six independent aspects with checkpoints, notes and readiness lights. Readiness is a user assessment, not an invented success score. The existing backend journey and artifact lineage are reused; internal company terminology remains in IDs and API contracts for compatibility.
+
+See the [software idea mentor handoff](docs/idea-validation-handoff.md) for the six
+aspects, existing backend mappings, implementation entry points, verification and
+review walkthrough.
 
 ## Current status
 
@@ -43,7 +47,7 @@ The separate [Founder operations acceptance record](docs/local-development.md#fo
 
 The local AgentOS screenshots demonstrate the saved **Samurai Local** connection, a retained journey, and state recall. They are sanitized local QA evidence, intentionally excluded from Git; the rendered output is a technical AgentOS console with raw structured JSON, not the React/Vite founder workspace.
 
-## The idea: “Build my business.”
+## Explore a software idea
 
 The founder starts with one question:
 
@@ -51,7 +55,7 @@ The founder starts with one question:
 >
 > “An AI receptionist for Indian dental clinics.”
 
-They interact with one company workspace, not seven separate agent chats. Behind that experience, connected specialist roles carry the idea through research, strategy, product definition, execution, customer acquisition, and improvement.
+They interact with one mentor and an idea map. Each aspect can be discussed independently, with related assumptions and gaps visible as soft connections. Existing specialist roles remain internal executors of the unchanged research, strategy, planning and verification journey.
 
 | Role | Produces or discovers |
 |---|---|
