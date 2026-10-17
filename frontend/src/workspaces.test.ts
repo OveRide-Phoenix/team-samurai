@@ -1,3 +1,4 @@
+import { canonicalCompanyFields, directoryCompanySchema, needsCompanyIntake } from './workspaces';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createLatestRequestGuard, createOneAtATimeGate, createWorkspaceCompany, firstWritableWorkspace, listWorkspaces, openWorkspaceCompany, shouldLoadWorkspaceDirectory } from './workspaces';
 
@@ -70,4 +71,19 @@ describe('workspace directory client', () => {
     expect(selected).toBe('newer-company');
     expect(guard.isPending()).toBe(false);
   });
+});
+
+it('resumes intake only for writable companies without an accepted revision', () => {
+  expect(needsCompanyIntake({ ...company, current_revision: 0 }, 'owner')).toBe(true);
+  expect(needsCompanyIntake({ ...company, current_revision: 0 }, 'editor')).toBe(true);
+  expect(needsCompanyIntake({ ...company, current_revision: 0 }, 'viewer')).toBe(false);
+  expect(needsCompanyIntake(company, 'owner')).toBe(false);
+});
+
+it('refreshes action eligibility and operation pins from one matching canonical snapshot', () => {
+  const action = { id: 'plan', label: 'Plan delivery', prompt: 'Plan delivery', operation: 'journey', stage: 'plan', area: 'strategy', eligible: true, blocked_reason: null };
+  const opened = directoryCompanySchema.parse({ ...company, current_revision: 4, snapshot: { summary: { company_id: companyId, revision: 4, artifact_count: 4, status: 'active', actions: [action], next_action: 'plan' }, artifacts: [] } });
+  expect(canonicalCompanyFields(opened)).toEqual({ companyId, currentRevision: 4, stateSha256: company.state_sha256, actions: [action], nextAction: 'plan' });
+  expect(() => canonicalCompanyFields({ ...opened, current_revision: 5 })).toThrow('canonical revision');
+  expect(() => canonicalCompanyFields({ ...opened, company_id: workspaceId })).toThrow('canonical revision');
 });

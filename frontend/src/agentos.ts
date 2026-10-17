@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { agents, panelSchema, teamAreaSchema, type BackendRun, type EvidenceSource, type Message, type Panel, type TeamArea, type WorkEvent } from './model';
+import { companyActionIdSchema, companyActionSchema, agents, panelSchema, teamAreaSchema, type BackendRun, type EvidenceSource, type Message, type Panel, type TeamArea, type WorkEvent } from './model';
 
 const base = '/api/agentos/agents/samurai/runs';
 const headers = { 'X-Samurai-Client': '1' } as const;
@@ -54,6 +54,7 @@ const researchPayload = z.strictObject({
   const hasAdjudication = value.adjudicated_from_artifact_id !== undefined && value.adjudicated_from_artifact_id !== null || value.adjudicated_from_revision !== undefined && value.adjudicated_from_revision !== null || adjudications.length > 0;
   return !hasAdjudication || (value.adjudicated_from_artifact_id !== undefined && value.adjudicated_from_artifact_id !== null && value.adjudicated_from_revision !== undefined && value.adjudicated_from_revision !== null && adjudications.every(item => item.research_artifact_id === value.adjudicated_from_artifact_id && item.research_revision === value.adjudicated_from_revision));
 });
+export const verificationPayloadSchema = z.strictObject({ artifact_type: z.literal('verification'), checked_artifact_ids: z.array(uuid).min(1).max(100), outcome: z.enum(['verified', 'needs_input', 'needs_rework']) });
 const payload = z.discriminatedUnion('artifact_type', [
   z.strictObject({ artifact_type: z.literal('intake'), brief, founder_truth: founderTruth.optional(), frameworks: z.array(frameworkMetadata).max(2).optional() }),
   researchPayload,
@@ -63,7 +64,7 @@ const payload = z.discriminatedUnion('artifact_type', [
   z.strictObject({ artifact_type: z.literal('marketing_draft'), landing_page: text, ads: strings, social_posts: strings, emails: strings }),
   z.strictObject({ artifact_type: z.literal('sales_draft'), prospect_criteria: strings, outreach: strings, scripts: strings, objection_handling: strings }),
   z.strictObject({ artifact_type: z.literal('analysis'), metric_ids: z.array(uuid).min(1).max(100), findings: strings, recommendations: strings, basis: z.enum(['connected_measurements', 'based_on_founder_supplied_metrics']) }),
-  z.strictObject({ artifact_type: z.literal('verification'), checked_artifact_ids: z.array(uuid).min(1).max(100), outcome: z.enum(['verified', 'needs_input', 'needs_rework']) }),
+  verificationPayloadSchema,
 ]).refine(value => value.artifact_type !== 'intake' || value.frameworks === undefined || (value.frameworks.length === 1
   && value.frameworks[0]?.id === 'founder_truth' && value.frameworks[0].allowed_roles.includes('intake')));
 const source = z.strictObject({ source_id: uuid, url: publicUrl, title: text, retrieved_at: date, search_query: text, excerpt: z.string().min(1).max(2000) });
@@ -113,6 +114,8 @@ const learningRecord = z.strictObject({
 const emptyLearningContext = { context_boundary: 'untrusted_preference_context' as const, records: [] };
 const learningContext = z.strictObject({ context_boundary: z.literal('untrusted_preference_context'), records: z.array(learningRecord).max(20) }).default(emptyLearningContext);
 const summarySchema = z.strictObject({
+  current_artifact_ids: z.array(uuid).max(100).nullable().default(null),
+  actions: z.array(companyActionSchema).max(9).default([]), next_action: companyActionIdSchema.nullable().default(null),
   company_id: uuid.nullable(), revision: z.number().int().min(0), artifact_count: z.number().int().min(0), status: z.enum(['active', 'not_started']),
   brief: brief.nullable().default(null), sources: z.array(source).max(100).default([]), evidence_conflicts: strings.default([]),
   verification_findings: z.array(z.strictObject({ code: text, message: text, severity: z.enum(['info', 'warning', 'error']) })).max(100).default([]),
@@ -151,17 +154,25 @@ function knowledgeSources(references: z.infer<typeof knowledgeReference>[]): Evi
     return { kind: 'accepted_artifact', artifact_id: reference.artifact_id, chunk_id: reference.chunk_id, indexed_revision: reference.indexed_revision, ordinal: reference.ordinal, content_sha256: reference.content_sha256, trust_class: 'accepted_artifact', evidence_status: 'untrusted_context' };
   });
 }
-export const companySnapshotSchema = z.strictObject({ summary: summarySchema, artifacts: z.array(artifact).max(100) }).refine(value => value.summary.company_id !== null && value.artifacts.every(item => item.company_id === value.summary.company_id && item.revision <= value.summary.revision));
+export const companySnapshotSchema = z.strictObject({ summary: summarySchema, artifacts: z.array(artifact).max(100) }).refine(value => value.summary.company_id !== null && value.artifacts.every(item => item.company_id === value.summary.company_id && item.revision <= value.summary.revision) && (value.summary.current_artifact_ids === null || value.summary.current_artifact_ids.every(id => value.artifacts.some(item => item.artifact_id === id))));
 type CompanySnapshot = z.infer<typeof companySnapshotSchema>;
 
 export type AgentosRun = BackendRun;
 export type AgentosApproval = {
   readonly operation: 'journey' | 'launch_drafts' | 'metrics_analysis';
-  readonly stage: 'brief' | 'research' | 'strategy' | 'plan';
+  readonly stage: 'brief' | 'research' | 'strategy' | 'plan' | 'verify';
   readonly expectedRevision: number;
+  readonly teamArea?: TeamArea;
   readonly companyId: string;
 };
-type CopilotStart = (input: string, signal: AbortSignal, area?: TeamArea) => Promise<Response>;
+export type ApprovedWorkDraft = { text: string; area: TeamArea; label: string; approval: AgentosApproval };
+export function editApprovedWorkDraft(draft: ApprovedWorkDraft | undefined, text: string, area: TeamArea): ApprovedWorkDraft | undefined {
+  return draft?.area === area ? { ...draft, text: text.trim() } : undefined;
+}
+export function approvedWorkForSubmission(draft: ApprovedWorkDraft | undefined, text: string, area: TeamArea, companyId: string | undefined, revision: number | undefined): AgentosApproval | undefined {
+  return draft && draft.text === text.trim() && draft.area === area && draft.approval.companyId === companyId && draft.approval.expectedRevision === revision ? draft.approval : undefined;
+}
+export type CopilotStart = (input: string, signal: AbortSignal, area?: TeamArea, approval?: AgentosApproval, submissionId?: string) => Promise<Response>;
 type AgentosRunResult = { readonly run: AgentosRun; readonly events: readonly WorkEvent[] };
 export class AgentosError extends Error {
   readonly name = 'AgentosError';
@@ -255,7 +266,7 @@ function resultEvents(result: WorkflowResult | CompanySnapshot, seen: Set<string
         const values = typeof value === 'string' ? [value] : Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
         return values.map(value => `${field.replaceAll('_', ' ')}: ${value}`);
       });
-      panels.push({ id, kind: 'evidence', title: data.artifact_type.replaceAll('_', ' '), note, claims: drafts.map((claim, index) => ({ id: `${id}-draft-${index}`, claim, status: 'needs-check', detail: data.artifact_type === 'analysis' ? 'Based on founder supplied measurements; review before acting' : 'Generated draft; not sent, published or executed', sources: [] })) });
+      panels.push({ id, kind: 'evidence', title: data.artifact_type === 'builder_draft' ? 'Build draft' : data.artifact_type === 'marketing_draft' ? 'Marketing drafts' : data.artifact_type === 'sales_draft' ? 'Sales drafts' : 'Performance review', note, claims: drafts.map((claim, index) => ({ id: `${id}-draft-${index}`, claim, status: 'needs-check', detail: data.artifact_type === 'analysis' ? 'Based on founder supplied measurements; review before acting' : 'Generated draft; not sent, published or executed', sources: [] })) });
     }
     for (const panel of panels) events.push({ type: 'message', text: '', panel: panelSchema.parse({ ...panel, ...knowledge, provenance: item }) });
   }
@@ -393,7 +404,7 @@ export async function* resumeAgentosRun(
     return;
   }
   if (run.status === 'paused') throw new AgentosError('stream', 'This run is paused and needs an approved recovery action before it can continue.');
-  const seen = artifactKeys(savedMessages);
+  const seen = artifactKeys(savedMessages, runId);
   let companyId = run.companyId, revision = run.revision, lastEventIndex = run.lastEventIndex;
   let response = await resumeRequest(sessionId, runId, lastEventIndex, signal);
   while (true) {
@@ -468,11 +479,11 @@ export function createAgentosTransport(
   const createSubmissionId = start ? () => crypto.randomUUID() : startOrCreateSubmissionId as () => string;
   let companyId: string | undefined;
   return async function* (input, signal, scope) {
-    const area = teamAreaSchema.safeParse(scope).data;
-    const approval = area ? undefined : scope as AgentosApproval | undefined;
+    const approval = typeof scope === 'object' ? scope : undefined;
+    const area = teamAreaSchema.safeParse(scope).data ?? approval?.teamArea;
     if (signal.aborted) throw new DOMException('Run was cancelled before starting.', 'AbortError');
     const submissionId = uuid.parse(createSubmissionId());
-    if (onRun?.({ submissionId, status: 'submitting' }) === false) throw new AgentosError('storage', 'The run was not started because its recovery receipt could not be saved.');
+    if (onRun?.({ submissionId, status: 'submitting', area: area ?? 'overview' }) === false) throw new AgentosError('storage', 'The run was not started because its recovery receipt could not be saved.');
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 600_000);
     let runId: string | undefined, revision: number | undefined, lastEventIndex: number | undefined;
@@ -481,7 +492,7 @@ export function createAgentosTransport(
     let cancellation: Promise<AgentosRunResult> | undefined;
     const notify = (nextStatus: AgentosRun['status']) => {
       status = nextStatus;
-      onRun?.({ submissionId, status, ...(runId ? { runId } : {}), ...(companyId ? { companyId } : {}), ...(revision !== undefined ? { revision } : {}), ...(lastEventIndex !== undefined ? { lastEventIndex } : {}) });
+      onRun?.({ submissionId, status, area: area ?? 'overview', ...(runId ? { runId } : {}), ...(companyId ? { companyId } : {}), ...(revision !== undefined ? { revision } : {}), ...(lastEventIndex !== undefined ? { lastEventIndex } : {}) });
     };
     const cancel = () => {
       if (!runId || terminal || cancellation) return;
@@ -509,7 +520,7 @@ export function createAgentosTransport(
         runHeaders['X-Samurai-Stage'] = approval.stage;
         runHeaders['X-Samurai-Expected-Revision'] = String(approval.expectedRevision);
       }
-      try { response = start ? await start(text.parse(input), controller.signal, area) : await request(base, { method: 'POST', body: form, signal: controller.signal, headers: runHeaders }); }
+      try { response = start ? await start(text.parse(input), controller.signal, area, approval, submissionId) : await request(base, { method: 'POST', body: form, signal: controller.signal, headers: runHeaders }); }
       catch {
         const receipt = await readAgentosReceipt(sessionId, submissionId, controller.signal);
         runId = receipt.runId; companyId = receipt.companyId; revision = receipt.revision; status = receipt.status; onRun?.(receipt);
@@ -602,7 +613,7 @@ export async function readAgentosRun(sessionId: string, runId: string, signal?: 
   const run = z.strictObject({ run_id: text, session_id: text, agent_id: z.literal('samurai'), status: z.enum(['RUNNING', 'PENDING', 'PAUSED', 'COMPLETED', 'CANCELLED', 'ERROR']), content: z.unknown().optional() }).parse({ run_id: wire.run_id, session_id: wire.session_id, agent_id: wire.agent_id, status: wire.status, content: wire.content });
   if (run.run_id !== runId || run.session_id !== sessionId) throw new AgentosError('scope', 'AgentOS returned another session or run.');
   const status = run.status === 'COMPLETED' ? 'completed' : run.status === 'CANCELLED' ? 'cancelled' : run.status === 'ERROR' ? 'failed' : run.status === 'PENDING' ? 'queued' : run.status === 'PAUSED' ? 'paused' : 'running';
-  const seen = artifactKeys(savedMessages);
+  const seen = artifactKeys(savedMessages, runId);
   const view = status === 'completed' ? presentation(run.content) : undefined;
   const handoff = status === 'completed' ? handoffEvents(run.content, seen) : undefined;
   const result = status === 'completed' && !view && !handoff ? workflow(run.content) : undefined;
@@ -654,9 +665,9 @@ export function presentMessages(messages: readonly Message[]): Message[] {
   return output;
 }
 
-function artifactKeys(messages: readonly Message[]): Set<string> {
+function artifactKeys(messages: readonly Message[], runId?: string): Set<string> {
   return new Set(messages.flatMap(message => {
-    if (message.handoff) return ['handoff:' + JSON.stringify({ area: message.handoff, text: message.text, ...(message.handoffPrerequisite !== undefined ? { prerequisite: message.handoffPrerequisite } : {}) })];
+    if (message.handoff && runId && message.backendRunId === runId) return ['handoff:' + JSON.stringify({ area: message.handoff, text: message.text, ...(message.handoffPrerequisite !== undefined ? { prerequisite: message.handoffPrerequisite } : {}) })];
     if (message.panel && ['declarative', 'custom'].includes(message.panel.kind)) return [`panel:${message.panel.id}:${JSON.stringify(message.panel)}`];
     const item = message.panel?.provenance;
     return item && typeof item.artifact_id === 'string' && typeof item.revision === 'number' ? [`${item.artifact_id}:${item.revision}`] : [];
@@ -686,3 +697,5 @@ function handoffEvents(value: unknown, seen: Set<string>): WorkEvent[] | undefin
   seen.add(key);
   return [{ type: 'message', text: handoff.text, handoff: handoff.area, ...(handoff.prerequisite !== undefined ? { handoffPrerequisite: handoff.prerequisite } : {}) }];
 }
+
+export { artifact as artifactSchema };

@@ -108,7 +108,7 @@ The model is locked to `gemini-3.5-flash-lite`; configuration rejects other mode
 
 The Vite proxy is development-only. The static Sites build does not contain this proxy. Cloud Run serves the authenticated production BFF in `server/production.mjs` behind IAP.
 
-Google Search grounding is disabled in this free-tier 3.5 Flash-Lite runtime. Research without citations remains insufficient evidence; no paid search or billing was enabled.
+The current paid-account policy enables native Google Search only for Researcher on 3.5 Flash-Lite. The earlier free-tier no-Search runtime is historical. Research without citations remains insufficient evidence; citation linkage alone never verifies a claim.
 
 ### Model configuration restored — 12 October 2026
 The user explicitly restored Kalyan's main setup, superseding the earlier free-only Lite restriction: default `gemini-3.8-flash`, configurable through `GEMINI_MODEL`, with native Google Search only for Researcher. Evidence gates, JWT auth, limits, per-run model construction and UI integration remain. The user prohibits API calls during this restoration because they may incur cost; leave the local backend stopped and do not run provider smoke tests or browser workflows until explicitly authorized. Restoring configuration does not change account billing or verify provider access.
@@ -123,7 +123,7 @@ Cancellation POST acknowledges intent. Both active-stream and saved-run Stop pat
 ## CopilotKit AG-UI — 13 October 2026
 The live frontend now runs through `/api/copilotkit` using a single-route CopilotKit v2 envelope. The server admits only `info` and `agent/run` for `samurai`; it keeps identity and JWTs server-side. Runs forward one user text turn to `/agentos/agents/samurai/agui` with empty tools/context/state/forwardedProps. The backend enforces the unchanged per-agent run scope, owner isolation, bounded text and no client tool continuation.
 
-Native progress/completion records travel as `CUSTOM` events named `samurai` alongside Agno's standard AG-UI events. Existing validators, artifacts, evidence lineage, cancellation and saved-run recovery remain. Presentation tools return `SAMURAI_PANEL=` plus a validated declarative/custom panel; their owner/session-scoped IDs remain stable for updates. They carry no company artifact provenance and never modify canonical evidence. The known A2UI catalog is CompanyBrief, ResearchEvidence, Offer, Pricing, DeliveryPlan and ProspectList. `npm run test:server` and the frontend/backend checks cover these new boundaries.
+Native progress/completion records travel as `CUSTOM` events named `samurai` alongside Agno's standard AG-UI events. Existing validators, artifacts, evidence lineage, cancellation and saved-run recovery remain. Presentation tools return `SAMURAI_PANEL=` plus a validated declarative/custom panel; their owner/session-scoped IDs remain stable for updates. They carry no company artifact provenance and never modify canonical evidence. The known OpenUI business catalog is CompanyBrief, ResearchEvidence, Offer, Pricing, DeliveryPlan and ProspectList. `npm run test:server` and the frontend/backend checks cover these new boundaries.
 
 ## Founder operations
 
@@ -132,3 +132,83 @@ The Company dashboard exposes explicit learning, schedules, and deterministic sc
 Learning create/list/supersede remains revision-pinned and labelled `untrusted_preference_context`. Schedule create accepts only `workspace_review` with `{}` or `scenario_recompute` with `{scenario_id}`; list, disable, and bounded run-receipt reads are recoverable after reload. Scenario definitions are company-scoped and pinned to the directory response's `current_revision` and `state_sha256`. Persisted results map to the single allowlisted `scenario` panel with low/base/high trajectories, assumptions, formulas, constraints, hashes, and the always-visible `synthetic_scenario_not_validation` provenance. This analysis does not advance canonical company revision or establish observed demand.
 
 The result-read BFF route is explicitly optional: an upstream `404` becomes `204 No Content` while a saved result remains typed JSON. This lets a newly saved definition load without a failed browser request; authorization denials and every other error retain their original failure behavior.
+
+
+### Durable AG-UI admission — 16 October 2026
+
+PostgreSQL AG-UI requires the configured native queue worker and Redis. The
+client `runId` is the stable submission UUID, also used for owned receipts.
+Allowlisted `forwardedProps` contains `team_area` and optional `work_approval`
+with `operation`, `stage`, `expected_revision`, and `company_id`. Identity,
+canonical state, tools and execution dependencies remain server-owned. The
+backend independently validates membership, company binding and revision before
+acceptance. Omitting approval means read-only chat; submitting intake approves
+only `journey/brief`, and explicit stage actions carry their bounded approval.
+Worker execution resolves the stored actor/child binding for shared companies.
+Native owner-scoped receipts, run reads, cancellation and stream resume remain
+authoritative. The successful real local test accepted one CycleNest intake at
+revision 1 and recovered it after reload; no later Gemini stages were tested.
+
+
+### Canonical founder actions — 16 October 2026
+
+Owned company summaries include `next_action` plus up to nine `actions`, each
+with `id`, `label`, `prompt`, `operation`, `stage`, `area`, `eligible` and
+`blocked_reason`. Eligibility is informational; existing backend authorization,
+company/revision pins, evidence and worker guards still decide execution.
+`eligible=false` requires a non-empty reason. Older summaries default to no
+actions until refreshed. Actions and operation revision/hash come from one
+matching owned snapshot; panel presence does not approve a live stage.
+`verify` is an accepted durable journey stage. Drafts and metrics retain their
+separate operation scope and use `stage=plan` at the approval boundary.
+
+
+### Edited approvals and current inputs — 16 October 2026
+
+Owned summaries now include optional `current_artifact_ids` (null when unknown).
+Snapshots retain all artifact versions; current IDs identify the latest outputs
+whose upstream inputs have not subsequently changed. The UI validates IDs
+against the matching snapshot and marks earlier downstream panels as historical.
+Eligibility, handoff prerequisites and launch validation use current inputs; an
+amended brief requires downstream work again. Metrics retain their own supplied
+provenance and do not become customer validation.
+
+OpenUI reply drafts display their approved operation. Editing retains only that
+operation for the same company, area and revision; clearing it restores read-only
+chat. Approval is consumed on submission and remains independently checked by
+the backend. Weak or conflicting research offers Research again; immutable
+approval-revision lineage prevents resumed attempts from repeating saved Search
+work, including a saved insufficient-evidence result.
+
+Provider-free browser proof saved an edited INR 75000 budget, read it back at
+revision 2 and recovered it on reload. Native process proof rebuilt the journey
+after a brief amendment through revision 17 while retaining original history.
+Neither test invoked Gemini, Search or public source fetches. The user's total
+live-test allowance is INR 100-200; INR 100 is the conservative working limit,
+with paid testing governed by explicit user authorization and separate usage accounting.
+
+
+## Real local provider acceptance — 17 October 2026
+
+Three user-authorized company tests used real Gemini through authenticated AG-UI
+and native claimed workers. All three briefs persisted. RepairLoop and ShopLedger
+saved grounded research but source/evidence gates kept Strategy blocked. TiffinLoop
+Research returned an error; do not count these as three successful full journeys.
+The real OpenUI measurement form also completed through the parent and Analyst:
+exactly 12 synthetic QA leads and the supplied dates/source were retained at
+RepairLoop revision 4, explicitly based_on_founder_supplied_metrics. This proves
+real-model form parsing locally, without treating the test input as market evidence.
+
+The test exposed a false COMPLETED receipt after a streamed error. Samurai's
+internal worker dispatch now supplies the saved terminal RunOutput when Agno omits
+it after a failed stream. Public event/control contracts and all authorization,
+ownership, cancellation and retry fences remain unchanged. Native HTTP regression
+confirms both receipt and saved run reach ERROR after the existing two attempts.
+The user then authorized one targeted TiffinLoop Research retry; it completed on
+the first attempt and saved Research at revision 3. The initial exception cause
+was not recovered; do not claim it diagnosed.
+
+The final 16-call / 8-Search-query ledger estimates INR 16.71 conservatively, assuming no
+free Search allowance, bookkeeping INR 100/USD and an 18% reserve. This is not a
+verified invoice or quoted exchange rate. Paid services are stopped; no cloud
+deployment, outreach or publication occurred.

@@ -26,6 +26,7 @@ from sqlalchemy import MetaData, Table, create_engine, select, text
 from sqlalchemy.orm import Session as SqlAlchemySession
 from sqlalchemy.schema import DropSchema
 
+from samurai.company_store import CompanyStore
 from samurai.contracts import CompanyState
 from samurai.execution_state import (
     ApprovedStage,
@@ -35,6 +36,7 @@ from samurai.execution_state import (
     WorkReceipt,
 )
 from samurai.parent import child_session_id
+from samurai.workspace_api import CompanyView, WorkspaceView
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -281,6 +283,12 @@ def _company_state(
         db_schema=schema,
     )
     try:
+        if database.table_exists("samurai_company_actor_bindings"):
+            access = CompanyStore(database.db_engine, schema=schema).read_for_actor(
+                owner_id, parent_session_id
+            )
+            assert access is not None
+            return access.state
         session = database.get_session(
             child_session_id(owner_id, parent_session_id),
             session_type=SessionType.WORKFLOW,
@@ -1090,4 +1098,552 @@ def test_admin_diagnostics_reports_delayed_old_pending_job(
         )
     finally:
         database.close()
+        stop_test_process(process, log, kill=False)
+
+
+def test_agui_uses_claimed_worker_and_recovers_accepted_brief(
+    queue_environment: tuple[dict[str, str], str, str, str],
+    tmp_path: Path,
+) -> None:
+    environment, token, database_url, schema = queue_environment
+    port = _free_port()
+    session_id, submission_id = f"agui-{uuid4()}", uuid4()
+    process, log = start_test_process(
+        port,
+        {
+            **environment,
+            "SAMURAI_QUEUE_MODEL_MODE": "journey_complete",
+            "SAMURAI_QUEUE_CANONICAL": "1",
+            "SAMURAI_QUEUE_MODEL_MARKER": str(tmp_path / "agui-model"),
+        },
+        tmp_path / "agui.log",
+    )
+    try:
+        headers = {"Authorization": f"Bearer {token}"}
+        workspace_response = httpx.post(
+            f"http://127.0.0.1:{port}/agentos/samurai/workspaces",
+            headers=headers,
+            json={"display_name": "AGUI integration"},
+        )
+        assert workspace_response.status_code == 201, workspace_response.text
+        workspace = WorkspaceView.model_validate(cast("object", workspace_response.json()))
+        company_response = httpx.post(
+            f"http://127.0.0.1:{port}/agentos/samurai/workspaces/{workspace.workspace_id}/companies",
+            headers={**headers, "Idempotency-Key": str(uuid4())},
+            json={},
+        )
+        assert company_response.status_code == 201, company_response.text
+        company = CompanyView.model_validate(cast("object", company_response.json()))
+        assert company.parent_session_id is not None
+        session_id = company.parent_session_id
+        body = {
+            "threadId": session_id,
+            "runId": str(submission_id),
+            "messages": [{"id": "founder-turn", "role": "user", "content": "Build my brief"}],
+            "state": {},
+            "tools": [],
+            "context": [],
+            "forwardedProps": {
+                "team_area": "overview",
+                "work_approval": {
+                    "operation": "journey",
+                    "stage": "brief",
+                    "expected_revision": 0,
+                    "company_id": str(company.company_id),
+                },
+            },
+        }
+        response = httpx.post(
+            f"http://127.0.0.1:{port}/agentos/agents/samurai/agui",
+            headers={"Authorization": f"Bearer {token}"},
+            json=body,
+            timeout=30,
+        )
+        assert response.status_code == 200, response.text
+        events = [
+            cast("dict[str, object]", json.loads(line[6:]))
+            for line in response.text.splitlines()
+            if line.startswith("data: ")
+        ]
+        native = [
+            cast("dict[str, object]", event["value"])
+            for event in events
+            if event.get("name") == "samurai"
+        ]
+        assert native[0]["event"] == "RunStarted"
+        assert native[-1]["event"] == "RunCompleted", native
+        assert all(event["run_id"] == str(submission_id) for event in native)
+        receipt = _wait_for_receipt(port, token, session_id, submission_id, {"COMPLETED"})
+        assert receipt.run_id == str(submission_id)
+        committed = _company_state(database_url, schema, "queue-founder", session_id)
+        assert committed.current_revision == 1
+        assert len(committed.artifacts) == 1
+        assert committed.artifacts[0].artifact_type.value == "intake"
+        duplicate = httpx.post(
+            f"http://127.0.0.1:{port}/agentos/agents/samurai/agui",
+            headers={"Authorization": f"Bearer {token}"},
+            json=body,
+            timeout=10,
+        )
+        assert duplicate.status_code == 409
+        assert _company_state(database_url, schema, "queue-founder", session_id) == committed
+        foreign = httpx.post(
+            f"http://127.0.0.1:{port}/agentos/agents/samurai/agui",
+            headers={"Authorization": f"Bearer {environment['SAMURAI_QUEUE_SECOND_TOKEN']}"},
+            json={**body, "runId": str(uuid4())},
+            timeout=10,
+        )
+        assert foreign.status_code in {403, 404}
+        stale = httpx.post(
+            f"http://127.0.0.1:{port}/agentos/agents/samurai/agui",
+            headers={"Authorization": f"Bearer {token}"},
+            json={**body, "runId": str(uuid4())},
+            timeout=10,
+        )
+        assert stale.status_code == 403
+        replay = _resume_events(port, token, receipt)
+        assert replay[-1]["event"] == "RunCompleted"
+    finally:
+        stop_test_process(process, log, kill=False)
+
+
+def test_agui_read_only_turn_keeps_team_scope_and_can_be_cancelled(
+    queue_environment: tuple[dict[str, str], str, str, str],
+    tmp_path: Path,
+) -> None:
+    environment, token, _database_url, _schema = queue_environment
+    port, submission = _free_port(), uuid4()
+    session_id = f"agui-cancel-{uuid4()}"
+    marker = tmp_path / "read-only-model"
+    process, log = start_test_process(
+        port,
+        {
+            **environment,
+            "SAMURAI_QUEUE_MODEL_MODE": "block",
+            "SAMURAI_QUEUE_MODEL_MARKER": str(marker),
+        },
+        tmp_path / "agui-cancel.log",
+    )
+    try:
+        with httpx.stream(
+            "POST",
+            f"http://127.0.0.1:{port}/agentos/agents/samurai/agui",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "threadId": session_id,
+                "runId": str(submission),
+                "messages": [{"id": "turn", "role": "user", "content": "Discuss our research"}],
+                "state": {},
+                "context": [],
+                "tools": [],
+                "forwardedProps": {"team_area": "research"},
+            },
+            timeout=10,
+        ) as response:
+            assert response.status_code == 200
+            assert next(response.iter_lines()).startswith("data:")
+        _wait_for_marker(marker)
+        receipt = _wait_for_receipt(port, token, session_id, submission, {"RUNNING"})
+        assert _cancel(port, token, receipt).status_code == 200
+        _ = marker.with_name(marker.name + ".release").touch()
+        cancelled = _wait_for_receipt(port, token, session_id, submission, {"CANCELLED"})
+        saved = httpx.get(
+            f"http://127.0.0.1:{port}/agentos/agents/samurai/runs/{cancelled.run_id}",
+            params={"session_id": session_id},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert saved.status_code == 200
+        database = SamuraiPostgresDb(db_url=_database_url, db_schema=_schema)
+        try:
+            jobs = Table(
+                database.job_table_name, MetaData(schema=_schema), autoload_with=database.db_engine
+            )
+            with database.db_engine.connect() as connection:
+                payload = connection.scalar(
+                    select(jobs.c.payload).where(jobs.c.id == str(submission))
+                )
+            assert isinstance(payload, dict)
+            fields = cast("dict[str, object]", payload)
+            kwargs = cast("dict[str, object]", fields["kwargs"])
+            metadata = cast("dict[str, object]", kwargs["metadata"])
+            assert metadata["team_area"] == "research"
+        finally:
+            database.close()
+    finally:
+        _ = marker.with_name(marker.name + ".release").touch()
+        stop_test_process(process, log, kill=False)
+
+
+def test_agui_full_journey_keeps_canonical_actions_and_verification_scope(  # noqa: PLR0915
+    queue_environment: tuple[dict[str, str], str, str, str],
+    tmp_path: Path,
+) -> None:
+    environment, token, database_url, schema = queue_environment
+    port = _free_port()
+    process, log = start_test_process(
+        port,
+        {
+            **environment,
+            "SAMURAI_QUEUE_MODEL_MODE": "journey_full",
+            "SAMURAI_QUEUE_CANONICAL": "1",
+            "SAMURAI_QUEUE_MODEL_MARKER": str(tmp_path / "full-journey-model"),
+        },
+        tmp_path / "full-journey.log",
+    )
+    headers = {"Authorization": f"Bearer {token}"}
+    root = f"http://127.0.0.1:{port}/agentos"
+    try:
+        response = httpx.post(
+            f"{root}/samurai/workspaces",
+            headers=headers,
+            json={"display_name": "Full journey integration"},
+        )
+        assert response.status_code == 201
+        workspace = WorkspaceView.model_validate(cast("object", response.json()))
+        company_url = f"{root}/samurai/workspaces/{workspace.workspace_id}/companies"
+        response = httpx.post(
+            company_url, headers={**headers, "Idempotency-Key": str(uuid4())}, json={}
+        )
+        assert response.status_code == 201
+        company = CompanyView.model_validate(cast("object", response.json()))
+        assert company.parent_session_id is not None
+        session_id = company.parent_session_id
+        arguments = {
+            "idea": "AI receptionist for Indian dental clinics",
+            "target_customer": "Independent Indian dental clinics",
+            "geography": "India",
+            "budget": "INR 50,000",
+            "founder_skills": "Python and Next.js",
+            "goal": "Validate demand in 30 days",
+        }
+        revision = 0
+        proof: list[dict[str, object]] = []
+        stages = (
+            ("brief", "overview", 1, "research"),
+            ("research", "research", 3, "strategy"),
+            ("strategy", "strategy", 4, "plan"),
+            ("plan", "strategy", 6, "sales"),
+            ("verify", "verification", 7, "sales"),
+        )
+        for stage, area, expected, next_action in stages:
+            submission = uuid4()
+            body = {
+                "threadId": session_id,
+                "runId": str(submission),
+                "messages": [
+                    {
+                        "id": str(uuid4()),
+                        "role": "user",
+                        "content": json.dumps(
+                            {
+                                "tool": "run_company_journey",
+                                "arguments": {**arguments, "stage": stage},
+                            }
+                        ),
+                    }
+                ],
+                "state": {},
+                "tools": [],
+                "context": [],
+                "forwardedProps": {
+                    "team_area": area,
+                    "work_approval": {
+                        "operation": "journey",
+                        "stage": stage,
+                        "expected_revision": revision,
+                        "company_id": str(company.company_id),
+                    },
+                },
+            }
+            response = httpx.post(
+                f"{root}/agents/samurai/agui", headers=headers, json=body, timeout=30
+            )
+            assert response.status_code == 200, response.text
+            receipt = _wait_for_receipt(port, token, session_id, submission, {"COMPLETED"})
+            assert receipt.revision == expected
+            response = httpx.post(
+                f"{company_url}/{company.company_id}/open", headers=headers, json={}
+            )
+            assert response.status_code == 200, response.text
+            opened = CompanyView.model_validate(cast("object", response.json()))
+            assert opened.current_revision == expected
+            assert opened.snapshot is not None
+            assert opened.snapshot.summary.next_action == next_action
+            assert next(
+                action for action in opened.snapshot.summary.actions if action.id == next_action
+            ).eligible
+            retained = _company_state(database_url, schema, "queue-founder", session_id)
+            assert len(retained.artifacts) == expected
+            assert _resume_events(port, token, receipt)[-1]["event"] == "RunCompleted"
+            proof.append(
+                {
+                    "stage": stage,
+                    "area": area,
+                    "revision": expected,
+                    "next_action": next_action,
+                    "receipt": receipt.model_dump(mode="json"),
+                }
+            )
+            revision = expected
+        retained = _company_state(database_url, schema, "queue-founder", session_id)
+        assert [artifact.artifact_type.value for artifact in retained.artifacts] == [
+            "intake",
+            "research",
+            "research",
+            "strategy",
+            "product_plan",
+            "verification",
+            "verification",
+        ]
+        for kind in ("sales", "builder", "marketer"):
+            submission = uuid4()
+            area = "sales" if kind == "sales" else "overview"
+            body = {
+                "threadId": session_id,
+                "runId": str(submission),
+                "messages": [
+                    {
+                        "id": str(uuid4()),
+                        "role": "user",
+                        "content": json.dumps(
+                            {
+                                "tool": "create_launch_drafts",
+                                "arguments": {"kind": kind, "action": "draft"},
+                            }
+                        ),
+                    }
+                ],
+                "state": {},
+                "tools": [],
+                "context": [],
+                "forwardedProps": {
+                    "team_area": area,
+                    "work_approval": {
+                        "operation": "launch_drafts",
+                        "stage": "plan",
+                        "expected_revision": revision,
+                        "company_id": str(company.company_id),
+                    },
+                },
+            }
+            response = httpx.post(
+                f"{root}/agents/samurai/agui", headers=headers, json=body, timeout=30
+            )
+            assert response.status_code == 200, response.text
+            receipt = _wait_for_receipt(port, token, session_id, submission, {"COMPLETED"})
+            revision += 1
+            assert receipt.revision == revision
+            retained = _company_state(database_url, schema, "queue-founder", session_id)
+            assert retained.artifacts[-1].status == "draft_only"
+            assert (
+                retained.artifacts[-1].artifact_type.value
+                == {
+                    "sales": "sales_draft",
+                    "builder": "builder_draft",
+                    "marketer": "marketing_draft",
+                }[kind]
+            )
+            proof.append(
+                {"draft": kind, "revision": revision, "receipt": receipt.model_dump(mode="json")}
+            )
+        submission = uuid4()
+        measured_at = datetime.now(UTC) - timedelta(minutes=1)
+        measurement = {
+            "name": "qualified_leads",
+            "value": 12,
+            "unit": "leads",
+            "window_start": (measured_at - timedelta(days=7)).isoformat(),
+            "window_end": (measured_at - timedelta(hours=1)).isoformat(),
+            "source_label": "founder-supplied test ledger",
+            "collected_at": measured_at.isoformat(),
+        }
+        body = {
+            "threadId": session_id,
+            "runId": str(submission),
+            "messages": [
+                {
+                    "id": str(uuid4()),
+                    "role": "user",
+                    "content": json.dumps(
+                        {"tool": "analyze_metrics", "arguments": {"measurements": [measurement]}}
+                    ),
+                }
+            ],
+            "state": {},
+            "tools": [],
+            "context": [],
+            "forwardedProps": {
+                "team_area": "overview",
+                "work_approval": {
+                    "operation": "metrics_analysis",
+                    "stage": "plan",
+                    "expected_revision": revision,
+                    "company_id": str(company.company_id),
+                },
+            },
+        }
+        response = httpx.post(f"{root}/agents/samurai/agui", headers=headers, json=body, timeout=30)
+        assert response.status_code == 200, response.text
+        receipt = _wait_for_receipt(port, token, session_id, submission, {"COMPLETED"})
+        assert receipt.revision == revision + 1
+        retained = _company_state(database_url, schema, "queue-founder", session_id)
+        analysis = retained.artifacts[-1]
+        assert analysis.artifact_type.value == "analysis"
+        assert analysis.status == "based_on_founder_supplied_metrics"
+        assert analysis.measurements[0].provenance == "founder_supplied"
+        assert analysis.measurements[0].trusted_connector_receipt is None
+        proof.append(
+            {
+                "operation": "metrics_analysis",
+                "revision": receipt.revision,
+                "receipt": receipt.model_dump(mode="json"),
+            }
+        )
+        original_ids = [item.artifact_id for item in retained.artifacts]
+        arguments["budget"] = "INR 75000"
+        for stage, area, expected, next_action in (
+            ("brief", "overview", 12, "research"),
+            ("research", "research", 14, "strategy"),
+            ("strategy", "strategy", 15, "plan"),
+            ("plan", "strategy", 17, "sales"),
+        ):
+            submission = uuid4()
+            before = retained.current_revision
+            amended_body = {
+                **body,
+                "runId": str(submission),
+                "messages": [
+                    {
+                        "id": str(uuid4()),
+                        "role": "user",
+                        "content": json.dumps(
+                            {
+                                "tool": "run_company_journey",
+                                "arguments": {**arguments, "stage": stage},
+                            }
+                        ),
+                    }
+                ],
+                "forwardedProps": {
+                    "team_area": area,
+                    "work_approval": {
+                        "operation": "journey",
+                        "stage": stage,
+                        "expected_revision": before,
+                        "company_id": str(company.company_id),
+                    },
+                },
+            }
+            response = httpx.post(
+                f"{root}/agents/samurai/agui", headers=headers, json=amended_body, timeout=30
+            )
+            assert response.status_code == 200, response.text
+            receipt = _wait_for_receipt(port, token, session_id, submission, {"COMPLETED"})
+            assert receipt.revision == expected
+            retained = _company_state(database_url, schema, "queue-founder", session_id)
+            assert [
+                item.artifact_id for item in retained.artifacts[: len(original_ids)]
+            ] == original_ids
+            response = httpx.post(
+                f"{company_url}/{company.company_id}/open", headers=headers, json={}
+            )
+            opened = CompanyView.model_validate(cast("object", response.json()))
+            assert opened.snapshot is not None
+            assert opened.snapshot.summary.next_action == next_action
+            if stage == "brief":
+                assert opened.snapshot.summary.current_artifact_ids is not None
+                assert (
+                    retained.artifacts[3].artifact_id
+                    not in opened.snapshot.summary.current_artifact_ids
+                )
+                assert not next(
+                    action for action in opened.snapshot.summary.actions if action.id == "sales"
+                ).eligible
+            proof.append(
+                {
+                    "amendment_stage": stage,
+                    "revision": expected,
+                    "receipt": receipt.model_dump(mode="json"),
+                }
+            )
+        submission = uuid4()
+        handoff_body = {
+            **amended_body,
+            "runId": str(submission),
+            "forwardedProps": {
+                "team_area": "research",
+                "work_approval": {
+                    "operation": "journey",
+                    "stage": "plan",
+                    "expected_revision": 17,
+                    "company_id": str(company.company_id),
+                },
+            },
+        }
+        response = httpx.post(
+            f"{root}/agents/samurai/agui", headers=headers, json=handoff_body, timeout=30
+        )
+        assert response.status_code == 200, response.text
+        assert "SAMURAI_HANDOFF=" in response.text
+        receipt = _wait_for_receipt(port, token, session_id, submission, {"COMPLETED"})
+        assert _company_state(database_url, schema, "queue-founder", session_id) == retained
+        proof.append(
+            {
+                "scenario": "off-area delivery request produces a handoff without mutation",
+                "receipt": receipt.model_dump(mode="json"),
+            }
+        )
+        _record_evidence(
+            "full-customer-journey.json",
+            {"external_provider_calls": 0, "public_source_fetches": 0, "steps": proof},
+        )
+    finally:
+        stop_test_process(process, log, kill=False)
+
+
+def test_agui_stream_failure_keeps_receipt_and_native_run_failed(
+    queue_environment: tuple[dict[str, str], str, str, str], tmp_path: Path
+) -> None:
+    environment, token, _database_url, _schema = queue_environment
+    port, submission = _free_port(), uuid4()
+    session_id = f"agui-failure-{uuid4()}"
+    marker = tmp_path / "stream-failure-model"
+    process, log = start_test_process(
+        port,
+        {
+            **environment,
+            "SAMURAI_QUEUE_MODEL_MODE": "stream_failure",
+            "SAMURAI_QUEUE_MODEL_MARKER": str(marker),
+        },
+        tmp_path / "agui-failure.log",
+    )
+    try:
+        response = httpx.post(
+            f"http://127.0.0.1:{port}/agentos/agents/samurai/agui",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "threadId": session_id,
+                "runId": str(submission),
+                "messages": [{"id": "turn", "role": "user", "content": "Discuss our research"}],
+                "state": {},
+                "context": [],
+                "tools": [],
+                "forwardedProps": {"team_area": "research"},
+            },
+            timeout=60,
+        )
+        assert response.status_code == 200
+        assert "RUN_ERROR" in response.text
+        assert "provider-free-stream-failure" not in response.text
+        receipt = _wait_for_receipt(port, token, session_id, submission, {"ERROR"})
+        assert receipt.attempt == receipt.max_attempts == 2
+        saved = httpx.get(
+            f"http://127.0.0.1:{port}/agentos/agents/samurai/runs/{receipt.run_id}",
+            params={"session_id": session_id},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert saved.status_code == 200
+        assert saved.json()["status"] == "ERROR"
+        assert marker.read_text().splitlines() == [str(process.pid), str(process.pid)]
+    finally:
         stop_test_process(process, log, kill=False)

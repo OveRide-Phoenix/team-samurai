@@ -43,7 +43,7 @@ export const launchPlan: Panel = {
     { id: 'review', title: 'Review what changed', owner: 'Founder', timing: 'Week 3', detail: 'Use actual bookings and customer feedback to revise the offer.' },
   ],
 };
-export const initialWorkspace: Workspace = { selectedArea: 'overview', drafts: {},
+export const initialWorkspace: Workspace = { actions: [], nextAction: null, selectedArea: 'overview', drafts: {},
   executionMode: 'preview', activityLog: [],
   version: 1, theme: 'sky', pinned: [offer], completedTasks: [], panelOrder: [], shortlist: [], approvedOffers: [],
   messages: [

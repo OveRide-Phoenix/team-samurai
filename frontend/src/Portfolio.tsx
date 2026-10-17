@@ -3,12 +3,13 @@ import { TransitionGrain } from './TransitionGrain';
 import { Atmosphere } from './Atmosphere';
 import { useEffect, useRef, useState } from 'react';
 import { MotionConfig } from 'motion/react';
-import { ArrowRight, ArrowUp, Building2 } from 'lucide-react';
+import { ArrowRight, Building2 } from 'lucide-react';
 import { CompanyWorkspace } from './App';
+import { OpenUICompanyName } from './OpenUIAnswers';
 import { companySnapshotEvents } from './agentos';
 import { continueCompanyView, emptyCompanyView, restorePortfolio, type CompanyBrief, type CompanyView, type Message, type Portfolio, type WorkEvent } from './model';
 import { loadPortfolio, persistPortfolio, portfolioStorageKey, type BrowserScope } from './browserStorage';
-import { createLatestRequestGuard, createOneAtATimeGate, createWorkspace, createWorkspaceCompany, firstWritableWorkspace, listWorkspaceCompanies, listWorkspaces, openWorkspaceCompany, shouldLoadWorkspaceDirectory, type DirectoryCompany, type WorkspaceDirectory } from './workspaces';
+import { canonicalCompanyFields, createLatestRequestGuard, createOneAtATimeGate, createWorkspace, createWorkspaceCompany, firstWritableWorkspace, listWorkspaceCompanies, listWorkspaces, needsCompanyIntake, openWorkspaceCompany, shouldLoadWorkspaceDirectory, type DirectoryCompany, type WorkspaceDirectory } from './workspaces';
 import { ModeToggle } from './ShellParts';
 
 type Reservation = { readonly workspace: WorkspaceDirectory; readonly company: DirectoryCompany };
@@ -90,11 +91,11 @@ export function App({ scope }: { readonly scope: BrowserScope }) {
     const parentSessionId = pending.company.parent_session_id;
     if (!parentSessionId) { setDirectoryError('The company reservation did not include a session. Return Home and try again.'); return; }
     const local = {
-      id: parentSessionId, name: name.trim(), workspace: { ...emptyCompanyView(), brief, executionMode: 'live' as const },
+      id: parentSessionId, name: name.trim(), workspace: { ...emptyCompanyView(), brief, executionMode: 'live' as const, companyId: pending.company.company_id, currentRevision: pending.company.current_revision },
       workspaceId: pending.workspace.workspace_id, companyId: pending.company.company_id,
       currentRevision: pending.company.current_revision, stateSha256: pending.company.state_sha256, createdAt: pending.company.created_at, role: pending.workspace.role,
     };
-    updatePortfolio(current => ({ ...current, activeId: local.id, companies: [...current.companies, local] }));
+    updatePortfolio(current => ({ ...current, activeId: local.id, companies: [...current.companies.filter(company => company.id !== local.id), local] }));
     setDirectory(current => [...current, pending]); setName(''); setReservation(null);
   };
   const startCompany = async () => {
@@ -122,7 +123,11 @@ export function App({ scope }: { readonly scope: BrowserScope }) {
       if (!opened.parent_session_id || !opened.snapshot) throw new Error('The shared company could not be opened.');
       if (!openGuard.current.isCurrent(request)) return;
       const existing = portfolioRef.current.companies.find(company => company.workspaceId === opened.workspace_id && company.companyId === opened.company_id);
-      const hydrated = hydrateCompanyView(existing?.workspace ?? emptyCompanyView(), opened.snapshot, opened.company_id);
+      if (needsCompanyIntake(opened, item.workspace.role)) {
+        setName(name.trim() || existing?.name || companyName(item.workspace, opened));
+        setReservation({ workspace: item.workspace, company: opened }); setDirectoryError(''); return;
+      }
+      const hydrated = { ...hydrateCompanyView(existing?.workspace ?? emptyCompanyView(), opened.snapshot, opened.company_id), ...canonicalCompanyFields(opened) };
       const workspace = item.workspace.role === 'viewer' ? hydrated : continueCompanyView(hydrated, opened.company_id, opened.current_revision);
       const local = {
         id: opened.parent_session_id, name: existing?.name ?? companyName(item.workspace, opened), workspace,
@@ -151,10 +156,7 @@ export function App({ scope }: { readonly scope: BrowserScope }) {
     <div className="workspace landing"><Atmosphere mode={portfolio.mode} /><div className="bottom-blur" aria-hidden="true" />
       <header className="topbar"><span className="wordmark">Samurai</span><div className="topbar-actions"><ModeToggle mode={portfolio.mode} onToggle={toggleMode} /></div></header>
       <main key={reservation ? 'intake' : 'home'} className="landing-content"><div className="landing-main">{reservation ? <Onboarding name={name.trim()} onCancel={() => setReservation(null)} onComplete={brief => create(brief, reservation)} /> : <><h1>An idea is<br />just the beginning.</h1><p className="landing-description">Build a company worth believing in.</p>
-        <form className="company-intake" onSubmit={event => { event.preventDefault(); void startCompany(); }}>
-          <input aria-label="Company name" placeholder="What will you call your company?" value={name} onChange={event => { setName(event.target.value); setCompanyCreationRetry(null); }} maxLength={80} className="intake-input" />
-          <button type="submit" className="send-button intake-send" aria-label="Start company" aria-busy={startingCompany} disabled={!name.trim() || portfolio.companies.length >= 50 || startingCompany || openGuard.current.isPending()}><ArrowUp size={20} /></button>
-        </form>
+        <OpenUICompanyName name={name} pending={startingCompany} disabled={!name.trim() || portfolio.companies.length >= 50 || startingCompany || openGuard.current.isPending()} onName={value => { setName(value); setCompanyCreationRetry(null); }} onStart={() => { void startCompany(); }} />
         {portfolio.companies.length >= 50 && <p className="empty-note">This local preview supports up to 50 companies.</p>}
         {directory.length > 0 && <section className="company-library" aria-label="Shared companies"><h2>Shared companies</h2><div className="company-grid">{directory.map(item => <div className="company-tile" key={item.company.company_id}><button onClick={() => void openShared(item)} disabled={startingCompany || openingCompanyId === item.company.company_id} aria-busy={openingCompanyId === item.company.company_id}><Building2 size={20} /><span><strong>{companyName(item.workspace, item.company)}</strong><small>{item.workspace.role === 'viewer' ? 'Viewer · Read-only' : 'Shared workspace'}</small></span><ArrowRight size={16} /></button></div>)}</div></section>}
         {portfolio.companies.length > 0 && <section className="company-library" aria-label="Your companies"><h2>Your companies</h2><div className="company-grid">{portfolio.companies.map(item => <div className="company-tile" key={item.id}><button onClick={() => open(item.id)}><Building2 size={20} /><span><strong>{item.name}</strong><small>{item.workspace.messages.length ? `${item.workspace.executionMode === 'live' ? 'Live' : 'Preview'} · Continue building` : 'Ready for your idea'}</small></span><ArrowRight size={16} /></button></div>)}</div></section>}

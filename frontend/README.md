@@ -73,3 +73,8 @@ With the dev server running, open [all panels](http://127.0.0.1:4173/?preview=pa
 ### Founder operations
 
 Authenticated live companies show one Founder operations card in Company view. It saves and supersedes explicit preferences/corrections, creates and disables bounded schedules, creates and runs deterministic scenarios, and reloads persisted scenario definitions, results, and schedule receipts from the backend. Scenario panels always say that their low/base/high outputs are synthetic assumptions rather than validation or observed demand. Viewer controls are disabled; the backend remains the authorization boundary.
+
+
+### OpenUI composed views
+
+Generated text, metric, list, and table compositions render through `@openuidev/react-lang` 1.0.1 with Samurai's existing theme. The backend and saved-panel JSON format remain compatible; CopilotKit still transports chat; OpenUI renders the business catalog, chat messages, reply composer, company-name entry and intake answer fields. The existing assistant-ui runtime and native cancellation remain in place; direct model-native OpenUI streaming is not implemented. Inspect Pilot comparison in the existing `?preview=panels` route; see [the generative UI contract](../docs/generative-ui.md#openui-composed-panels--16-october-2026).

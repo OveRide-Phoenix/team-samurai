@@ -374,3 +374,28 @@ test('CopilotKit accepts only a typed team choice while rejecting identity overr
     assert.throws(() => validateCopilotBody({ ...body, body: { ...body.body, forwardedProps } }));
   }
 });
+
+
+test('CopilotKit admits bounded approvals and rejects injected work scope', async () => {
+  const { validateCopilotBody } = await import('../server/copilotkit.mjs');
+  const approval = { operation: 'journey', stage: 'brief', expected_revision: 0, company_id: '00000000-0000-4000-8000-000000000003' };
+  const body = { method: 'agent/run', params: { agentId: 'samurai' }, body: { threadId: 'company', runId: 'run', messages: [{ id: 'u', role: 'user', content: 'Build my company' }], forwardedProps: { team_area: 'overview', work_approval: approval } } };
+  assert.equal(validateCopilotBody(body), body);
+  for (const invalid of [{ ...approval, expected_revision: -1 }, { ...approval, user_id: 'foreign' }, { ...approval, operation: 'read_only_state' }, { ...approval, company_id: 'foreign' }]) {
+    assert.throws(() => validateCopilotBody({ ...body, body: { ...body.body, forwardedProps: { work_approval: invalid } } }));
+  }
+});
+
+
+test('CopilotKit admits verification-only approval without broadening operation scope', async () => {
+  const { validateCopilotBody } = await import('../server/copilotkit.mjs');
+  const approval = { operation: 'journey', stage: 'verify', expected_revision: 4, company_id: '00000000-0000-4000-8000-000000000003' };
+  const body = { method: 'agent/run', params: { agentId: 'samurai' }, body: { threadId: 'company', runId: 'run', messages: [{ id: 'u', role: 'user', content: 'Verify retained artifacts only' }], forwardedProps: { team_area: 'verification', work_approval: approval } } };
+  assert.equal(validateCopilotBody(body), body);
+  for (const operation of ['launch_drafts', 'metrics_analysis']) {
+    assert.throws(() => validateCopilotBody({ ...body, body: { ...body.body, forwardedProps: { ...body.body.forwardedProps, work_approval: { ...approval, operation } } } }));
+    const plan = { ...body, body: { ...body.body, forwardedProps: { ...body.body.forwardedProps, work_approval: { ...approval, operation, stage: 'plan' } } } };
+    assert.equal(validateCopilotBody(plan), plan);
+  }
+
+});

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Never
 import anyio
 import jwt
 import pytest
+from agno.agent import Agent
 from agno.db.sqlite import SqliteDb
 from agno.session.agent import AgentSession
 from cryptography.hazmat.primitives import serialization
@@ -23,6 +24,8 @@ if TYPE_CHECKING:
 
     from agno.models.message import Message
     from agno.models.response import ModelResponse
+    from agno.session.team import TeamSession
+    from agno.session.workflow import WorkflowSession
 
 
 def payload(**changes: object) -> dict[str, object]:
@@ -145,6 +148,16 @@ def test_agui_can_read_and_cancel_before_first_model_response(
         _ = await anyio.to_thread.run_sync(release.wait, 10)
         return await original(self, messages, tools=tools, **kwargs)
 
+    original_save = Agent.asave_session
+
+    async def checked_save(
+        self: Agent, session: AgentSession | TeamSession | WorkflowSession
+    ) -> None:
+        assert session.created_at is not None
+        assert session.updated_at is not None
+        await original_save(self, session)
+
+    monkeypatch.setattr(Agent, "asave_session", checked_save)
     monkeypatch.setattr(_ToolSequenceModel, "ainvoke", waiting_model)
     client, headers, _ = fixture(tmp_path)
     with client, ThreadPoolExecutor(max_workers=1) as executor:

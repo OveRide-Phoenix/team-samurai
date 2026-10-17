@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Annotated, ClassVar, cast, final, override
 
 from ag_ui.core import CustomEvent, RunAgentInput, RunErrorEvent, RunStartedEvent
@@ -18,8 +19,11 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import ConfigDict, Field, model_validator
 
+from samurai.agui_queue import QueuedTurn, enqueue_turn
+from samurai.execution_state import SamuraiPostgresDb
 from samurai.parent import create_parent_agent
 from samurai.team_areas import selected_area
+from samurai.work_admission import WorkApproval
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
@@ -47,7 +51,12 @@ class SamuraiRunInput(RunAgentInput):
             raise ValueError("Exactly one user turn is required")
         if not isinstance(self.messages[0].content, str) or not self.messages[0].content.strip():
             raise ValueError("Text input is required")
-        _ = selected_area(self.forwarded_props or {})
+        props = cast("dict[str, object]", self.forwarded_props or {})
+        if props.keys() - {"team_area", "work_approval"}:
+            raise ValueError("Only team navigation and bounded work approval may be forwarded")
+        _ = selected_area({"team_area": props.get("team_area", "overview")})
+        if "work_approval" in props:
+            _ = WorkApproval.model_validate(props["work_approval"])
         if self.resume:
             raise ValueError("Client tool continuation is not supported")
         return self
@@ -93,11 +102,34 @@ class SamuraiAGUI(BaseInterface):
             await assert_session_writable(self.db, run_input.thread_id, user_id, is_admin=False)
             if self.db.get_run(run_input.run_id) is not None:
                 raise HTTPException(409, "Run identifier already used")
+            props = cast("dict[str, object]", run_input.forwarded_props or {})
+            area = selected_area({"team_area": props.get("team_area", "overview")})
+            if isinstance(self.db, SamuraiPostgresDb):
+                chunks = await enqueue_turn(
+                    request,
+                    self.db,
+                    self.settings,
+                    QueuedTurn(
+                        run_id=run_input.run_id,
+                        session_id=run_input.thread_id,
+                        owner_id=user_id,
+                        message=cast("str", run_input.messages[0].content),
+                        team_area=area,
+                        approval=WorkApproval.model_validate(props["work_approval"])
+                        if "work_approval" in props
+                        else None,
+                    ),
+                )
+                return StreamingResponse(
+                    _encoded_events(chunks, run_input),
+                    media_type="text/event-stream",
+                    headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+                )
             agent = create_parent_agent(
                 self.db,
                 self.settings,
                 model=self.model_factory() if self.model_factory is not None else None,
-                team_area=selected_area(run_input.forwarded_props or {}),
+                team_area=area,
             )
             return StreamingResponse(
                 _events(agent, run_input, user_id),
@@ -115,13 +147,24 @@ async def _checkpoint_start(agent: Agent, run_input: SamuraiRunInput, user_id: s
         session = AgentSession(session_id=run_input.thread_id, user_id=user_id, agent_id="samurai")
     if not isinstance(session, AgentSession):
         raise TypeError("Agent company session required")
+    now = int(time.time())
+    session.created_at = session.created_at or now
+    session.updated_at = now
     pending = RunOutput(
         run_id=run_input.run_id,
         session_id=run_input.thread_id,
         user_id=user_id,
         agent_id="samurai",
         status=RunStatus.running,
-        metadata={"team_area": selected_area(run_input.forwarded_props or {})},
+        metadata={
+            "team_area": selected_area(
+                {
+                    "team_area": cast("dict[str, object]", run_input.forwarded_props or {}).get(
+                        "team_area", "overview"
+                    )
+                }
+            )
+        },
     )
     session.upsert_run(pending)
     if session.session_data is None:
@@ -130,25 +173,47 @@ async def _checkpoint_start(agent: Agent, run_input: SamuraiRunInput, user_id: s
     cast("BaseDb", agent.db).upsert_run(pending, session_id=run_input.thread_id, user_id=user_id)
 
 
+async def _inline_events(
+    agent: Agent, run_input: SamuraiRunInput, user_id: str
+) -> AsyncIterator[RunOutputEvent]:
+    run = cast("Callable[..., AsyncIterator[RunOutputEvent]]", agent.arun)
+    response = run(
+        input=cast("str", run_input.messages[0].content),
+        session_id=run_input.thread_id,
+        run_id=run_input.run_id,
+        user_id=user_id,
+        stream=True,
+        stream_events=True,
+        metadata={
+            "team_area": selected_area(
+                {
+                    "team_area": cast("dict[str, object]", run_input.forwarded_props or {}).get(
+                        "team_area", "overview"
+                    )
+                }
+            )
+        },
+    )
+    async for chunk in response:
+        if chunk.event == "RunStarted":
+            await _checkpoint_start(agent, run_input, user_id)
+        yield chunk
+
+
 async def _events(agent: Agent, run_input: SamuraiRunInput, user_id: str) -> AsyncIterator[str]:
+    async for event in _encoded_events(_inline_events(agent, run_input, user_id), run_input):
+        yield event
+
+
+async def _encoded_events(
+    response: AsyncIterator[RunOutputEvent], run_input: SamuraiRunInput
+) -> AsyncIterator[str]:
     encoder = EventEncoder()
     state = StreamState(thread_id=run_input.thread_id, run_id=run_input.run_id)
     terminal = False
     yield encoder.encode(RunStartedEvent(thread_id=run_input.thread_id, run_id=run_input.run_id))
     try:
-        run = cast("Callable[..., AsyncIterator[RunOutputEvent]]", agent.arun)
-        response = run(
-            input=cast("str", run_input.messages[0].content),
-            session_id=run_input.thread_id,
-            run_id=run_input.run_id,
-            user_id=user_id,
-            stream=True,
-            stream_events=True,
-            metadata={"team_area": selected_area(run_input.forwarded_props or {})},
-        )
         async for chunk in response:
-            if chunk.event == "RunStarted":
-                await _checkpoint_start(agent, run_input, user_id)
             # Retain native completion/progress semantics for saved-run recovery and cancellation.
             if chunk.event in {
                 "RunStarted",

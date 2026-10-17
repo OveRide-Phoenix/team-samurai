@@ -9,6 +9,30 @@ function render(panel: Panel) {
 }
 
 describe('readable evidence details', () => {
+  it('opens a brief at one short step instead of rendering all founder context at once', () => {
+    const panel = panelSchema.parse({ id: 'brief', kind: 'evidence', title: 'Company brief', note: '', claims: [
+      { id: 'idea', claim: 'Idea: Doorstep bicycle care', status: 'hypothesis', detail: '', sources: [] },
+      { id: 'budget', claim: 'Budget: INR 50,000', status: 'hypothesis', detail: '', sources: [] },
+      { id: 'milestone', claim: 'First milestone: Ten paying homes', status: 'hypothesis', detail: '', sources: [] },
+    ], founder_context: { next_decision: 'Interview residents', evidence_gaps: ['No interviews yet'] } });
+    const html = render(panel);
+    expect(html).toContain('Doorstep bicycle care');
+    expect(html).toContain('aria-current="step"');
+    expect(html).toContain('aria-label="Next brief step"');
+    expect(html).toContain('Step 5: Next move');
+    expect(html).not.toContain('INR 50,000');
+    expect(html).not.toContain('Ten paying homes');
+    expect(html).not.toContain('Interview residents');
+    expect(html).not.toContain('No interviews yet');
+  });
+
+  it('keeps long answers available in an explicit disclosure', () => {
+    const answer = 'A detailed founder answer. '.repeat(30);
+    const html = render(panelSchema.parse({ id: 'long-brief', kind: 'evidence', title: 'Company brief', note: '', claims: [{ id: 'idea', claim: `Idea: ${answer}`, status: 'hypothesis', detail: '', sources: [] }] }));
+    expect(html).toContain('<summary>Read full answer</summary>');
+    expect(html).toContain(answer.trim());
+  });
+
   it('keeps conflicting source support attached to its finding without repeating draft boilerplate', () => {
     const html = render({ id: 'evidence', kind: 'evidence', title: 'Research', note: '', claims: [
       { id: 'a', claim: 'Claim A', status: 'needs-check', detail: 'contradicted; mapped. Source excerpt A', sources: [{ kind: 'external', title: 'Reference A', url: 'https://example.org/a' }] },
@@ -61,4 +85,12 @@ describe('readable evidence details', () => {
     expect(html).toContain('synthetic_scenario_not_validation');
     expect(html).toContain('low'); expect(html).toContain('base'); expect(html).toContain('high');
   });
+});
+
+it.each([['verified', 'Review complete'], ['needs_rework', 'Changes needed'], ['needs_input', 'More input needed']])('shows the actual %s review outcome without a zero-of-zero evidence chart', (outcome, label) => {
+  const html = render({ id: 'review', kind: 'evidence', title: 'Verification review', note: '', claims: [], provenance: { artifact_type: 'verification', payload: { artifact_type: 'verification', checked_artifact_ids: ['00000000-0000-4000-8000-000000000001'], outcome } } });
+  expect(html).toContain(label);
+  expect(html).toContain('1 artifacts checked');
+  expect(html).toContain('not customer validation');
+  expect(html).not.toContain('0/0');
 });

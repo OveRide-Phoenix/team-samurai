@@ -258,6 +258,7 @@ def test_taskfile_lists_local_workflow_without_destructive_database_commands() -
         "db:stop",
         "db:up",
         "default",
+        "frontend:auth",
         "frontend:dev",
         "frontend:setup",
         "health",
