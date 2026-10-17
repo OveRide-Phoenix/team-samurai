@@ -48,3 +48,15 @@ it('reports synchronous portfolio persistence failure before a caller can submit
   expect(JSON.parse(saved.get('owner-key') ?? '{}')).toEqual(portfolio);
   expect(persistPortfolio({ setItem: () => { throw new DOMException('Quota exceeded', 'QuotaExceededError'); } }, 'owner-key', portfolio)).toBe(false);
 });
+
+it('retains validated guest limits without changing the storage namespace', async () => {
+  const namespace = 'd'.repeat(64);
+  const guest = { sessionDays: 7, aiSubmissionsPerDay: 10 };
+  const scope = await resolveBrowserScope(true, async () => Response.json({ configured: true, storageNamespace: namespace, guest }));
+  expect(scope).toEqual({ kind: 'user', namespace, guest });
+  expect(portfolioStorageKey(scope)).toBe(`${portfolioKey}:${namespace}`);
+});
+
+it('rejects malformed guest metadata', async () => {
+  await expect(resolveBrowserScope(true, async () => Response.json({ configured: true, storageNamespace: 'd'.repeat(64), guest: { sessionDays: 7, aiSubmissionsPerDay: -1 } }))).rejects.toThrow('Your session could not be opened.');
+});

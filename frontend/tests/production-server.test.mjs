@@ -388,6 +388,7 @@ test('guest navigation establishes signed isolated identities without IAP', asyn
   assert.match(first.headers.get('set-cookie'), /Path=\/; HttpOnly; Secure; SameSite=Lax/);
   const connection = cookie => app.request('/api/agentos/connection', { headers: { cookie } }).then(r => r.json());
   const a = await connection(cookieA), b = await connection(cookieB);
+  assert.deepEqual(a.guest, { sessionDays: 7, aiSubmissionsPerDay: 10 });
   assert.notEqual(a.storageNamespace, b.storageNamespace);
   assert.equal((await connection(cookieA)).storageNamespace, a.storageNamespace);
   await app.request('/api/agentos/samurai/workspaces', { headers: { cookie: cookieA } });
