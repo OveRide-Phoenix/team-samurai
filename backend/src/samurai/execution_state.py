@@ -81,6 +81,7 @@ class ApprovedStage(StrEnum):
     RESEARCH = "research"
     STRATEGY = "strategy"
     PLAN = "plan"
+    VERIFY = "verify"
 
 
 class WorkIntentInput(Contract):
@@ -269,6 +270,7 @@ def _terminal_acceptance(
         ApprovedStage.RESEARCH: ArtifactType.RESEARCH,
         ApprovedStage.STRATEGY: ArtifactType.STRATEGY,
         ApprovedStage.PLAN: ArtifactType.VERIFICATION,
+        ApprovedStage.VERIFY: ArtifactType.VERIFICATION,
     }
     approved_stage = ApprovedStage(stage)
     target = targets[approved_stage]
@@ -1484,7 +1486,11 @@ class SamuraiPostgresDb(PostgresDb):
                         intents.c.parent_session_id == session.session_id,
                         intents.c.parent_binding.is_not(None),
                     )
-                    .order_by(intents.c.updated_at.desc())
+                    # Timestamps can tie or advance on retry; accepted revisions are monotonic.
+                    .order_by(
+                        intents.c.accepted_revision.desc().nulls_last(),
+                        intents.c.updated_at.desc(),
+                    )
                     .limit(1)
                 ).scalar_one_or_none()
                 if binding is not None:

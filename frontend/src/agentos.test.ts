@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cancelAgentosRun, companyResultSchema, companySnapshotEvents, companySnapshotSchema, createAgentosTransport, readAgentosRun, resumeAgentosRun, presentMessages, type AgentosRun } from './agentos';
+import { cancelAgentosRun, editApprovedWorkDraft, approvedWorkForSubmission, companyResultSchema, companySnapshotEvents, companySnapshotSchema, createAgentosTransport, readAgentosRun, resumeAgentosRun, presentMessages, type AgentosRun } from './agentos';
 import { loadPortfolio, persistPortfolio, portfolioStorageKey } from './browserStorage';
 import { emptyCompanyView, type Message, type WorkEvent } from './model';
 
@@ -193,7 +193,7 @@ describe('AgentOS transport wire boundary', () => {
       return run.status !== 'submitting' || runs.length === 1;
     }, () => [], () => '00000000-0000-4000-8000-000000000099');
     await collect(transport('Build it', new AbortController().signal));
-    expect(runs[0]).toEqual({ submissionId: '00000000-0000-4000-8000-000000000099', status: 'submitting' });
+    expect(runs[0]).toEqual({ submissionId: '00000000-0000-4000-8000-000000000099', status: 'submitting', area: 'overview' });
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(fetcher.mock.calls[0]?.[1]?.headers).toMatchObject({ 'X-Samurai-Submission-Id': '00000000-0000-4000-8000-000000000099' });
   });
@@ -666,4 +666,47 @@ describe('canonical company recall', () => {
     const displayed = presentMessages([{ id: 'saved-summary', role: 'assistant', text: JSON.stringify(summary) }]);
     expectReadable(displayed.map(message => ({ type: 'message', text: message.text, ...(message.panel ? { panel: message.panel } : {}) })));
   });
+});
+
+
+it('keeps an explicitly chosen operation through edits without reusing a different company, area or revision', () => {
+  const approval = { companyId: company, expectedRevision: 4, operation: 'journey', stage: 'brief', teamArea: 'overview' } as const;
+  const chosen = { text: 'Refine brief', area: 'overview', label: 'Refine brief', approval } as const;
+  const edited = editApprovedWorkDraft(chosen, '  My first customers are local clinics.  ', 'overview');
+  expect(edited?.label).toBe('Refine brief');
+  expect(approvedWorkForSubmission(edited, 'My first customers are local clinics.', 'overview', company, 4)).toEqual(approval);
+  expect(approvedWorkForSubmission(edited, 'Unmatched draft', 'overview', company, 4)).toBeUndefined();
+  expect(approvedWorkForSubmission(edited, edited!.text, 'sales', company, 4)).toBeUndefined();
+  expect(approvedWorkForSubmission(edited, edited!.text, 'overview', sourceId, 4)).toBeUndefined();
+  expect(approvedWorkForSubmission(edited, edited!.text, 'overview', company, 5)).toBeUndefined();
+  expect(editApprovedWorkDraft(chosen, 'Unrelated chat', 'sales')).toBeUndefined();
+  expect(approvedWorkForSubmission(undefined, 'Ordinary chat', 'overview', company, 4)).toBeUndefined();
+});
+
+
+it.each(['research', 'strategy', 'verification', 'sales'] as const)('keeps %s as the origin on every live run notification, including handoffs', async area => {
+  const marker = 'SAMURAI_HANDOFF=' + JSON.stringify({ area: 'strategy', text: 'Switch to Strategist.' });
+  serve(frame(wire('RunStarted')) + frame(wire('ToolCallCompleted', { tool: { result: marker } })) + frame(wire('RunCompleted', { content: marker })));
+  const runs: AgentosRun[] = [];
+  const events = await collect(createAgentosTransport('session-1', run => { runs.push(run); return true; })('Prepare delivery', new AbortController().signal, { operation: 'journey', stage: 'research', companyId: company, expectedRevision: 1, teamArea: area }));
+  expect(runs.length).toBeGreaterThan(1);
+  expect(runs.every(run => run.area === area)).toBe(true);
+  expect(events).toEqual([{ type: 'message', text: 'Switch to Strategist.', handoff: 'strategy' }]);
+});
+
+
+it('shows the same handoff for a new request while deduplicating its own stream frames', async () => {
+  const marker = 'SAMURAI_HANDOFF=' + JSON.stringify({ area: 'strategy', text: 'Switch to Strategist.' });
+  serve(frame(wire('RunStarted')) + frame(wire('ToolCallCompleted', { tool: { result: marker } })) + frame(wire('RunCompleted', { content: marker })));
+  const saved: Message[] = [{ id: 'old', role: 'assistant', text: 'Switch to Strategist.', handoff: 'strategy', area: 'research', backendRunId: 'previous-run' }];
+  const events = await collect(createAgentosTransport('session-1', undefined, () => saved)('Prepare another delivery draft', new AbortController().signal, 'research'));
+  expect(events).toEqual([{ type: 'message', text: 'Switch to Strategist.', handoff: 'strategy' }]);
+});
+it.each(['run-1', 'previous-run'])('deduplicates saved handoffs only for the recovered run (%s)', async savedRunId => {
+  const marker = 'SAMURAI_HANDOFF=' + JSON.stringify({ area: 'strategy', text: 'Switch to Strategist.' });
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(wire('RunCompleted', { status: 'COMPLETED', content: marker, metadata: { team_area: 'research' } })))));
+  const saved: Message[] = [{ id: 'saved', role: 'assistant', text: 'Switch to Strategist.', handoff: 'strategy', area: 'research', backendRunId: savedRunId }];
+  const recovered = await readAgentosRun('session-1', 'run-1', undefined, saved);
+  expect(recovered.run.area).toBe('research');
+  expect(recovered.events).toHaveLength(savedRunId === 'run-1' ? 0 : 1);
 });

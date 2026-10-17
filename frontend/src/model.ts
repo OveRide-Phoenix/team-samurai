@@ -54,6 +54,13 @@ export const teamAreaSchema = z.enum(["overview", "research", "strategy", "verif
 export type TeamArea = z.infer<typeof teamAreaSchema>;
 export const workflowAreaSchema = teamAreaSchema.exclude(["overview"]);
 export type WorkflowArea = z.infer<typeof workflowAreaSchema>;
+export const companyActionIdSchema = z.enum(['brief', 'research', 'strategy', 'plan', 'verify', 'sales', 'builder', 'marketer', 'metrics']);
+export const companyActionSchema = z.strictObject({
+  id: companyActionIdSchema, label: z.string().min(1).max(100), prompt: z.string().min(1).max(4000),
+  operation: z.enum(['journey', 'launch_drafts', 'metrics_analysis']), stage: z.enum(['brief', 'research', 'strategy', 'plan', 'verify']),
+  area: teamAreaSchema, eligible: z.boolean(), blocked_reason: z.string().min(1).max(500).nullable(),
+}).refine(action => action.eligible === (action.blocked_reason === null), 'Blocked actions need a reason');
+export type CompanyAction = z.infer<typeof companyActionSchema>;
 export const messageSchema = z.object({
   id: z.string(), role: z.enum(['user', 'assistant']), text: z.string(), panel: panelSchema.optional(), backendRunId: z.string().optional(), area: teamAreaSchema.optional(), handoff: teamAreaSchema.optional(), handoffPrerequisite: z.boolean().optional(),
 });
@@ -86,6 +93,8 @@ export type BackendRun = z.infer<typeof backendRunSchema>;
 export const workspaceSchema = z.object({
   executionMode: z.enum(['preview', 'live']).default('preview'), backendRun: backendRunSchema.optional(),
   companyId: z.string().uuid().optional(), currentRevision: z.number().int().min(0).optional(), stateSha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  currentArtifactIds: z.array(z.string().uuid()).max(100).optional(),
+  actions: z.array(companyActionSchema).max(9).default([]), nextAction: companyActionIdSchema.nullable().default(null),
   brief: companyBriefSchema.optional(),
   selectedArea: teamAreaSchema.default("overview"),
   selectedAreas: z.array(workflowAreaSchema).max(4).refine(items => new Set(items).size === items.length).optional(),
@@ -114,7 +123,7 @@ export const portfolioSchema = z.object({
   (value.activeId === null || value.companies.some(company => company.id === value.activeId)));
 export type Portfolio = z.infer<typeof portfolioSchema>;
 export function emptyWorkspace(): Workspace {
-  return { selectedArea: 'overview', selectedAreas: [], drafts: {}, executionMode: 'preview', activityLog: [], version: 1, messages: [], pinned: [], completedTasks: [], panelOrder: [], shortlist: [], approvedOffers: [], theme: 'sky' };
+  return { actions: [], nextAction: null, selectedArea: 'overview', selectedAreas: [], drafts: {}, executionMode: 'preview', activityLog: [], version: 1, messages: [], pinned: [], completedTasks: [], panelOrder: [], shortlist: [], approvedOffers: [], theme: 'sky' };
 }
 export const emptyCompanyView = emptyWorkspace;
 export function continueCompanyView(workspace: CompanyView, companyId: string, revision: number): CompanyView {
@@ -176,12 +185,12 @@ export function movePanel(panels: Panel[], id: string, target: string): string[]
 export function recordBackendRun(workspace: Workspace, run: BackendRun): Workspace {
   if (workspace.backendRun?.submissionId && run.submissionId && workspace.backendRun.submissionId !== run.submissionId) throw new Error('The backend result belongs to another submission.');
   if (workspace.backendRun?.companyId && run.companyId && workspace.backendRun.companyId !== run.companyId) throw new Error('The backend result belongs to another company.');
-  return { ...workspace, backendRun: backendRunSchema.parse({ ...workspace.backendRun, ...run }) };
+  return { ...workspace, backendRun: backendRunSchema.parse({ ...workspace.backendRun, ...run }), messages: run.area && run.runId ? workspace.messages.map(message => message.role === 'assistant' && message.backendRunId === run.runId && message.area !== run.area ? { ...message, area: run.area } : message) : workspace.messages };
 }
-export function beginBackendRun(workspace: Workspace, submissionId: string): Workspace {
+export function beginBackendRun(workspace: Workspace, submissionId: string, area?: TeamArea): Workspace {
   if (hasActiveBackendRun(workspace.backendRun)) throw new Error('A backend run is already active.');
   return { ...workspace, backendRun: backendRunSchema.parse({
-    submissionId, status: 'submitting',
+    submissionId, status: 'submitting', ...(area ? { area } : {}),
     ...(workspace.backendRun?.companyId ? { companyId: workspace.backendRun.companyId } : {}),
     ...(workspace.backendRun?.revision !== undefined ? { revision: workspace.backendRun.revision } : {}),
   }) };
@@ -192,24 +201,22 @@ export function hasActiveBackendRun(run: BackendRun | undefined): boolean {
 export function isCancellableBackendRun(run: BackendRun | undefined): run is BackendRun & { runId: string } {
   return Boolean(run?.runId) && hasActiveBackendRun(run);
 }
-export type JourneyApproval = { readonly stage: 'research' | 'strategy' | 'plan'; readonly expectedRevision: number; readonly companyId: string };
+export function panelIsOutdated(panel: Panel, workspace: Workspace): boolean {
+  const provenance = panel.provenance;
+  return workspace.executionMode === 'live' && workspace.currentArtifactIds !== undefined && provenance !== undefined && provenance.company_id === workspace.companyId
+    && typeof provenance.artifact_id === 'string' && typeof provenance.revision === 'number' && provenance.revision <= (workspace.currentRevision ?? -1)
+    && !workspace.currentArtifactIds.includes(provenance.artifact_id);
+}
+export function currentCompanyActions(workspace: Workspace): CompanyAction[] {
+  if (hasActiveBackendRun(workspace.backendRun) || !workspace.companyId || workspace.currentRevision === undefined
+    || (workspace.backendRun?.revision ?? 0) > workspace.currentRevision) return [];
+  return workspace.actions;
+}
+export type JourneyApproval = { readonly stage: CompanyAction['stage']; readonly expectedRevision: number; readonly companyId: string };
 export function nextJourneyApproval(workspace: Workspace): JourneyApproval | undefined {
-  const run = workspace.backendRun;
-  if (run && run.status !== 'completed') return undefined;
-  const companyId = run?.companyId ?? workspace.companyId;
-  const revision = run?.revision ?? workspace.currentRevision;
-  if (!companyId || revision === undefined) return undefined;
-  const artifacts = workspace.messages.flatMap(message => {
-    const value = message.panel?.provenance;
-    if (!value || value.acceptance_status !== 'accepted' || typeof value.artifact_type !== 'string' || typeof value.status !== 'string') return [];
-    return [{ artifactType: value.artifact_type, status: value.status }];
-  });
-  const accepted = (artifactType: string) => artifacts.filter(item => item.artifactType === artifactType);
-  if (accepted('product_plan').some(item => item.status === 'complete')) return undefined;
-  if (accepted('strategy').length) return { stage: accepted('strategy').some(item => item.status === 'complete') ? 'plan' : 'strategy', expectedRevision: revision, companyId };
-  if (accepted('research').length) return { stage: accepted('research').some(item => item.status === 'complete') ? 'strategy' : 'research', expectedRevision: revision, companyId };
-  if (accepted('intake').length) return { stage: 'research', expectedRevision: revision, companyId };
-  return undefined;
+  const action = currentCompanyActions(workspace).find(item => item.id === workspace.nextAction);
+  if (!action?.eligible || action.operation !== 'journey' || !workspace.companyId || workspace.currentRevision === undefined) return undefined;
+  return { stage: action.stage, expectedRevision: workspace.currentRevision, companyId: workspace.companyId };
 }
 export function applyBackendEvent(workspace: Workspace, runId: string, event: Extract<WorkEvent, { type: 'message' }>): Workspace {
   if (workspace.messages.some(message => message.backendRunId === runId && message.text === event.text && JSON.stringify(message.panel) === JSON.stringify(event.panel))) return workspace;

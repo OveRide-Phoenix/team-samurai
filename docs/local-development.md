@@ -202,4 +202,62 @@ Use an approved test brief only. Keep keys, account details, and private founder
 
 New companies use native AgentOS SSE through the Vite server proxy. Configure `AGENTOS_USER_TOKEN` in ignored `frontend/.env.local` and the matching `JWT_VERIFICATION_KEY` in ignored `backend/.env`; restart the backend after changing its configuration. `GEMINI_MODEL` is locked to `gemini-3.5-flash-lite`, with no fallback. The original 2.5 Flash-Lite request returned HTTP 404 for this new account. The user then authorized 3.5 Flash-Lite on 12 October; verify its access separately. Existing and dental-demo companies retain Preview mode. Never call fixture tests proof of successful Gemini research. The static production build contains no proxy; live use requires the existing production proxy/auth integration and an authorized deployment.
 
-Google Search grounding is disabled in this free-tier 3.5 Flash-Lite runtime. Research without citations remains insufficient evidence; no paid search or billing was enabled.
+The 11 October free-tier test had Google Search disabled. That is historical: the current paid-account policy enables native Search only for Researcher (`agents.py`), with every role kept on 3.5 Flash-Lite. Research without source support still stops at insufficient evidence. The current full-flow integration has not yet made paid calls; live test costs must fit the separately authorized aggregate allowance.
+
+### Expired local frontend token
+
+With the backend stopped, run `task frontend:auth`, then `task backend:dev`.
+This renews the existing cryptographically verified local identity and the same
+Samurai read/run scopes for 24 hours. Broader development scopes are dropped. It creates an ignored owner-only
+`frontend/.agentos-local.key` and registers its public key in the existing
+`FRONTEND_JWT_VERIFICATION_KEY` slot; primary AgentOS trust is preserved.
+An existing different frontend key is never replaced. This command refuses
+production configuration and cannot recover a token with an invalid signature.
+The Vite proxy reloads its private token file per request; no frontend restart
+is needed. Keep the local signing key private and never use this setup in cloud.
+
+On 16 October, the existing local database also required the additive founder
+workspace migration. A read-only inventory, local database backup, transactional
+`FounderPlatformMigrator.apply()`, and reconciliation preserved nine companies
+and 21 revisions. An unmigrated older database can authenticate successfully but
+return HTTP 500 for `/agentos/samurai/workspaces`; this is separate from JWT expiry.
+The migration implementation and CLI are `backend/src/samurai/schema.py` and
+`backend/scripts/migrate_founder_platform.py`. Inventory and back up existing data
+before applying it; do not recreate the database.
+
+### Verified first-form journey — 16 October 2026
+
+The real CycleNest browser test now passes: three intake pages → CopilotKit →
+authenticated AG-UI → native PostgreSQL/Redis worker → Gemini 3.5 Flash-Lite →
+one accepted intake artifact at canonical revision 1. The owned run and company
+APIs both returned the accepted result, and browser reload restored the brief and
+first chat response. Desktop and mobile layouts were inspected; the brief appears
+before file and founder-operation management panels. Research did not start.
+The other nine companies retained their original revisions and state hashes;
+the ten-company quota and existing empty test reservation were preserved.
+
+The failures had three separate causes: the local token needed renewal, Intake
+needed a strict `IntakeDraft` schema compatible with Agno's Gemini conversion,
+and the older inline AG-UI execution bypassed the worker ownership required by
+canonical persistence. Shared companies also require the stored actor/child
+session binding rather than the older derived child ID. The repair preserves
+ownership, membership, revision and immutable work-intent guards.
+
+For the normal PostgreSQL-backed frontend, deliberately set `QUEUE_ENABLED=true`
+and the private `REDIS_URL` in ignored `backend/.env`, then use `task backend:dev`.
+AG-UI refuses work when the durable worker or coordination is unavailable; it
+never silently falls back to inline PostgreSQL execution. Existing environment
+files are preserved by setup. SQLite remains an inline, provider-free fixture.
+Submitting the form approves only the brief. Ordinary chat is read-only;
+explicit next-stage actions carry bounded company/revision approval. Run IDs
+match submission IDs, so owned receipts and native stream replay can recover
+accepted work without resubmitting it. Stop the local backend outside requested
+provider tests.
+
+Provider-free regressions cover the actual canonical workspace/company
+reservation → AG-UI → worker → accepted brief path, duplicate rejection, stale
+revision and foreign-session denial, stream replay, cancellation and read-only
+tool restrictions. These use isolated PostgreSQL schemas and real Redis, with
+Gemini calls blocked. The live browser check establishes first-brief acceptance
+only. Later-stage Gemini research, cloud deployment, IAP browser sign-in and
+customer demand were not verified by this test.

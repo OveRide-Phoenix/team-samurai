@@ -1,46 +1,52 @@
-import { useEffect } from 'react';
-import { z } from 'zod-v3';
-import { A2UIProvider, A2UIRenderer, createCatalog, useA2UI, useA2UIError } from '@copilotkit/a2ui-renderer';
-import type { Panel } from './model';
+import { z } from 'zod';
+import { createLibrary, defineComponent } from '@openuidev/react-lang';
+import { panelSchema, type Panel } from './model';
+import { ComparisonBars, numericComparison } from './PanelCharts';
+import { OpenUIRender } from './OpenUIRender';
 
 type ComposedPanel = Extract<Panel, { kind: 'declarative' }>;
-const definitions = {
-  Column: { props: z.object({ children: z.array(z.string()) }), description: 'Vertical business layout' },
-  Text: { props: z.object({ text: z.string() }), description: 'Plain text' },
-  Metric: { props: z.object({ label: z.string(), value: z.string(), detail: z.string() }), description: 'Metric with its basis' },
-  List: { props: z.object({ title: z.string(), items: z.array(z.string()) }), description: 'Titled list' },
-  Table: { props: z.object({ columns: z.array(z.string()), rows: z.array(z.array(z.string())) }), description: 'Business table' },
-};
-const catalogId = 'samurai://business/v1';
-const catalog = createCatalog(definitions, {
-  Column: ({ props, children }) => <div className="declarative-blocks">{props.children.map(id => <div key={id}>{children(id)}</div>)}</div>,
-  Text: ({ props }) => <p className="declarative-text">{props.text}</p>,
-  Metric: ({ props }) => <div className="declarative-metric"><span>{props.label}</span><strong>{props.value}</strong><small>{props.detail}</small></div>,
-  List: ({ props }) => <div className="declarative-list"><strong>{props.title}</strong><ul>{props.items.map((item, index) => <li key={index}><span className="declarative-list-dot" aria-hidden="true" /><span>{item}</span></li>)}</ul></div>,
-  Table: ({ props }) => <BusinessTable {...props} />,
-}, { catalogId });
-
-function BusinessTable({ columns, rows }: { columns: string[]; rows: string[][] }) {
-  return <div className="declarative-table"><div className="declarative-table-toolbar"><span>{rows.length} rows</span></div><div className="panel-table-scroll"><table><thead><tr>{columns.map((column, index) => <th scope="col" key={index}>{column}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody></table></div></div>;
+const Text = defineComponent({
+  name: 'Text', description: 'Plain business text', props: z.object({ text: z.string() }),
+  component: ({ props }) => <p className="declarative-text">{props.text}</p>,
+});
+const Metric = defineComponent({
+  name: 'Metric', description: 'Metric with its basis', props: z.object({ label: z.string(), value: z.string(), detail: z.string() }),
+  component: ({ props }) => <div className="declarative-metric"><span>{props.label}</span><strong>{props.value}</strong><small>{props.detail}</small></div>,
+});
+const List = defineComponent({
+  name: 'List', description: 'Titled business list', props: z.object({ title: z.string(), items: z.array(z.string()) }),
+  component: ({ props }) => <div className="declarative-list"><strong>{props.title}</strong><ul>{props.items.map((item, index) => <li key={index}><span className="declarative-list-dot" aria-hidden="true" /><span>{item}</span></li>)}</ul></div>,
+});
+const Table = defineComponent({
+  name: 'Table', description: 'Business comparison table', props: z.object({ columns: z.array(z.string()), rows: z.array(z.array(z.string())) }),
+  component: ({ props }) => <ComparisonTable {...props} />,
+});
+function ComparisonTable(props: { columns: string[]; rows: string[][] }) {
+  const items = numericComparison(props.columns, props.rows);
+  const table = <div className="declarative-table"><div className="panel-table-scroll"><table><caption className="sr-only">Comparison · {props.rows.length} rows</caption><thead><tr>{props.columns.map((column, index) => <th scope="col" key={index}>{column}</th>)}</tr></thead><tbody>{props.rows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody></table></div></div>;
+  return items ? <><ComparisonBars items={items} label={props.columns.join(' · ')} /><details className="panel-details"><summary>View comparison table</summary>{table}</details></> : table;
 }
+const Column = defineComponent({
+  name: 'Column', description: 'Vertical business layout', props: z.object({ children: z.array(z.union([Text.ref, Metric.ref, List.ref, Table.ref])) }),
+  component: ({ props, renderNode }) => <div className="declarative-blocks">{props.children.map((child, index) => <div key={index} data-block={child.typeName}>{renderNode(child)}</div>)}</div>,
+});
+export const businessLibrary = createLibrary({ root: 'Column', components: [Column, Text, Metric, List, Table] });
 
-export function declarativeMessages(panel: ComposedPanel): Record<string, unknown>[] {
-  const names = { text: 'Text', metric: 'Metric', list: 'List', table: 'Table' } as const;
-  return [
-    { version: 'v0.9', createSurface: { surfaceId: panel.id, catalogId } },
-    { version: 'v0.9', updateComponents: { surfaceId: panel.id, components: [
-      { id: 'root', component: 'Column', children: panel.blocks.map((_, index) => `block-${index}`) },
-      ...panel.blocks.map(({ kind, ...props }, index) => ({ id: `block-${index}`, component: names[kind], ...props })),
-    ] } },
-  ];
-}
-function Surface({ panel }: { panel: ComposedPanel }) {
-  const { processMessages, clearSurfaces } = useA2UI();
-  const error = useA2UIError();
-  const content = JSON.stringify(panel.blocks);
-  useEffect(() => { clearSurfaces(); processMessages(declarativeMessages(panel)); }, [panel.id, content, processMessages, clearSurfaces]);
-  return error ? <p role="alert" className="error-note">This view could not be displayed. Ask Samurai to revise it.</p> : <A2UIRenderer surfaceId={panel.id} />;
+export function declarativeResponse(panel: ComposedPanel): string {
+  const parsed = panelSchema.parse(panel);
+  if (parsed.kind !== 'declarative') throw new Error('Expected composed panel');
+  // Keep saved panels and the backend contract stable; only the rendering language changes.
+  const blocks = parsed.blocks.map(block => {
+    switch (block.kind) {
+      case 'text': return `Text(${JSON.stringify(block.text)})`;
+      case 'metric': return `Metric(${[block.label, block.value, block.detail].map(value => JSON.stringify(value)).join(', ')})`;
+      case 'list': return `List(${JSON.stringify(block.title)}, ${JSON.stringify(block.items)})`;
+      case 'table': return `Table(${JSON.stringify(block.columns)}, ${JSON.stringify(block.rows)})`;
+    }
+  });
+  return `root = Column([${blocks.join(', ')}])`;
 }
 export function DeclarativePanel({ panel }: { panel: ComposedPanel }) {
-  return <A2UIProvider catalog={catalog}><Surface panel={panel} /></A2UIProvider>;
+  const response = declarativeResponse(panel);
+  return <OpenUIRender response={response} library={businessLibrary} />;
 }

@@ -9,6 +9,7 @@ from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 from fastapi import HTTPException
 
 from samurai import workspace_directory_queries as queries
+from samurai.company_actions import company_actions
 from samurai.company_store import CompanyStore
 from samurai.company_store_contracts import (
     ActorBinding,
@@ -18,7 +19,13 @@ from samurai.company_store_contracts import (
     CompanyStoreIssue,
     WorkspaceRole,
 )
-from samurai.contracts import CompanyState, FounderTruth, IntakeArtifact, ResearchArtifact
+from samurai.contracts import (
+    CompanyState,
+    FounderTruth,
+    IntakeArtifact,
+    ResearchArtifact,
+    current_artifacts,
+)
 from samurai.frameworks import load_framework_catalog
 from samurai.parent import CompanyStateSummary
 from samurai.schema_contracts import canonical_state_hash
@@ -193,17 +200,21 @@ class WorkspaceDirectory:
         brief = intake.brief if intake is not None else None
         founder_truth = intake.founder_truth if intake is not None else FounderTruth()
         retained_frameworks = intake.frameworks if intake is not None else ()
+        current = current_artifacts(state)
         conflicts = tuple(
             conflict
-            for artifact in state.artifacts
+            for artifact in current.values()
             if isinstance(artifact.payload, ResearchArtifact)
             for conflict in artifact.payload.conflicts
         )
         findings = tuple(
-            finding for artifact in state.artifacts for finding in artifact.verification_findings
+            finding for artifact in current.values() for finding in artifact.verification_findings
         )[-20:]
-        sources = tuple(source for artifact in state.artifacts for source in artifact.sources)[-20:]
+        sources = tuple(source for artifact in current.values() for source in artifact.sources)[
+            -20:
+        ]
         next_decision = founder_truth.next_decision
+        next_action, actions = company_actions(state)
         return CompanySnapshot(
             summary=CompanyStateSummary(
                 company_id=state.context.company_id,
@@ -211,6 +222,9 @@ class WorkspaceDirectory:
                 artifact_count=len(state.artifacts),
                 status="active",
                 brief=brief,
+                next_action=next_action,
+                actions=actions,
+                current_artifact_ids=tuple(item.artifact_id for item in current.values()),
                 sources=sources,
                 evidence_conflicts=conflicts,
                 verification_findings=findings,

@@ -26,6 +26,7 @@ from samurai.contracts import (
     FounderTruth,
     FrameworkReference,
     IntakeArtifact,
+    IntakeDraft,
     KnowledgeReference,
     OfferDiagnostic,
     ProductPlanArtifact,
@@ -41,6 +42,7 @@ from samurai.contracts import (
     WorkflowRequest,
     WorkflowResult,
     accept_artifact,
+    current_artifacts,
 )
 from samurai.execution_state import SamuraiPostgresDb
 from samurai.frameworks import load_framework_catalog
@@ -98,6 +100,7 @@ class CompanyJourneyRequest(WorkflowRequest):
     goal: Annotated[str, Field(min_length=1)] | None = None
     supplied_context: tuple[Annotated[str, Field(min_length=1)], ...] = ()
     assumptions: tuple[Annotated[str, Field(min_length=1)], ...] = ()
+    research_after_revision: int | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def validate_new_idea(self) -> Self:
@@ -105,6 +108,12 @@ class CompanyJourneyRequest(WorkflowRequest):
         if self.company_id is None and self.idea is None:
             code = "missing_company_idea"
             raise PydanticCustomError(code, "a new company requires an idea")
+        if (
+            self.research_after_revision is not None
+            and self.research_after_revision > self.expected_revision
+        ):
+            message = "research baseline exceeds the owned revision"
+            raise ValueError(message)
         return self
 
 
@@ -113,11 +122,6 @@ class CompanyJourneyFailure(BaseModel):
 
     outcome: Literal["failed"] = "failed"
     error_code: FailureCode
-
-
-class _IntakeDraft(BaseModel):
-    brief: CompanyBrief
-    founder_truth: FounderTruth = FounderTruth()
 
 
 class _OfferDiagnosticDraft(BaseModel):
@@ -379,7 +383,7 @@ def _intake_frameworks() -> tuple[FrameworkReference, ...]:
 
 
 def _research_lineage(state: CompanyState) -> ArtifactEnvelope:
-    research = _latest(state, ArtifactType.RESEARCH)
+    research = current_artifacts(state).get(ArtifactType.RESEARCH)
     if research is None:
         message = "validated research is missing"
         raise JourneyInputError(message)
@@ -409,7 +413,8 @@ def _has_retained_mappings(result: ResearchResult) -> bool:
     )
 
 
-def _supported_research_claim(research: ArtifactEnvelope) -> SourcedClaim | None:
+def supported_research_claim(research: ArtifactEnvelope) -> SourcedClaim | None:
+    """Return a source-bound supported claim suitable for the offer diagnostic."""
     sources = {source.source_id: source for source in research.sources}
     return next(
         (
@@ -430,7 +435,8 @@ def _supported_research_claim(research: ArtifactEnvelope) -> SourcedClaim | None
     )
 
 
-def _has_critical_contradiction(research: ArtifactEnvelope) -> bool:
+def has_critical_contradiction(research: ArtifactEnvelope) -> bool:
+    """Keep retained conflicts and contradicted claims ahead of strategy."""
     return bool(ResearchArtifact.model_validate(research.payload).conflicts) or any(
         claim.verification_status == "contradicted" for claim in research.claims
     )
@@ -487,6 +493,7 @@ async def _agent_payload[PayloadT: BaseModel](
 @dataclass(frozen=True, slots=True)
 class _Journey:
     db: BaseDb
+    stage: JourneyStage
     knowledge: KnowledgeStore | None
     intake_agent: ResearchAgent
     research_agent: ResearchAgent
@@ -531,8 +538,8 @@ class _Journey:
             WorkflowContextError,
         ) as error:
             return _step_output(_boundary_failure(error), stop=True)
-        verified = _latest(state, ArtifactType.VERIFICATION)
-        if verified is not None and verified.status == "complete":
+        verified = current_artifacts(state).get(ArtifactType.VERIFICATION)
+        if verified is not None and verified.status == "complete" and self.stage != "brief":
             return _step_output(_result(state, "verified"), stop=True)
         prior = _latest(state, ArtifactType.INTAKE)
         existing = IntakeArtifact.model_validate(prior.payload).brief if prior is not None else None
@@ -552,7 +559,7 @@ class _Journey:
         proposed = await _agent_payload(
             self.intake_agent,
             f"{brief.model_dump_json()}\n\n{grounding.prompt}",
-            _IntakeDraft,
+            IntakeDraft,
         )
         founder_truth, unsupported_known = _verified_founder_truth(proposed.founder_truth, brief)
         missing = tuple(name for name in REQUIRED_CONTEXT if getattr(brief, name) is None)
@@ -659,11 +666,15 @@ class _Journey:
         return _step_output(ArtifactEnvelope.model_validate(intake))
 
     async def research(
-        self, _step_input: StepInput, run_context: RunContext | None = None
+        self, step_input: StepInput, run_context: RunContext | None = None
     ) -> StepOutput:
         state = _state(_context(run_context))
-        prior = _latest(state, ArtifactType.RESEARCH)
-        if prior is not None and prior.status == "complete":
+        prior = current_artifacts(state).get(ArtifactType.RESEARCH)
+        baseline = _request(step_input).research_after_revision
+        if prior is not None and (
+            (baseline is not None and prior.revision > baseline)
+            or (baseline is None and prior.status == "complete")
+        ):
             return _step_output(prior)
         intake = _latest(state, ArtifactType.INTAKE)
         brief = IntakeArtifact.model_validate(intake.payload if intake is not None else None).brief
@@ -681,6 +692,8 @@ class _Journey:
         except ValidationError:
             prior = None
         if prior is not None:
+            if prior.status == "insufficient_evidence":
+                return _step_output(_result(state, "insufficient_evidence"), stop=True)
             return _step_output(prior)
         try:
             research = (
@@ -775,13 +788,13 @@ class _Journey:
     ) -> StepOutput:
         context = _context(run_context)
         state = _state(context)
-        prior = _latest(state, ArtifactType.STRATEGY)
+        prior = current_artifacts(state).get(ArtifactType.STRATEGY)
         if prior is not None:
             return _step_output(prior)
         research = _research_lineage(state)
-        if _has_critical_contradiction(research):
+        if has_critical_contradiction(research):
             return _step_output(_result(state, "needs_rework"), stop=True)
-        supported_claim = _supported_research_claim(research)
+        supported_claim = supported_research_claim(research)
         if supported_claim is None:
             return _step_output(
                 _result(
@@ -855,7 +868,7 @@ class _Journey:
     ) -> StepOutput:
         context = _context(run_context)
         state = _state(context)
-        prior = _latest(state, ArtifactType.PRODUCT_PLAN)
+        prior = current_artifacts(state).get(ArtifactType.PRODUCT_PLAN)
         if prior is not None:
             return _step_output(prior)
         research = _research_lineage(state)
@@ -900,7 +913,7 @@ class _Journey:
     ) -> StepOutput:
         context = _context(run_context)
         state = _state(context)
-        if any(_latest(state, kind) is None for kind in JOURNEY_TYPES[:-1]):
+        if any(kind not in current_artifacts(state) for kind in JOURNEY_TYPES[:-1]):
             return _step_output(
                 _result(
                     state,
@@ -932,7 +945,9 @@ class _Journey:
             f"{state.model_dump_json()}\n\n{grounding.prompt}",
             _VerificationDraft,
         )
-        upstream = tuple(_latest(state, artifact_type) for artifact_type in JOURNEY_TYPES[:-1])
+        upstream = tuple(
+            current_artifacts(state).get(artifact_type) for artifact_type in JOURNEY_TYPES[:-1]
+        )
         accepted = tuple(artifact for artifact in upstream if artifact is not None)
         research = ResearchArtifact.model_validate(accepted[1].payload)
         intake_truth = IntakeArtifact.model_validate(accepted[0].payload).founder_truth
@@ -1024,6 +1039,7 @@ def create_company_workflow(
     catalog = create_role_catalog(settings)
     journey = _Journey(
         db=db,
+        stage=stage,
         knowledge=(
             KnowledgeStore(
                 db.db_engine,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { beginBackendRun, continueCompanyView, finishActivities, hasActiveBackendRun, isCancellableBackendRun, nextJourneyApproval, toggleSavedSelection, applyBackendEvent, recordBackendRun, initialCompanyPrompt, companyBriefSchema, chooseWorkflow, orderedPanels, movePanel, latestPanels, emptyCompanyView, eventSchema, panelSchema, portfolioSchema, restorePortfolio, companyViewSchema } from './model';
+import { beginBackendRun, panelIsOutdated, continueCompanyView, finishActivities, hasActiveBackendRun, isCancellableBackendRun, nextJourneyApproval, toggleSavedSelection, applyBackendEvent, recordBackendRun, initialCompanyPrompt, companyBriefSchema, chooseWorkflow, orderedPanels, movePanel, latestPanels, emptyCompanyView, eventSchema, panelSchema, portfolioSchema, restorePortfolio, companyViewSchema } from './model';
 import { onboardingPreview, demoTransport, initialWorkspace, offer, pricing, prospects, evidence, launchPlan } from './demo';
 
 describe('backend-facing UI contract', () => {
@@ -164,7 +164,7 @@ describe('live workspace state', () => {
     expect(hydrated.currentRevision).toBe(7);
     expect(hydrated.backendRun).toBeUndefined();
     expect(hydrated.messages).toHaveLength(1);
-    expect(nextJourneyApproval(hydrated)).toEqual({ stage: 'research', expectedRevision: 7, companyId });
+    expect(nextJourneyApproval(hydrated)).toBeUndefined(); // Panels alone cannot approve work.
   });
   it('rejects foreign recovery binding before applying output and preserves known identity across new runs', () => {
     const companyId = '00000000-0000-4000-8000-000000000001';
@@ -193,16 +193,15 @@ describe('live workspace state', () => {
     const brief = JSON.parse(prompt.slice(prompt.indexOf('\n') + 1));
     expect(brief).toEqual({ idea: 'Cycle repair business', target_customer: 'Local cyclists', geography: 'Pune', budget: '1000 INR', goal: 'First paid pilot' });
   });
-  it('offers only the next explicitly accepted journey stage at the current revision', () => {
+  it('uses canonical eligibility and refuses blocked, running or stale approvals', () => {
     const companyId = '00000000-0000-4000-8000-000000000001';
-    const panel = { ...evidence, provenance: { artifact_type: 'intake', acceptance_status: 'accepted', status: 'complete' } };
-    const intake = { ...emptyCompanyView(), backendRun: { runId: 'r1', status: 'completed' as const, companyId, revision: 3 }, messages: [{ id: 'm1', role: 'assistant' as const, text: '', panel }] };
-    expect(nextJourneyApproval(intake)).toEqual({ stage: 'research', expectedRevision: 3, companyId });
-    const research = { ...intake, messages: [{ ...intake.messages[0], panel: { ...panel, provenance: { artifact_type: 'research', acceptance_status: 'accepted', status: 'needs_rework' } } }] };
-    expect(nextJourneyApproval(research)).toEqual({ stage: 'research', expectedRevision: 3, companyId });
-    const completedResearch = { ...research, messages: [{ ...research.messages[0], panel: { ...panel, provenance: { artifact_type: 'research', acceptance_status: 'accepted', status: 'complete' } } }] };
-    expect(nextJourneyApproval(completedResearch)).toEqual({ stage: 'strategy', expectedRevision: 3, companyId });
-    expect(nextJourneyApproval({ ...intake, backendRun: { ...intake.backendRun, status: 'running' } })).toBeUndefined();
+    const action = { id: 'plan' as const, label: 'Plan delivery', prompt: 'Plan delivery', operation: 'journey' as const, stage: 'plan' as const, area: 'strategy' as const, eligible: true, blocked_reason: null };
+    const canonical = { ...emptyCompanyView(), companyId, currentRevision: 3, actions: [action], nextAction: 'plan' as const };
+    expect(nextJourneyApproval(canonical)).toEqual({ stage: 'plan', expectedRevision: 3, companyId });
+    expect(nextJourneyApproval({ ...canonical, actions: [{ ...action, eligible: false, blocked_reason: 'Resolve conflicting research first.' }] })).toBeUndefined();
+    expect(nextJourneyApproval({ ...canonical, backendRun: { runId: 'new', status: 'completed', revision: 4 } })).toBeUndefined();
+    expect(nextJourneyApproval({ ...canonical, backendRun: { runId: 'new', status: 'running', revision: 3 } })).toBeUndefined();
+
   });
 });
 
@@ -243,4 +242,39 @@ describe('terminal team activity', () => {
     expect(finishActivities(history, 'running')).toEqual(history);
     expect(finishActivities(history, 'completed').at(-1)).toMatchObject({ agent: 'Verifier', state: 'waiting' });
   });
+});
+
+it('marks retained outputs stale only against a matching canonical snapshot', () => {
+  const companyId = '00000000-0000-4000-8000-000000000001';
+  const panel = { ...evidence, provenance: { company_id: companyId, artifact_id: 'old', revision: 3 } };
+  const state = { ...emptyCompanyView(), executionMode: 'live' as const, companyId, currentRevision: 5, currentArtifactIds: ['new'] };
+  expect(panelIsOutdated(panel, state)).toBe(true);
+  expect(panelIsOutdated(panel, { ...state, currentArtifactIds: ['old'] })).toBe(false);
+  expect(panelIsOutdated(panel, { ...state, currentRevision: 2 })).toBe(false);
+  expect(panelIsOutdated(panel, { ...state, currentArtifactIds: undefined })).toBe(false);
+  expect(panelIsOutdated(panel, { ...state, companyId: 'other' })).toBe(false);
+});
+
+
+it('keeps handoffs in the originating conversation after navigation and receipt updates', () => {
+  const pending = beginBackendRun(emptyCompanyView(), '00000000-0000-4000-8000-000000000099', 'research');
+  expect(pending.backendRun?.area).toBe('research');
+  const moved = { ...pending, selectedArea: 'sales' as const, selectedAreas: ['sales' as const] };
+  const completed = recordBackendRun(moved, { runId: 'handoff-run', status: 'completed' });
+  const answered = applyBackendEvent(completed, 'handoff-run', { type: 'message', text: 'Switch to Strategist.', handoff: 'strategy' });
+  expect(answered.messages[0]).toMatchObject({ area: 'research', handoff: 'strategy', backendRunId: 'handoff-run' });
+  expect(companyViewSchema.parse(answered).backendRun?.area).toBe('research');
+  expect(applyBackendEvent(answered, 'handoff-run', { type: 'message', text: 'Switch to Strategist.', handoff: 'strategy' })).toBe(answered);
+});
+
+
+it('uses owned run metadata to recover historically misfiled handoffs without moving other messages', () => {
+  const state = { ...emptyCompanyView(), backendRun: { runId: 'owned-run', status: 'completed' as const }, messages: [
+    { id: 'old-handoff', role: 'assistant' as const, text: 'Switch to Strategist.', backendRunId: 'owned-run', area: 'overview' as const, handoff: 'strategy' as const },
+    { id: 'other-run', role: 'assistant' as const, text: 'Other result', backendRunId: 'other-run', area: 'overview' as const },
+    { id: 'founder', role: 'user' as const, text: 'Original request', area: 'research' as const },
+  ] };
+  const recovered = recordBackendRun(state, { runId: 'owned-run', status: 'completed', area: 'research' });
+  expect(recovered.messages[0]).toMatchObject({ id: 'old-handoff', area: 'research', handoff: 'strategy' });
+  expect(recovered.messages.slice(1)).toEqual(state.messages.slice(1));
 });

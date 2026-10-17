@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Final, Literal
 
 from pydantic import TypeAdapter
 
-from samurai.contracts import ArtifactType
+from samurai.contracts import ArtifactType, current_artifacts
 
 if TYPE_CHECKING:
     from samurai.company_workflow import JourneyStage
@@ -90,7 +90,7 @@ def journey_handoff(area: TeamArea, stage: JourneyStage, state: CompanyState | N
         return None
     if destinations[stage] != area:
         return suggest_team_area(destinations[stage])
-    latest = {} if state is None else {item.artifact_type: item for item in state.artifacts}
+    latest = {} if state is None else current_artifacts(state)
     if ArtifactType.INTAKE not in latest:
         return _prerequisite("overview", "Save your company brief before starting this work.")
     research = latest.get(ArtifactType.RESEARCH)

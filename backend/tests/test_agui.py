@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Never
 import anyio
 import jwt
 import pytest
+from agno.agent import Agent
 from agno.db.sqlite import SqliteDb
 from agno.session.agent import AgentSession
 from cryptography.hazmat.primitives import serialization
@@ -23,6 +24,8 @@ if TYPE_CHECKING:
 
     from agno.models.message import Message
     from agno.models.response import ModelResponse
+    from agno.session.team import TeamSession
+    from agno.session.workflow import WorkflowSession
 
 
 def payload(**changes: object) -> dict[str, object]:
@@ -38,7 +41,9 @@ def payload(**changes: object) -> dict[str, object]:
     }
 
 
-def fixture(tmp_path: Path) -> tuple[TestClient, dict[str, str], SqliteDb]:
+def fixture(
+    tmp_path: Path, model: _ToolSequenceModel | None = None
+) -> tuple[TestClient, dict[str, str], SqliteDb]:
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     public = (
         key.public_key()
@@ -62,7 +67,7 @@ def fixture(tmp_path: Path) -> tuple[TestClient, dict[str, str], SqliteDb]:
         create_app(
             db=db,
             settings=settings,
-            parent_model_factory=lambda: _ToolSequenceModel("read_company_state"),
+            parent_model_factory=lambda: model or _ToolSequenceModel("read_company_state"),
         )
     )
     return client, {"Authorization": f"Bearer {token}"}, db
@@ -145,6 +150,16 @@ def test_agui_can_read_and_cancel_before_first_model_response(
         _ = await anyio.to_thread.run_sync(release.wait, 10)
         return await original(self, messages, tools=tools, **kwargs)
 
+    original_save = Agent.asave_session
+
+    async def checked_save(
+        self: Agent, session: AgentSession | TeamSession | WorkflowSession
+    ) -> None:
+        assert session.created_at is not None
+        assert session.updated_at is not None
+        await original_save(self, session)
+
+    monkeypatch.setattr(Agent, "asave_session", checked_save)
     monkeypatch.setattr(_ToolSequenceModel, "ainvoke", waiting_model)
     client, headers, _ = fixture(tmp_path)
     with client, ThreadPoolExecutor(max_workers=1) as executor:
@@ -171,3 +186,45 @@ def test_agui_can_read_and_cancel_before_first_model_response(
     assert "RunCancelled" in result.text
     assert stored.json()["status"] == "CANCELLED"
     assert "SAMURAI_PANEL=" not in result.text
+
+
+@pytest.mark.parametrize("area", ["overview", "research", "strategy", "verification", "sales"])
+def test_inline_agui_exposes_only_read_only_tools(tmp_path: Path, area: str) -> None:
+    model = _ToolSequenceModel("read_company_state")
+    client, headers, _ = fixture(tmp_path, model)
+    with client:
+        response = client.post(
+            "/agentos/agents/samurai/agui",
+            json=payload(forwardedProps={"team_area": area}),
+            headers=headers,
+        )
+    assert response.status_code == 200
+    assert '"type":"RUN_FINISHED"' in response.text
+    assert "read_company_state" in model.advertised_tools_json
+    for tool in ("run_company_journey", "create_launch_drafts", "analyze_metrics"):
+        assert tool not in model.advertised_tools_json
+
+
+@pytest.mark.parametrize("operation", ["journey", "launch_drafts", "metrics_analysis"])
+def test_inline_agui_rejects_approved_work_without_worker(tmp_path: Path, operation: str) -> None:
+    model = _ToolSequenceModel("read_company_state")
+    client, headers, db = fixture(tmp_path, model)
+    with client:
+        response = client.post(
+            "/agentos/agents/samurai/agui",
+            json=payload(
+                forwardedProps={
+                    "work_approval": {
+                        "operation": operation,
+                        "stage": "plan",
+                        "expected_revision": 0,
+                        "company_id": None,
+                    }
+                }
+            ),
+            headers=headers,
+        )
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Approved work requires Samurai's durable execution worker."
+    assert model.calls == 0
+    assert db.get_run("view-run") is None

@@ -85,7 +85,10 @@ export function usePanelLayout(wantedIds: string[], allIds: string[], active: bo
           const remaining = current.filter(item => item !== id);
           return remaining.length === latestWanted.current.size ? [...latestWanted.current] : remaining;
         });
-        else { animation.cancel(); animations.current.delete(id); }
+        else {
+          animation.cancel(); animations.current.delete(id);
+          setDisplayedIds(current => current.length === latestWanted.current.size ? [...latestWanted.current] : current);
+        }
       }).catch(() => { /* Reversing a transition cancels its old completion. */ });
     }
   }, [wantedKey, allKey, displayedKey, active, reduceMotion]);

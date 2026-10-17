@@ -6,14 +6,16 @@ from agno.run import RunContext
 from agno.run.concurrency import worker_managed_execution
 from agno.session.workflow import WorkflowSession
 
-from samurai.app import _canonical_company  # pyright: ignore[reportPrivateUsage]
 from samurai.company_store_contracts import CompanyReservation
 from samurai.contracts import WorkflowRequest
+from samurai.execution_state import ApprovedStage, NormalizedWorkInput, WorkOperation
 from samurai.parent import (
     ParentContextError,
+    _bind_normalized_work,  # pyright: ignore[reportPrivateUsage]
     _child_state,  # pyright: ignore[reportPrivateUsage]
 )
 from samurai.schema_contracts import canonical_state_hash
+from samurai.work_admission import canonical_company
 from samurai.workflow_state import WorkflowContextError, load_company_state
 from tests.company_store_support import bound_attempt, revision_one, store_session
 
@@ -26,7 +28,7 @@ if TYPE_CHECKING:
 pytest_plugins = ("tests.company_store_support",)
 
 
-def test_stale_agno_upsert_cannot_overwrite_canonical_company(
+def test_stale_agno_upsert_cannot_overwritecanonical_company(
     company_store: tuple[CompanyStore, SamuraiPostgresDb, UUID],
 ) -> None:
     # Given canonical revision one accepted through a fenced durable attempt.
@@ -101,7 +103,7 @@ def test_unbound_actor_cannot_read_stale_agno_company(
         },
     )
 
-    assert _canonical_company(
+    assert canonical_company(
         database,
         "rogue",
         "rogue-parent",
@@ -119,3 +121,37 @@ def test_unbound_actor_cannot_read_stale_agno_company(
             created_at=datetime(2026, 10, 13, tzinfo=UTC),
             db=database,
         )
+
+
+def test_queue_binding_uses_authoritative_child_session_for_reserved_company(
+    company_store: tuple[CompanyStore, SamuraiPostgresDb, UUID],
+) -> None:
+    store, database, workspace_id = company_store
+    owner = store.reserve(
+        CompanyReservation(
+            workspace_id=workspace_id,
+            actor_id="owner",
+            parent_session_id="reserved-parent",
+            child_session_id="reserved-child",
+            created_at=datetime(2026, 10, 13, tzinfo=UTC),
+        )
+    )
+    store_session(database, "owner", owner)
+    token = bound_attempt(database, owner, "owner", "reserved-run")
+    context = RunContext(
+        run_id=token.parent_run_id,
+        session_id=owner.parent_session_id,
+        user_id="owner",
+        session_state={},
+    )
+    proposed = NormalizedWorkInput(
+        operation=WorkOperation.JOURNEY,
+        stage=ApprovedStage.BRIEF,
+        expected_revision=0,
+        arguments={"idea": "Clinic assistant"},
+    )
+    with worker_managed_execution(token.parent_run_id, token.worker_id, token.attempt):
+        assert _bind_normalized_work(database, context, proposed) == proposed
+    assert context.dependencies is not None
+    assert context.dependencies["parent_run_id"] == token.parent_run_id
+    assert store.read_for_actor("owner", owner.parent_session_id) == owner

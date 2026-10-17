@@ -74,3 +74,59 @@ Home retains the original portfolio layout: the centered idea heading, floating 
 Do not show search controls anywhere in the product UI: Home, workspace headers, prospect cards or generated tables. Remove the Cmd/Ctrl+K search shortcut. Keep workflow filters, prospect fit/shortlist filters and panel actions.
 
 The Chat sidebar uses the plus control beside Pinned to add panels. Do not repeat an Add a panel button at the bottom of the sidebar; keep the existing composer and Company-header controls.
+
+
+## OpenUI composed views — 16 October 2026
+
+OpenUI owns the text/metric/list/table composition renderer. Its allowlisted components retain the existing `declarative-*` markup, Inter, theme tokens, native table semantics and scroll container. The surrounding BusinessPanel still owns title, pinning and assumptions. The shared preview includes an illustrative Pilot comparison; no new visual theme or chat shell is introduced.
+
+
+## Calm panels — 16 October 2026
+
+Use generous shared card padding and a quiet title without decorative category icons. Keep controls visible and keyboard accessible. Replace nested segmented-control shells with simple underlined choices; soften pricing selection and remove nested milestone/metric boxes. OpenUI metrics use unboxed large values and share a two-column layout when adjacent. Tables keep semantic headers and a screen-reader row-count caption, with fine dividers instead of toolbars and framed grids. Preserve draft/source distinctions, disclosures, company-scoped actions, both themes and mobile tap targets. Hide the upstream development inspector in founder previews.
+
+
+## Visual prompt results — 16 October 2026
+
+The default company entry is the dashboard. Evidence/prospect mixes and delivery completion use data-derived rings with short legends. OpenUI's Table component projects compatible two-column numeric data into comparison bars; full original tables stay in Details, and mixed currencies/cadences stay as tables. Scenario lines connect only supplied endpoints and retain explicit synthetic labels, exact values, assumptions and constraints. Pricing choices use three tinted visual tiles. The charts use native SVG/CSS and existing beUI motion tokens; Bklit's rings, legends and quiet chart surfaces are design references, not a vendored dependency. All founder controls and full findings remain available. The multi-panel preview is a component catalog; one prompt does not automatically generate its entire contents.
+
+
+## Field and scrollbar polish — 16 October 2026
+
+Share quiet porcelain/champagne field fills, fine theme-aware borders, generous
+text padding, rounded selects and clear keyboard focus. Keep the company-name
+pill and OpenUI composer; the composer starts at one line and grows for longer
+drafts. Scrollable content uses thin rounded theme-aware thumbs on transparent
+tracks rather than hiding navigation or showing heavy native rails. Preserve
+resizeable long-answer fields, labels, native semantics, disabled states and
+reduced-motion/forced-color preferences.
+
+
+## Progressive brief and compact utilities — 16 October 2026
+
+Use one small OpenUI brief card with five Back/Next reading steps rather than an
+all-at-once overview. Each step presents one topic and at most two primary facts.
+Long answers remain available through Read full answer; evidence, assumptions
+and framework lineage sit under Evidence & context on the final step. Change
+this opens an existing chat draft for the current topic without submitting it.
+Files and Founder operations use ordinary measured masonry slots, never a
+full-width utility row on desktop. Learning, Scenarios and Schedules start
+collapsed. Mobile keeps readable single-column cards and the same navigation.
+
+
+## Saved launch drafts and measurements — 16 October 2026
+
+Native Builder, Marketing, Sales and analysis artifacts use the allowlisted
+OpenUI WorkDraft reader, with one short item at a time, direct section choices
+and Back/Next. Keep full long content, source links and review notes in
+disclosures, and keep workflow-filter toggles from resetting the reading step.
+These are draft outputs, not evidence coverage scores. Supplied measurements
+show their actual value, unit, period and source, without rounding tiny values
+to zero or claiming independent verification. No button here sends outreach,
+publishes, deploys or changes backend approval. The isolated `?preview=drafts`
+route uses illustrative fixtures and the same canonical projection/renderer.
+
+Generated business results settle into the requested card order after reveal,
+ahead of Files and Founder operations that load first. Preserve the same mounted
+cards and reading steps across workflow filters; utilities must not displace the
+brief below the fold on mobile merely because they arrived earlier.

@@ -16,15 +16,14 @@ from samurai.contracts import (
     BuilderDraftArtifact,
     CompanyState,
     MarketingDraftArtifact,
-    ProductPlanArtifact,
     Role,
     SalesDraftArtifact,
-    StrategyArtifact,
     VerificationArtifact,
     VerificationFinding,
     WorkflowRequest,
     WorkflowResult,
     accept_artifact,
+    current_artifacts,
 )
 from samurai.workflow_state import load_company_state, save_company_state
 
@@ -126,36 +125,25 @@ def _requested_roles(kind: LaunchKind) -> tuple[LaunchRole, ...]:
     assert_never(kind)
 
 
-def _verified_inputs(state: CompanyState) -> tuple[ArtifactEnvelope, ArtifactEnvelope]:
+def verified_launch_inputs(state: CompanyState) -> tuple[ArtifactEnvelope, ArtifactEnvelope]:
+    """Require verification covering the latest strategy and product artifacts."""
     verification = next(
         (
             artifact
             for artifact in reversed(state.artifacts)
             if isinstance(artifact.payload, VerificationArtifact)
-            and artifact.payload.outcome == "verified"
         ),
         None,
     )
     if verification is None:
         raise MissingVerifiedLaunchInputsError
     verification_payload = cast("VerificationArtifact", verification.payload)
+    if verification_payload.outcome != "verified":
+        raise MissingVerifiedLaunchInputsError
     checked_ids = set(verification_payload.checked_artifact_ids)
-    strategy = next(
-        (
-            artifact
-            for artifact in reversed(state.artifacts)
-            if isinstance(artifact.payload, StrategyArtifact)
-        ),
-        None,
-    )
-    product = next(
-        (
-            artifact
-            for artifact in reversed(state.artifacts)
-            if isinstance(artifact.payload, ProductPlanArtifact)
-        ),
-        None,
-    )
+    current = current_artifacts(state)
+    strategy = current.get(ArtifactType.STRATEGY)
+    product = current.get(ArtifactType.PRODUCT_PLAN)
     if (
         strategy is None
         or product is None
@@ -204,7 +192,7 @@ async def run_launch_drafts(
         created_at=created_at,
         db=first_workflow.db,
     )
-    strategy, product = _verified_inputs(state)
+    strategy, product = verified_launch_inputs(state)
     artifacts: list[ArtifactEnvelope] = []
     for role in _requested_roles(request.kind):
         output = await workflows[role].arun(

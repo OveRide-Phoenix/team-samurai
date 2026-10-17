@@ -1,5 +1,32 @@
 /* Shared controls used by the host panels and the isolated custom-view shell. */
-.samurai-field { width:100%; min-height:44px; padding:11px 14px; border:1px solid var(--border); border-radius:14px; background:var(--surface); color:var(--foreground); font:inherit; font-size:13px; outline-offset:3px; }
+:root {
+  --field-fill:color-mix(in srgb,var(--card,var(--surface)) 78%,var(--surface));
+  --field-border:color-mix(in srgb,var(--foreground) 16%,transparent);
+  --scroll-thumb:color-mix(in srgb,var(--foreground) 26%,transparent);
+}
+* { scrollbar-width:thin; scrollbar-color:var(--scroll-thumb) transparent; }
+*::-webkit-scrollbar { width:6px; height:6px; }
+*::-webkit-scrollbar-track { background:transparent; }
+*::-webkit-scrollbar-thumb { background:var(--scroll-thumb); border-radius:999px; }
+*::-webkit-scrollbar-thumb:hover { background:var(--secondary-text,var(--foreground)); }
+*::-webkit-scrollbar-corner { background:transparent; }
+:is(input,textarea,select) { caret-color:var(--primary); accent-color:var(--primary); }
+:is(input,textarea)::placeholder { color:var(--muted-foreground); opacity:.8; }
+:is(.samurai-field,.intake-input,.operations-form input,.operations-form textarea,.operations-form select,.scenario-metric select) {
+  transition:background-color .18s,border-color .18s,box-shadow .18s;
+}
+:is(.samurai-field,.onboarding-fields .intake-input,.operations-form input,.operations-form textarea,.operations-form select,.scenario-metric select):hover:not(:disabled) { border-color:var(--ring); }
+:is(.samurai-field,.onboarding-fields .intake-input,.operations-form input,.operations-form textarea,.operations-form select,.scenario-metric select):focus-visible { border-color:var(--ring); }
+:is(select.samurai-field,.operations-form select,.scenario-metric select,.panel-filter select):not([multiple]) {
+  appearance:none; padding-right:40px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' viewBox='0 0 16 16'%3E%3Cpath d='m4 6 4 4 4-4' stroke='%239a8878' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat; background-position:right 14px center;
+}
+select option { background:var(--background); color:var(--foreground); }
+@media (prefers-reduced-motion:reduce) { :is(input,textarea,select) { transition:none!important; } }
+@media (forced-colors:active) { select { appearance:auto!important; background-image:none!important; } }
+
+.samurai-field { width:100%; min-height:46px; padding:12px 14px; border:1px solid var(--field-border); border-radius:16px; background:var(--field-fill); color:var(--foreground); font:inherit; font-size:13px; outline-offset:3px; }
 .samurai-action { min-height:44px; display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:10px 16px; border:0; border-radius:999px; color:var(--primary-foreground); background:var(--primary); font:inherit; font-size:12px; font-weight:550; }
 .samurai-field:focus-visible,.samurai-action:focus-visible { outline:2px solid var(--primary); outline-offset:3px; }
 .samurai-custom { display:flow-root!important; margin:0!important; padding:0!important; min-height:0!important; height:auto!important; background:transparent!important; color:var(--foreground)!important; font-family:'Inter Variable',sans-serif!important; font-size:14px!important; line-height:1.6!important; overflow-wrap:anywhere; }
@@ -8,7 +35,7 @@
 .samurai-custom :is(h1,h2,h3) { font-size:20px!important; line-height:1.4!important; font-weight:550!important; letter-spacing:-.5px!important; color:var(--foreground)!important; margin:0 0 16px; }
 .samurai-custom p { margin:0 0 14px; }
 .samurai-custom label { display:grid; align-content:start; gap:8px; margin:0 0 16px; color:var(--muted-foreground)!important; font-size:12px!important; font-weight:500!important; }
-.samurai-custom :is(input,select,textarea) { width:100%!important; max-width:100%; min-height:44px!important; padding:11px 14px!important; border:1px solid var(--border)!important; border-radius:14px!important; color:var(--foreground)!important; background:var(--surface)!important; font-size:14px!important; }
+.samurai-custom :is(input,select,textarea) { width:100%!important; max-width:100%; min-height:46px!important; padding:12px 14px!important; border:1px solid var(--field-border)!important; border-radius:16px!important; color:var(--foreground)!important; background:var(--field-fill)!important; font-size:14px!important; }
 .samurai-custom input[type='range'] { appearance:none; padding:0!important; border:0!important; background:transparent!important; accent-color:var(--primary)!important; cursor:pointer; }
 .samurai-custom input[type='range']::-webkit-slider-runnable-track { height:4px; border-radius:999px; background:var(--border); }
 .samurai-custom input[type='range']::-webkit-slider-thumb { appearance:none; width:16px; height:16px; margin-top:-6px; border:0; border-radius:50%; background:var(--primary); }
