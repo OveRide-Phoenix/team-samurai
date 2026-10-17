@@ -198,4 +198,9 @@ CopilotKit 1.79.0 is integrated locally through AG-UI and the existing Agno back
 
 The entry form yields a declarative Company brief. Research/evidence, offer/pricing and delivery-plan panels follow the existing founder-approved stages. The OpenUI catalog also covers prospect lists and reuses the same business components in chat, Home and the dashboard. Additional views compose typed text, metrics, lists and tables. OpenUI also renders chat messages, the reply composer, company-name entry and prerequisite answer fields; assistant-ui retains runtime/draft state and CopilotKit retains authenticated AG-UI transport. Founder-requested custom HTML/CSS/JS runs in an isolated frame with embedded Inter, theme tokens, blocked host access and blocked network/navigation. Generated panels remain drafts; their definitions persist, while custom frame input values are temporary.
 
-This is a source/local integration. The recorded Cloud Run revisions were not updated for these new endpoints. Validation uses deterministic models rather than paid Gemini calls; see [the generative UI contract](docs/generative-ui.md).
+The integrated source was deployed on 17 October 2026. A live guest intake and reload passed; broader generative-panel validation remains provider-free. See [the generative UI contract](docs/generative-ui.md).
+
+[Open Samurai](https://samurai-frontend-590733583260.asia-south1.run.app/) without
+Google sign-in during the approved seven-day judge window. Guest sessions are
+isolated and share daily usage limits. See [verification, limits and the
+24 October expiry](docs/public-guest-access.md).

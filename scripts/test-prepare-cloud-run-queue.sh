@@ -35,7 +35,7 @@ if [[ "$1 $2 $3" == "services describe samurai-backend" ]]; then
     secret=samurai-redis-url
     version=7
     min=1
-    max=2
+    max=1
     throttling=false
   fi
   if [[ "${SCENARIO:-}" == bad-readback && -f "$TEST_STATE/updated" ]]; then max=3; fi
@@ -43,7 +43,7 @@ if [[ "$1 $2 $3" == "services describe samurai-backend" ]]; then
     --arg revision "$revision" --arg network "$network" --arg subnet "$subnet" \
     --arg queue "$queue" --arg secret "$secret" --arg version "$version" \
     --arg min "$min" --arg max "$max" --arg throttling "$throttling" '{
-      metadata: {annotations: {}},
+      metadata: {annotations: {"run.googleapis.com/minScale": $min, "run.googleapis.com/maxScale": $max}},
       spec: {template: {
         metadata: {annotations: {
           "run.googleapis.com/cloudsql-instances": "samurai-ai-company-2026:asia-south1:samurai-postgres",
@@ -147,7 +147,7 @@ for argument in \
   '--subnet=samurai-redis-subnet' \
   '--vpc-egress=private-ranges-only' \
   '--cpu=1' '--memory=2Gi' '--no-cpu-throttling' \
-  '--min=1' '--max=2' '--concurrency=8' '--deploy-health-check'; do
+  '--min=1' '--max=1' '--min-instances=1' '--max-instances=1' '--concurrency=8' '--deploy-health-check'; do
   grep -Fxq -- "$argument" "$test_dir/gcloud-args"
 done
 grep -q 'configuration readback passed' "$test_dir/success-output"

@@ -200,3 +200,11 @@ A fresh authenticated AgentOS console run on `gemini-3.5-flash-lite` completed a
 
 ### CopilotKit AG-UI
 The authenticated `/agentos/agents/samurai/agui` interface uses the native durable worker for PostgreSQL. Enable local `QUEUE_ENABLED` and private Redis deliberately; missing coordination fails closed. The request UUID is also its durable submission identity. Bounded typed work approval shares native membership/company/revision validation; ordinary chat exposes read-only tools. The worker creates a fresh scoped parent and uses the authoritative shared-company child binding. Client tools, state/context/identity overrides, foreign sessions and reused run IDs are rejected. Presentation tools add validated drafts without mutating canonical state. Native owned receipts, reads, cancellation and replay remain authoritative. The 16 October local browser test accepted and recovered one real Gemini intake at revision 1; no later-stage provider test or cloud deployment is established. See [the UI contract](../docs/generative-ui.md).
+
+Guest admission is opt-in (`GUEST_ACCESS_ENABLED=false` by default). Migration
+`0005_guest_usage` adds shared daily counters. Production guests additionally require
+the durable queue; see [public guest access](../docs/public-guest-access.md) before activation.
+
+Production queue and guest access were enabled on 17 October 2026 for the approved
+seven-day Mumbai judge window. Backend JWT checks remain required. See the
+[acceptance snapshot and expiry runbook](../docs/public-guest-access.md).

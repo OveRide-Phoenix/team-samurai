@@ -93,4 +93,4 @@ jobs:
           version: "0.13.0"
           python-version: "3.14"
       - run: uv sync --locked
-      - run: uv run pytest tests/test_local_setup.py tests/test_recovery_postgres.py tests/test_queue_runtime.py tests/test_database_recovery.py
+      - run: uv run pytest tests/test_local_setup.py tests/test_recovery_postgres.py tests/test_queue_runtime.py tests/test_database_recovery.py tests/test_guest_access.py tests/test_founder_platform_migration.py tests/test_founder_platform_migration_atomic.py tests/test_founder_platform_migration_cli.py

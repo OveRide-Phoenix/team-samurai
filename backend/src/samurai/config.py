@@ -62,6 +62,7 @@ class Settings(BaseSettings):
     gemini_timeout_seconds: float = Field(default=60, gt=0)
     agent_tool_call_limit: int = Field(default=4, gt=0, le=16)
     queue_enabled: bool = False
+    guest_access_enabled: bool = False
     redis_url: SecretStr | None = None
     jwt_verification_key: str | None = None
     frontend_jwt_verification_key: str | None = None
@@ -80,6 +81,9 @@ class Settings(BaseSettings):
             case "development":
                 return self
             case "production":
+                if self.guest_access_enabled and not self.queue_enabled:
+                    message = "production guest access requires the durable queue"
+                    raise ValueError(message)
                 if not self.jwt_verification_key or not self.jwt_verification_key.strip():
                     raise ValueError(PRODUCTION_JWT_KEY_REQUIRED)
                 if not self.google_api_key.get_secret_value().strip():

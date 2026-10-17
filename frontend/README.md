@@ -43,6 +43,14 @@ transport. See [GCP deployment](../docs/gcp-deployment.md) for the production bo
 - Marketing, sales and build outputs remain drafts. Nothing sends, spends, publishes
   or deploys through the mentor conversation.
 
+## Production guest access
+
+The BFF defaults to `FRONTEND_AUTH_MODE=iap`. Production uses `guest` during the
+approved seven-day judge window beginning 17 October 2026. Guest mode
+creates signed browser identities while retaining scoped server-to-server JWTs.
+See [public guest access](../docs/public-guest-access.md) for limits, cookie lifetime,
+verification scope, expiry and rollback instructions.
+
 ## Verify
 
 ```sh

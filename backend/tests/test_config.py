@@ -90,3 +90,15 @@ def test_enabled_queue_requires_redis_coordination() -> None:
 def test_gcs_storage_fails_during_configuration_without_adapter_import() -> None:
     with pytest.raises(ValidationError, match=GCS_STORAGE_DISABLED):
         _ = Settings.model_validate({"storage_backend": "gcs"})
+
+
+def test_production_guest_access_requires_durable_execution() -> None:
+    with pytest.raises(ValidationError, match="production guest access requires the durable queue"):
+        _ = Settings.model_validate(
+            {
+                "samurai_environment": "production",
+                "guest_access_enabled": True,
+                "jwt_verification_key": "test-key",
+                "google_api_key": "unused-test-key",
+            }
+        )

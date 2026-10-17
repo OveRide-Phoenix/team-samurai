@@ -1,11 +1,74 @@
 # Production readiness cost baseline
 
-**Status: BLOCKED — explicit cost approval is required before changing Cloud Run
-or creating Redis or a restore target.** This is an estimate, not a bill or a
+**Status: seven-day Basic queue approved on 17 October 2026.** The approval covers
+one always-on backend (1 vCPU / 2 GiB) and 1 GiB Basic Redis in Mumbai.
+Temporary Redis outages are accepted; a separate restore target is not approved. This is an estimate, not a bill or a
 spend cap. No numeric budget was supplied, so free tier, credits, committed-use
 discounts, and billing alerts are deliberately excluded from the arithmetic.
 
-## 12 October 2026 baseline
+## Refreshed judge-access estimate — 17 October 2026
+
+The user approved the Basic option for seven days. This section supersedes the older price arithmetic
+below: that estimate incorrectly used Iowa's Redis price for Mumbai.
+
+Smallest managed deployment compatible with the current queue: keep the existing
+Cloud SQL database, run the existing backend continuously at 1 vCPU / 2 GiB with
+instance-based billing and minimum 1 instance, and add 1 GiB Memorystore for Redis.
+Use Direct VPC egress, avoiding a separate connector VM charge. For the lowest-cost
+judge deployment uses maximum 1 backend instance; the tested rollout script
+sets both service and revision minimum/maximum to 1.
+This is not a hard spending cap; revision overlap and variable charges can add cost.
+
+| Component / option | USD per 730-hour month | USD for seven days |
+| --- | ---: | ---: |
+| One always-on backend, 1 vCPU / 2 GiB | 57.82 | 13.31 |
+| Redis Basic, 1 GiB, Mumbai at $0.063/GiB-hour | 45.99 | 10.58 |
+| Backend + Basic Redis | **103.81** | **23.89** |
+| Backend + Standard Redis (automatic failover), $0.11/GiB-hour | **138.12** | **31.79** |
+
+At an illustrative planning conversion of **INR 100/USD** (not a live FX quote or
+Google's INR SKU tariff), these are about **INR 10,400/month or INR 2,400/week** for
+Basic, and **INR 13,800/month or INR 3,200/week** for Standard. Taxes are additional.
+A sustained second backend adds $57.82/month; with Basic the two-instance total
+is $161.62/month. Free-tier discounts, credits and commitments are excluded.
+
+These are gross post-change backend-plus-Redis prices, not the entire application
+bill and not an exact incremental amount. Redis is new; the always-on backend
+replaces current backend billing. Existing Cloud SQL, frontend, Gemini usage,
+network traffic, storage growth, logging/builds and any recovery drill are excluded.
+No live billing usage or account-specific INR prices were retrieved.
+
+Basic is the minimum-cost competition option but has **no automatic Redis failover**:
+a Redis outage pauses admission, streaming/cancellation and coordination until it
+recovers. Durable job records stay in PostgreSQL; actual cloud recovery still needs
+verification. Standard is preferable if uninterrupted judge access matters. Neither
+choice makes the existing zonal Cloud SQL deployment highly available.
+
+Decision: seven-day Basic is approved with the availability tradeoff accepted.
+Standard and an extension beyond seven days require a new decision.
+Seven-day arithmetic does not automatically stop billing: approved teardown or a
+return to the previous configuration is required at the end. Do not purchase a
+long-term commitment for this experiment.
+
+Current authoritative sources:
+
+- [Cloud Run pricing](https://cloud.google.com/run/pricing): Mumbai is Tier 1;
+  instance CPU $0.000018/vCPU-second and RAM $0.000002/GiB-second.
+  Monthly backend arithmetic: 730 * 3600 * (0.000018 + 2 * 0.000002).
+- [Memorystore pricing](https://cloud.google.com/memorystore/docs/redis/pricing):
+  the page's published regional table data was read for `Mumbai (asia-south1)`;
+  Basic M1 is $0.063/GiB-hour and Standard M1 is $0.11/GiB-hour. The default visible
+  Iowa table ($0.049 Basic) must not be used for Mumbai.
+- [Redis tiers](https://docs.cloud.google.com/memorystore/docs/redis/redis-tiers):
+  Basic is standalone; Standard provides cross-zone replication and failover.
+- [Cloud Run billing](https://docs.cloud.google.com/run/docs/configuring/billing-settings):
+  continuously available background CPU requires instance-based billing with a
+  minimum instance; instances can still be terminated and must recover durably.
+- [Direct VPC comparison](https://docs.cloud.google.com/run/docs/configuring/connecting-vpc):
+  Direct VPC avoids the additional VMs charged for a connector; traffic remains
+  subject to applicable network pricing.
+
+## 12 October 2026 baseline (historical; pricing superseded above)
 
 | Surface | Verified current state | Cost treatment |
 | --- | --- | --- |

@@ -1,11 +1,12 @@
 import { z } from 'zod';
 import { portfolioKey, restorePortfolio, storageKey, type Portfolio } from './model';
 
-const identity = z.object({ configured: z.literal(true), storageNamespace: z.string().regex(/^[a-f0-9]{64}$/).brand<'StorageNamespace'>() });
-export type BrowserScope = { readonly kind: 'development' } | { readonly kind: 'user'; readonly namespace: z.infer<typeof identity>['storageNamespace'] };
+const guest = z.object({ sessionDays: z.number().int().positive(), aiSubmissionsPerDay: z.number().int().positive() });
+const identity = z.object({ guest: guest.optional(), configured: z.literal(true), storageNamespace: z.string().regex(/^[a-f0-9]{64}$/).brand<'StorageNamespace'>() });
+export type BrowserScope = { readonly kind: 'development' } | { readonly kind: 'user'; readonly namespace: z.infer<typeof identity>['storageNamespace']; readonly guest?: z.infer<typeof guest> };
 export class BrowserIdentityError extends Error {
   readonly name = 'BrowserIdentityError';
-  constructor() { super('Sign in to Samurai and reload to open your workspace.'); }
+  constructor() { super('Your session could not be opened. Reload Samurai to try again.'); }
 }
 
 export async function resolveBrowserScope(production: boolean, request: typeof fetch = fetch): Promise<BrowserScope> {
@@ -18,7 +19,7 @@ export async function resolveBrowserScope(production: boolean, request: typeof f
   const data: unknown = await response.json();
   const result = identity.safeParse(data);
   if (!result.success) throw new BrowserIdentityError();
-  return { kind: 'user', namespace: result.data.storageNamespace };
+  return { kind: 'user', namespace: result.data.storageNamespace, ...(result.data.guest ? { guest: result.data.guest } : {}) };
 }
 
 export function portfolioStorageKey(scope: BrowserScope): string {

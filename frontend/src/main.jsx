@@ -16,7 +16,7 @@ async function start() {
     );
   } catch {
     root.setAttribute("role", "alert");
-    root.textContent = "Sign in to Samurai and reload to open your workspace.";
+    root.textContent = "Your session could not be opened. Reload Samurai to try again.";
   }
 }
 void start();
