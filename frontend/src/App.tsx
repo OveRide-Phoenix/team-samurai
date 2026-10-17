@@ -12,7 +12,7 @@ import { Tabs, TabsList, TabsTrigger } from './components/beui/tabs';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { TeamNavigation } from './TeamNavigation';
-import { areaForPanel, conversationArea, messagesForArea, panelChoiceAreas, panelsForAreas, selectedWorkflowAreas, scopeForAspect, teamAreas } from './teamAreas';
+import { actionAreas, areaForPanel, conversationArea, messagesForArea, panelChoiceAreas, panelsForAreas, selectedWorkflowAreas, scopeForAspect, teamAreas } from './teamAreas';
 import { AspectReview } from './AspectReview';
 import type { IdeaArea } from './aspectState';
 import { TeamPanel, ModeToggle, type Activity } from './ShellParts';
@@ -189,8 +189,8 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
   const armDraft = (draft?: ApprovedWorkDraft) => { approvedDraft.current = draft; setWorkLabel(draft?.label || ''); };
   useEffect(() => {
     const draft = approvedDraft.current;
-    if (draft && (draft.area !== area || draft.approval.companyId !== workspace.companyId || draft.approval.expectedRevision !== workspace.currentRevision)) armDraft();
-  }, [area, workspace.companyId, workspace.currentRevision]);
+    if (draft && (draft.area !== uiArea || draft.approval.companyId !== workspace.companyId || draft.approval.expectedRevision !== workspace.currentRevision)) armDraft();
+  }, [uiArea, workspace.companyId, workspace.currentRevision]);
   const backendRunning = () => hasActiveBackendRun(backendRunRef.current);
   const completionRef = useRef<Promise<void> | null>(null);
   const recordRun = (run: AgentosRun) => {
@@ -257,7 +257,7 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
       if (live) {
         const transport = transportRef.current;
         if (!transport) throw new Error('The live backend transport is unavailable.');
-        const approval: AgentosApproval | undefined = initial && (workspace.companyId ?? company.companyId) ? { operation: 'journey', stage: 'brief', companyId: (workspace.companyId ?? company.companyId)!, expectedRevision: workspace.currentRevision ?? company.currentRevision ?? 0 } : approvedWorkForSubmission(approvedDraft.current, input, area, workspace.companyId, workspace.currentRevision);
+        const approval: AgentosApproval | undefined = initial && (workspace.companyId ?? company.companyId) ? { operation: 'journey', stage: 'brief', companyId: (workspace.companyId ?? company.companyId)!, expectedRevision: workspace.currentRevision ?? company.currentRevision ?? 0 } : approvedWorkForSubmission(approvedDraft.current, input, uiArea, workspace.companyId, workspace.currentRevision);
         armDraft();
         events = transport(initial ? initialCompanyPrompt(initial) : input, controller.signal, approval ?? (initial ? 'overview' : area));
       } else events = initial ? onboardingPreview(initial, controller.signal) : demoTransport(input, controller.signal, area);
@@ -371,7 +371,7 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
     if (stage) {
       const companyId = workspace.backendRun?.companyId ?? workspace.companyId ?? company.companyId;
       const expectedRevision = workspace.currentRevision ?? workspace.backendRun?.revision ?? company.currentRevision;
-      armDraft(companyId && expectedRevision !== undefined ? { text, area, label: 'Run this step', approval: { operation: 'journey', stage, companyId, expectedRevision, teamArea: area } } : undefined);
+      armDraft(companyId && expectedRevision !== undefined ? { text, area: uiArea, label: 'Run this step', approval: { operation: 'journey', stage, companyId, expectedRevision, teamArea: area } } : undefined);
     }
     if (readOnly || isRunning) return;
     if (!focused && workspace.messages.length > 0) setView('chat');
@@ -401,9 +401,9 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
   const nextStage = live ? canonicalNext ?? { label: 'Review idea', prompt: 'Help me review our existing idea context.', eligible: false, blocked_reason: snapshotError || 'Refreshing idea actions…' } : previewNextStage;
   const prepareAction = (action: CompanyAction, send = false, prompt = action.prompt) => {
     if (!action.eligible || readOnly || isRunning || snapshotPending || snapshotError || !workspace.companyId || workspace.currentRevision === undefined) return;
-    const targetArea = send && area === 'overview' ? area : action.area;
-    armDraft({ text: prompt.trim(), label: action.label, area: targetArea, approval: { operation: action.operation, stage: action.stage, companyId: workspace.companyId, expectedRevision: workspace.currentRevision, teamArea: targetArea } });
-    if (send && area === targetArea) ask(prompt); else selectArea(selectedAspect && scopeForAspect(selectedAspect) === targetArea ? selectedAspect : targetArea, prompt);
+    const targetAspect = actionAreas[action.id];
+    armDraft({ text: prompt.trim(), label: action.label, area: targetAspect, approval: { operation: action.operation, stage: action.stage, companyId: workspace.companyId, expectedRevision: workspace.currentRevision, teamArea: action.area } });
+    if (send && uiArea === targetAspect) ask(prompt); else selectArea(targetAspect, prompt);
   };
   const chooseNextStage = (send: boolean) => {
     if (live) { if (canonicalNext) prepareAction(canonicalNext, send); }
@@ -472,7 +472,7 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
           {view === 'company' && editingOrder && visiblePanelIds.has(panel.id) && <div className="panel-reorder"><button className="icon-button drag-handle" draggable onDragStart={event => { event.dataTransfer.setData('text/plain', panel.id); event.dataTransfer.effectAllowed = 'move'; }} aria-label={`Drag ${panel.title} to reorder`}><GripVertical size={15} /></button><span /><button className="icon-button" disabled={!sameGroup(visiblePanels[index - 1])} aria-label={`Move ${panel.title} earlier`} onClick={() => reorder(panel.id, visiblePanels[index - 1].id)}><ArrowUp size={14} /></button><button className="icon-button" disabled={!sameGroup(visiblePanels[index + 1])} aria-label={`Move ${panel.title} later`} onClick={() => reorder(panel.id, visiblePanels[index + 1].id)}><ArrowDown size={14} /></button></div>}
           <div className="panel-reveal"><BusinessPanel panel={currentPanel(panel)} compact={view === 'chat'} expandable={view === 'chat'} expanded={expandedPanel?.id === panel.id} /></div></motion.div>; })}{utilityCards.map(card => { const slot = panelLayout.positions[card.id]; return <motion.div className="home-panel-item utility-panel-item" key={card.id} data-panel-id={card.id} animate={slot ? { x: slot.x, y: slot.y, width: slot.width || '100%' } : undefined} transition={panelTransition}><div className="panel-reveal">{card.content}</div></motion.div>; })}</div>
         {(view === 'company' ? visiblePanels : workspace.pinned).length === 0 && !expandedPanel && <div className="company-empty"><Compass size={24} /><h3>{focused ? 'No ' + team.name.toLowerCase() + ' results yet.' : 'Your idea brief starts here.'}</h3>{view === 'company' && <button className="soft-button" onClick={() => discuss(team.prompt)}>{focused ? 'Talk with ' + team.name : 'Start a conversation'}<ArrowRight size={15} /></button>}</div>}
-        {live && <details className="company-actions" aria-label="Saved workflow actions"><summary>Saved workflow actions</summary>{(focused ? actions.filter(action => action.area === area) : actions.filter(action => ['builder', 'marketer', 'metrics'].includes(action.id) && action.eligible)).map(action => <button key={action.id} className="soft-button team-start" disabled={isRunning || readOnly || !action.eligible || Boolean(snapshotError)} title={action.blocked_reason || undefined} onClick={() => action.id === 'metrics' ? setMeasurementsOpen(true) : prepareAction(action)}>{action.label}<ArrowRight size={15} /></button>)}{(focused ? actions.find(action => action.area === area && !action.eligible)?.blocked_reason : nextReason) && <p className="empty-note">{focused ? actions.find(action => action.area === area && !action.eligible)?.blocked_reason : nextReason}</p>}{snapshotError && snapshotError !== nextReason && <p role="status" className="empty-note">{snapshotError}</p>}</details>}
+        {live && <details className="company-actions" aria-label="Saved workflow actions"><summary>Saved workflow actions</summary>{(focused ? actions.filter(action => actionAreas[action.id] === uiArea) : actions.filter(action => ['builder', 'marketer', 'metrics'].includes(action.id) && action.eligible)).map(action => <button key={action.id} className="soft-button team-start" disabled={isRunning || readOnly || !action.eligible || Boolean(snapshotError)} title={action.blocked_reason || undefined} onClick={() => action.id === 'metrics' ? setMeasurementsOpen(true) : prepareAction(action)}>{action.label}<ArrowRight size={15} /></button>)}{(focused ? actions.find(action => actionAreas[action.id] === uiArea && !action.eligible)?.blocked_reason : nextReason) && <p className="empty-note">{focused ? actions.find(action => actionAreas[action.id] === uiArea && !action.eligible)?.blocked_reason : nextReason}</p>}{snapshotError && snapshotError !== nextReason && <p role="status" className="empty-note">{snapshotError}</p>}</details>}
         {!live && focused && selectedAspect !== 'resources' && <button className="soft-button team-start" disabled={isRunning} onClick={() => ask(team.prompt, area === 'research' ? 'research' : area === 'strategy' ? 'strategy' : undefined)}>{area === 'research' ? 'Research market' : area === 'strategy' ? 'Shape offer' : area === 'verification' ? 'Review existing checks' : 'Qualify prospects'}<ArrowRight size={15} /></button>}
         {!live && focused && area === 'strategy' && visiblePanels.some(panel => panel.kind === 'offer') && <button className="soft-button team-start" disabled={isRunning} onClick={() => ask('Prepare only our delivery plan using stage=plan from the existing research and strategy.', 'plan')}>Plan delivery<ArrowRight size={15} /></button>}
         {!live && focused && area === 'verification' && panels.some(panel => panel.kind === 'launch-plan') && <button className="soft-button team-start" disabled={isRunning} onClick={() => ask('Verify our existing company artifacts using stage=verify. Do not rerun the upstream stages.', 'verify')}>Run verification<ArrowRight size={15} /></button>}
@@ -495,7 +495,7 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
             </div>
           </ThreadPrimitive.Viewport>
           <div className="composer-dock">{!conversationAtBottom && <button className="scroll-bottom" onClick={() => { setConversationAtBottom(true); viewportRef.current?.scrollTo({ top: viewportRef.current.scrollHeight, behavior: 'smooth' }); }} aria-label="Scroll to latest message"><ArrowDown size={16} /></button>}
-            <OpenUIComposer label={focused ? 'Message ' + team.name : 'Message Samurai'} placeholder={focused ? 'Ask about ' + team.name.toLowerCase() + '…' : 'What’s our next move?'} running={isRunning} recovering={recovering} stopLabel={live ? 'Stop backend run' : 'Stop preview'} onExplore={() => setDialog('panels')} workLabel={workLabel} onClearWork={() => armDraft()} onInput={value => { armDraft(editApprovedWorkDraft(approvedDraft.current, value, area)); setWorkspace(current => ({ ...current, drafts: { ...current.drafts, [uiArea]: value } })); }} />
+            <OpenUIComposer label={focused ? 'Message ' + team.name : 'Message Samurai'} placeholder={focused ? 'Ask about ' + team.name.toLowerCase() + '…' : 'What’s our next move?'} running={isRunning} recovering={recovering} stopLabel={live ? 'Stop backend run' : 'Stop preview'} onExplore={() => setDialog('panels')} workLabel={workLabel} onClearWork={() => armDraft()} onInput={value => { armDraft(editApprovedWorkDraft(approvedDraft.current, value, uiArea)); setWorkspace(current => ({ ...current, drafts: { ...current.drafts, [uiArea]: value } })); }} />
             <div className="preview-caption">{live ? 'Live Samurai workflow · Generated artifacts need review' : 'Preview mentor · Sample data · No external actions'}</div>
             {storageError && <p role="status" className="storage-warning">Browser storage is unavailable. This session won’t be saved.</p>}
           </div>

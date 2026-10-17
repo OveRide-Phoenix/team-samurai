@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyBackendEvent, beginBackendRun, emptyWorkspace, recordBackendRun, workspaceSchema } from './model';
-import { areaForPanel, aspectReadiness, conversationArea, messagesForArea, panelChoiceAreas, panelsForAreas, teamAreas, workflowAreas } from './teamAreas';
+import { actionAreas, areaForPanel, aspectReadiness, conversationArea, messagesForArea, panelChoiceAreas, panelsForAreas, teamAreas, workflowAreas } from './teamAreas';
+import { approvedWorkForSubmission, editApprovedWorkDraft } from './agentos';
 import { evidence, launchPlan, pricing, prospects, offer } from './demo';
 
 describe('idea aspect readiness', () => {
@@ -46,6 +47,37 @@ describe('idea aspect readiness', () => {
     for (const [title, panel] of [['Pricing exploration', pricing], ['Launch plan', launchPlan], ['Customer pipeline', prospects], ['Offer & positioning', offer], ['Evidence review', { ...evidence, title: 'Verification review' }]] as const) {
       expect(panelChoiceAreas[title]).toBe(areaForPanel(panel));
     }
+  });
+
+  it.each([
+    ['brief', 'overview'], ['research', 'research'], ['strategy', 'strategy'], ['plan', 'verification'],
+    ['verify', 'verification'], ['sales', 'sales'], ['builder', 'verification'], ['marketer', 'sales'], ['metrics', 'verification'],
+  ] as const)('prepares saved %s actions in their owning %s aspect', (id, aspect) => {
+    expect(actionAreas[id]).toBe(aspect);
+  });
+
+  it('keeps delivery plan approval on the strategy wire while its run and reply belong to Validation', () => {
+    const aspect = actionAreas.plan;
+    const companyId = '00000000-0000-4000-8000-000000000001';
+    const approval = { operation: 'journey', stage: 'plan', companyId, expectedRevision: 4, teamArea: 'strategy' } as const;
+    const draft = { text: 'Prepare delivery', label: 'Draft delivery plan', area: aspect, approval };
+    expect(approvedWorkForSubmission(editApprovedWorkDraft(draft, 'Refine delivery', aspect), 'Refine delivery', aspect, companyId, 4)).toEqual(approval);
+    for (const other of ['overview', 'strategy', 'resources'] as const) {
+      expect(approvedWorkForSubmission(draft, draft.text, other, companyId, 4)).toBeUndefined();
+    }
+    let workspace = beginBackendRun(emptyWorkspace(), crypto.randomUUID(), approval.teamArea, aspect);
+    workspace = recordBackendRun(workspace, { status: 'completed', runId: 'plan-run', area: approval.teamArea });
+    workspace = applyBackendEvent(workspace, 'plan-run', { type: 'message', text: 'Delivery plan ready', panel: launchPlan });
+    expect(messagesForArea(workspace, aspect).map(message => message.text)).toEqual(['Delivery plan ready']);
+    expect(panelsForAreas([launchPlan], workspace, [aspect])).toEqual([launchPlan]);
+    expect(workspace.backendRun?.area).toBe('strategy');
+  });
+
+  it('clears a prepared approval when changing between aspects sharing one backend scope', () => {
+    const approval = { operation: 'journey', stage: 'research', companyId: '00000000-0000-4000-8000-000000000001', expectedRevision: 4, teamArea: 'research' } as const;
+    const draft = { text: 'Research demand', label: 'Research', area: 'research', approval } as const;
+    expect(editApprovedWorkDraft(draft, draft.text, 'market')).toBeUndefined();
+    expect(approvedWorkForSubmission(draft, draft.text, 'market', approval.companyId, 4)).toBeUndefined();
   });
 
   it.each([['research', 'market'], ['strategy', 'resources']] as const)('keeps %s and %s history and drafts distinct across reload and recovery', (first, second) => {

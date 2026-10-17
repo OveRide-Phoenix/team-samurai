@@ -6,8 +6,8 @@ import { MotionConfig } from 'motion/react';
 import { ArrowRight, Building2 } from 'lucide-react';
 import { CompanyWorkspace } from './App';
 import { OpenUICompanyName } from './OpenUIAnswers';
-import { companySnapshotEvents } from './agentos';
-import { continueCompanyView, emptyCompanyView, restorePortfolio, type CompanyBrief, type CompanyView, type Message, type Portfolio, type WorkEvent } from './model';
+import { hydrateCompanyView } from './companyHydration';
+import { continueCompanyView, emptyCompanyView, restorePortfolio, type CompanyBrief, type CompanyView, type Portfolio } from './model';
 import { loadPortfolio, persistPortfolio, portfolioStorageKey, type BrowserScope } from './browserStorage';
 import { canonicalCompanyFields, createLatestRequestGuard, createOneAtATimeGate, createWorkspace, createWorkspaceCompany, firstWritableWorkspace, listWorkspaceCompanies, listWorkspaces, needsCompanyIntake, openWorkspaceCompany, shouldLoadWorkspaceDirectory, type DirectoryCompany, type WorkspaceDirectory } from './workspaces';
 import { ModeToggle } from './ShellParts';
@@ -17,23 +17,6 @@ type CompanyCreationRetry = { readonly workspace: WorkspaceDirectory; readonly s
 
 function companyName(workspace: WorkspaceDirectory, company: DirectoryCompany): string {
   return `${workspace.display_name} · ${company.company_id.slice(0, 8)}`;
-}
-
-function hydrateCompanyView(current: CompanyView, snapshot: unknown, companyId: string): CompanyView {
-  const events = companySnapshotEvents(snapshot, companyId);
-  const messages: Message[] = events.flatMap((event, index) => event.type === 'message' ? [{
-    id: event.panel ? `snapshot-${event.panel.id}` : `snapshot-${companyId}-${index}`,
-    role: 'assistant' as const, text: event.text, ...(event.panel ? { panel: event.panel } : {}),
-  }] : []);
-  const panels = messages.flatMap(message => message.panel ? [message.panel] : []);
-  const panelIds = new Set(panels.map(panel => panel.id));
-  const activities = events.filter((event): event is Extract<WorkEvent, { type: 'activity' }> => event.type === 'activity');
-  return {
-    ...current, executionMode: 'live',
-    messages: [...current.messages.filter(message => !message.panel || !panelIds.has(message.panel.id)), ...messages].slice(-200),
-    pinned: [...current.pinned.filter(panel => !panelIds.has(panel.id)), ...panels].slice(-12),
-    ...(activities.length ? { activityLog: activities } : {}),
-  };
 }
 
 export function App({ scope }: { readonly scope: BrowserScope }) {

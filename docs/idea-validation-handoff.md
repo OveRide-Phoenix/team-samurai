@@ -64,7 +64,14 @@ shown. Keyboard focus, reduced motion and forced colors are supported.
 - Keep six frontend draft/history identities distinct. Optional `message.aspect`
   and local `backendRun.aspect` retain the originating aspect through recovery;
   `area` retains the backend scope. Legacy messages remain available, including
-  in the general conversation. Do not rename or discard old saved data.
+  in the general conversation. Reopening through Shared ideas refreshes canonical
+  panels while retaining each matching saved reply's identity and aspect.
+  Do not rename or discard old saved data.
+- Saved action IDs map to frontend owners through `actionAreas`: delivery plans,
+  build drafts and measurement reviews open Validation; distribution drafts open
+  Sales. Prepared approvals are bound to that frontend aspect, company and revision,
+  while `approval.teamArea` retains the action's original backend scope (for example,
+  delivery planning still executes in `strategy`).
 - Internal company IDs, routes, API payloads, storage keys, artifact formats,
   specialist roles, ownership, revisions, hashes, cancellation and approval rules
   remain compatible. No database migration, service split or dependency was added.
@@ -87,6 +94,7 @@ shown. Keyboard focus, reduced motion and forced colors are supported.
 | [`AspectReview.tsx`](../frontend/src/AspectReview.tsx), [`aspectState.ts`](../frontend/src/aspectState.ts) | Checkpoint controls, assessment validation, browser-local notes |
 | [`teamAreas.ts`](../frontend/src/teamAreas.ts), [`model.ts`](../frontend/src/model.ts) | Aspect/scope mapping, panel ownership, readiness, persistence and run-origin identity |
 | [`App.tsx`](../frontend/src/App.tsx) | Navigation, separate drafts/history, existing composer and approved actions |
+| [`companyHydration.ts`](../frontend/src/companyHydration.ts) | Refresh shared-idea snapshots without losing saved conversation identity |
 | [`team_areas.py`](../backend/src/samurai/team_areas.py), [`main.md`](../backend/src/samurai/prompts/main.md) | Independent software-idea discussion while retaining execution guards |
 | [`company_actions.py`](../backend/src/samurai/company_actions.py), [`intake.py`](../backend/src/samurai/intake.py) | Existing action eligibility and intake with idea-facing wording |
 
@@ -101,7 +109,7 @@ Local implementation checks passed:
 
 | Check | Result |
 | --- | --- |
-| `cd frontend && npm run check` | TypeScript and 197 tests in 19 files passed |
+| `cd frontend && npm run check` | TypeScript and 211 tests in 20 files passed, including action ownership and shared-idea reopen regressions |
 | `cd frontend && npm run build` | Passed; existing dependency annotation and bundle-size warnings remain |
 | `cd frontend && node --test tests/sites-worker.test.mjs tests/production-server.test.mjs` | 66 tests passed |
 | `cd backend && uv run pytest tests/test_team_areas.py tests/test_app.py tests/test_agui.py tests/test_panels.py tests/test_company_workflow.py` | 81 targeted provider-free tests passed |

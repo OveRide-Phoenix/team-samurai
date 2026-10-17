@@ -1,4 +1,4 @@
-import type { Message, Panel, TeamArea, WorkflowArea, Workspace } from './model';
+import type { CompanyAction, Message, Panel, TeamArea, WorkflowArea, Workspace } from './model';
 import { workflowAreaSchema, type CheckpointStatus, type IdeaArea } from './aspectState';
 import { aspectCatalog } from './ideaAspectCatalog';
 
@@ -7,6 +7,10 @@ export const teamAreas = [{ id: 'overview' as const, name: 'Idea overview', shor
 export const panelChoiceAreas: Readonly<Record<string, IdeaArea>> = {
   'Customer pipeline': 'sales', 'Offer & positioning': 'strategy', 'Pricing exploration': 'resources',
   'Evidence review': 'verification', 'Launch plan': 'verification',
+};
+export const actionAreas: Readonly<Record<CompanyAction['id'], IdeaArea>> = {
+  brief: 'overview', research: 'research', strategy: 'strategy', plan: 'verification',
+  verify: 'verification', sales: 'sales', builder: 'verification', marketer: 'sales', metrics: 'verification',
 };
 export function scopeForAspect(area: IdeaArea): TeamArea {
   return area === 'overview' ? 'overview' : aspectCatalog[area].scope;
