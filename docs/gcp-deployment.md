@@ -224,7 +224,7 @@ network, subnet, Redis secret name, and numeric secret version have been discove
 authorized. It is fixed to project `samurai-ai-company-2026`, region `asia-south1`, and
 an immutable backend digest. It applies `QUEUE_ENABLED=true`, the secret-backed
 `REDIS_URL`, Direct VPC private-range egress, 1 vCPU/2 GiB with unthrottled CPU,
-min/max instances 1/2, and concurrency 8. Before mutation it requires the existing
+service and revision min/max instances 1/1, and concurrency 8. Before mutation it requires the existing
 runtime identity, Cloud SQL binding, startup probe, and both JWT trust bindings; after
 mutation it verifies those guards are unchanged and reads back every new setting.
 

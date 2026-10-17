@@ -35,9 +35,23 @@ with `SAMURAI_ENVIRONMENT=production`, no `QUEUE_ENABLED`, and no `REDIS_URL`.
 The default queue setting is false. Production native company runs return 503 in
 that configuration. This is a separate dependency from Google sign-in.
 
-The paid always-on queue upgrade was explicitly deferred. Do not provision it,
-disable IAP, change public invoker permissions, or set the guest flags until the
-hosting decision and its cost are approved and the runtime is verified.
+The earlier deferral was superseded on 17 October: the user approved seven days
+of 1 GiB Basic Redis and one always-on 1 vCPU / 2 GiB backend in Mumbai, accepting
+temporary Redis outages. IAP removal still depends on runtime verification.
+
+Temporary resources: `samurai-judge-network`, `samurai-judge-subnet`
+(`10.48.0.0/26`, Mumbai), and `samurai-judge-redis` (Basic, AUTH enabled, private
+direct peering). Redis creation began at 2026-10-17 16:51:39 UTC; the approved
+window ends **2026-10-24 16:51:39 UTC / 22:21:39 IST**. The Codex heartbeat
+`end-samurai-seven-day-judge-window` checks hourly and performs the rollback after
+expiry unless explicitly extended. It depends on Codex availability and is not a
+provider-enforced expiry or hard spending cap.
+
+At expiry, block new guest admission, drain outstanding work, restore team-only
+IAP and request-based backend billing with minimum zero and queue disabled, then
+delete the temporary Redis once unused. Preserve Cloud SQL and all user data.
+Do not leave revision-level minimums at one when scaling back. Remove unused
+task-created network/secret resources only after confirming no dependencies.
 
 Before activation:
 
