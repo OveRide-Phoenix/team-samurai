@@ -27,6 +27,18 @@ async function fixture(configured = true, upstream = vi.fn<typeof fetch>(async (
   return { upstream, request: (path: string, options: RequestInit = {}) => fetch(url + path, { ...options, headers: { 'X-Samurai-Client': '1', ...options.headers } }) };
 }
 describe('actual local AgentOS proxy', () => {
+  it('forwards owned receipts and bounded resume requests', async () => {
+    const { request, upstream } = await fixture();
+    const id = '00000000-0000-4000-8000-000000000003';
+    expect((await request(`/api/agentos/work-receipts/${id}?session_id=company`)).status).toBe(200);
+    expect((await request(`/api/agentos/work-receipts/${id}?session_id=company&user_id=foreign`)).status).toBe(400);
+    const body = new FormData(); body.set('session_id', 'company'); body.set('last_event_index', '2');
+    expect((await request(`/api/agentos/agents/samurai/runs/${id}/resume`, { method: 'POST', body })).status).toBe(200);
+    expect(upstream.mock.calls.at(-1)?.[1]?.body).toBeInstanceOf(FormData);
+    body.set('user_id', 'foreign');
+    expect((await request(`/api/agentos/agents/samurai/runs/${id}/resume`, { method: 'POST', body })).status).toBe(400);
+    expect(upstream).toHaveBeenCalledTimes(2);
+  });
   it('forwards only strict workspace directory requests', async () => {
     const { request, upstream } = await fixture();
     const workspaceId = '00000000-0000-4000-8000-000000000001';

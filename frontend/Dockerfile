@@ -1,11 +1,11 @@
-FROM public.ecr.aws/docker/library/node:24.15.0-bookworm-slim AS build
+FROM mirror.gcr.io/library/node:24.15.0-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM public.ecr.aws/docker/library/node:24.15.0-bookworm-slim AS runtime
+FROM mirror.gcr.io/library/node:24.15.0-bookworm-slim AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 COPY package.json package-lock.json ./

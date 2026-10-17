@@ -330,6 +330,13 @@ class OfferDiagnostic(Contract):
         return self
 
 
+class IntakeDraft(Contract):
+    """Model-authored intake; trusted provenance is attached by the workflow."""
+
+    brief: CompanyBrief
+    founder_truth: FounderTruth
+
+
 class IntakeArtifact(Contract):
     artifact_type: Literal[ArtifactType.INTAKE] = ArtifactType.INTAKE
     brief: CompanyBrief
@@ -740,6 +747,35 @@ class CompanyState(Contract):
                 "current_revision", "current_revision must match artifact lineage"
             )
         return self
+
+
+def current_artifacts(state: CompanyState) -> dict[ArtifactType, ArtifactEnvelope]:
+    """Keep the latest outputs only while their upstream inputs are still current."""
+    latest = {item.artifact_type: item for item in state.artifacts}
+    chain = (
+        ArtifactType.INTAKE,
+        ArtifactType.RESEARCH,
+        ArtifactType.STRATEGY,
+        ArtifactType.PRODUCT_PLAN,
+        ArtifactType.VERIFICATION,
+    )
+    draft_types = {
+        ArtifactType.BUILDER_DRAFT,
+        ArtifactType.MARKETING_DRAFT,
+        ArtifactType.SALES_DRAFT,
+    }
+    current: dict[ArtifactType, ArtifactEnvelope] = {}
+    for kind, item in latest.items():
+        dependencies = (
+            chain[: chain.index(kind)] if kind in chain else chain if kind in draft_types else ()
+        )
+        if all(
+            latest[upstream].revision <= item.input_revision
+            for upstream in dependencies
+            if upstream in latest
+        ):
+            current[kind] = item
+    return current
 
 
 class WorkflowRequest(Contract):

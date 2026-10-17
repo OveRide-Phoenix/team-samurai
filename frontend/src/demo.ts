@@ -43,7 +43,7 @@ export const launchPlan: Panel = {
     { id: 'review', title: 'Review what changed', owner: 'Founder', timing: 'Week 3', detail: 'Use actual bookings and customer feedback to revise the offer.' },
   ],
 };
-export const initialWorkspace: Workspace = { selectedArea: 'overview', drafts: {},
+export const initialWorkspace: Workspace = { actions: [], nextAction: null, selectedArea: 'overview', aspectChecks: {}, drafts: {},
   executionMode: 'preview', activityLog: [],
   version: 1, theme: 'sky', pinned: [offer], completedTasks: [], panelOrder: [], shortlist: [], approvedOffers: [],
   messages: [
@@ -64,17 +64,7 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
 
 // shortcut: deterministic fixtures exercise the UI; replace this transport with Kalyan's backend event stream.
 export const demoTransport: Transport = async function* (input, signal, area = 'overview') {
-  if (area !== 'overview') {
-    const target = /pricing|price|offer|strategy|position|delivery|roadmap|launch plan/i.test(input) ? 'strategy' : /prospect|outreach|sales|sell to/i.test(input) ? 'sales' : /verification|verify|conflict/i.test(input) ? 'verification' : /research|competitor|market/i.test(input) ? 'research' : area;
-    if (target !== area) {
-      const names = { overview: 'Company', research: 'Researcher', strategy: 'Strategist', verification: 'Verifier', sales: 'Sales' };
-      yield { type: 'message', text: 'This belongs with ' + names[target] + '. Switch there to continue.', handoff: target };
-      return;
-    }
-  }
   let workflow = /^research our market/i.test(input) ? 'evidence' : chooseWorkflow(input);
-  if (area === 'research' || area === 'verification') workflow = 'evidence';
-  else if (area === 'sales') workflow = 'prospects';
   if (workflow === 'help' && area !== 'overview') {
     yield { type: 'message', text: 'Let’s stay with the goal for this team area. What would you like to investigate next?' };
     return;

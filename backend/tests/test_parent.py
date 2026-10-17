@@ -15,7 +15,7 @@ from agno.db.sqlite import SqliteDb
 from agno.models.base import Model
 from agno.models.response import ModelResponse
 from agno.run import RunContext
-from agno.run.agent import CustomEvent
+from agno.run.agent import CustomEvent, RunOutput
 from agno.run.base import RunStatus
 from agno.run.cancel import aget_active_runs
 from agno.session.agent import AgentSession
@@ -39,6 +39,7 @@ from samurai.contracts import (
     CompanyState,
     FounderTruth,
     IntakeArtifact,
+    IntakeDraft,
     ProductPlanArtifact,
     ResearchArtifact,
     Role,
@@ -55,6 +56,7 @@ from samurai.launch_workflows import LaunchAction, LaunchKind
 from samurai.parent import (
     PARENT_AGENT_ID,
     CompanyStateSummary,
+    SamuraiParentAgent,
     _create_launch_drafts,  # pyright: ignore[reportPrivateUsage]
     child_session_id,
     create_parent_agent,
@@ -68,7 +70,6 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from agno.models.message import Message
-    from agno.run.agent import RunOutput
 
 NOW = datetime(2026, 10, 11, tzinfo=UTC)
 METRIC_TIME_FIELDS = "unit, UTC window_start, UTC window_end, and UTC collected_at"
@@ -208,7 +209,9 @@ class StaticRoleModel(Model):
             self.content.model_dump_json() if isinstance(self.content, BaseModel) else self.content
         )
         if isinstance(self.content, IntakeArtifact):
-            raw = raw.replace('"artifact_type":"intake"', '"artifact_type":"founder_intake"')
+            raw = IntakeDraft(
+                brief=self.content.brief, founder_truth=self.content.founder_truth
+            ).model_dump_json()
         return ModelResponse(content=raw)
 
     @override
@@ -325,7 +328,13 @@ def _deterministic_catalog() -> dict[Role, ConfiguredRole]:
         agent = Agent(
             id=f"test-{role.value}",
             model=StaticRoleModel(output),
-            output_schema=None if role is Role.RESEARCHER else type(output),
+            output_schema=(
+                None
+                if role is Role.RESEARCHER
+                else IntakeDraft
+                if role is Role.INTAKE
+                else type(output)
+            ),
             telemetry=False,
         )
         catalog[role] = ConfiguredRole(
@@ -1689,3 +1698,69 @@ def test_parent_stream_reports_start_and_completion_for_real_workflow_steps(
         assert f"{step} started" in progress
         assert f"{step} completed" in progress
         assert progress.index(f"{step} started") < progress.index(f"{step} completed")
+
+
+def test_read_only_parent_exposes_no_business_execution_tools(tmp_path: pathlib.Path) -> None:
+    parent = create_parent_agent(
+        SqliteDb(db_file=str(tmp_path / "read-only.db")),
+        Settings.model_validate({"google_api_key": "unused-test-key"}),
+        model=_ToolSequenceModel(),
+        read_only=True,
+        team_area="research",
+    )
+    assert parent.samurai_read_only
+    raw_tools = cast("object", parent.tools)
+    assert isinstance(raw_tools, list)
+    names = {tool.name for tool in cast("list[object]", raw_tools) if isinstance(tool, Function)}
+    assert "read_company_state" in names
+    assert not names & {"run_company_journey", "create_launch_drafts", "analyze_metrics"}
+    copied = parent.deep_copy()
+    assert isinstance(copied, SamuraiParentAgent)
+    assert copied.samurai_read_only
+    assert copied.samurai_team_area == "research"
+
+
+def test_failed_stream_yields_terminal_output_for_native_worker(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def failing_workflow(db: SqliteDb, _settings: Settings, *, stage: str) -> Workflow:
+        assert stage == "brief"
+
+        async def fail(_: StepInput) -> StepOutput:
+            message = "private-provider-marker"
+            raise TimeoutError(message)
+
+        return Workflow(
+            id="company-journey",
+            db=db,
+            steps=[Step(name="fail", executor=fail, max_retries=0)],
+            telemetry=False,
+        )
+
+    monkeypatch.setattr("samurai.parent.create_company_workflow", failing_workflow)
+    db = SqliteDb(db_file=str(tmp_path / "stream-terminal.db"))
+    agent = create_parent_agent(
+        db, Settings.model_validate({}), model=_ToolSequenceModel("run_company_journey")
+    )
+    run_id = str(uuid4())
+
+    async def scenario() -> list[object]:
+        return [
+            event
+            async for event in agent.arun(
+                "start a company",
+                run_id=run_id,
+                session_id="stream-failure-session",
+                user_id="founder",
+                stream=True,
+                stream_events=True,
+                yield_run_output=True,
+            )
+        ]
+
+    events = anyio.run(scenario)
+    outputs = [event for event in events if isinstance(event, RunOutput)]
+    assert len(outputs) == 1
+    assert outputs[0].run_id == run_id
+    assert outputs[0].status == RunStatus.error
+    assert "private-provider-marker" not in str(outputs[0].content)

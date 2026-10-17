@@ -42,6 +42,7 @@ from samurai.parent import (
     _bind_normalized_work,  # pyright: ignore[reportPrivateUsage]
     child_session_id,
 )
+from samurai.work_admission import WorkApproval, build_work_intent
 from samurai.workflow_state import WorkflowContextError, load_company_state
 from samurai.workspace_directory import WorkspaceDirectory
 from tests.company_store_support import ClaimedJob, job
@@ -189,6 +190,31 @@ def test_durable_boundary_accepts_explicit_advanced_operation_and_stage() -> Non
     assert approval.operation is WorkOperation.LAUNCH_DRAFTS
     assert approval.stage is ApprovedStage.PLAN
     assert approval.expected_revision == 0
+    assert approval.company_id == state.context.company_id
+
+
+def test_durable_boundary_accepts_verification_only_scope() -> None:
+    state = create_company_state("verify-company", created_at=datetime(2026, 10, 13, tzinfo=UTC))
+    capture, sent = _run_boundary(
+        {
+            "message": "Verify retained artifacts only",
+            "session_id": "verify-company",
+            "stream": "false",
+            "background": "true",
+        },
+        approval_headers={
+            "x-samurai-operation": "journey",
+            "x-samurai-stage": "verify",
+            "x-samurai-expected-revision": "0",
+            "x-samurai-company-id": str(state.context.company_id),
+        },
+        db=cast("BaseDb", cast("object", _CanonicalDb(state))),
+    )
+    assert sent[0]["status"] == 204
+    metadata = cast("dict[str, object]", capture.state["metadata"])
+    approval = WorkIntentInput.model_validate(metadata[WORK_INTENT_METADATA_KEY])
+    assert approval.stage is ApprovedStage.VERIFY
+    assert approval.operation is WorkOperation.JOURNEY
     assert approval.company_id == state.context.company_id
 
 
@@ -717,3 +743,27 @@ def test_retry_replays_bound_input_instead_of_new_model_arguments() -> None:
         "attempt": 2,
         "fingerprint": "a" * 64,
     }
+
+
+def test_read_only_chat_admission_pins_state_without_authorizing_a_journey() -> None:
+    state = create_company_state(
+        authenticated_session_id="company-session", created_at=datetime.now(UTC)
+    )
+    database = cast("BaseDb", cast("object", _CanonicalDb(state)))
+    result = build_work_intent(database, "founder", "company-session", "What is our goal?", None)
+    assert result.operation is WorkOperation.READ_ONLY_STATE
+    assert result.company_id == state.context.company_id
+    assert result.expected_revision == state.current_revision
+    assert result.approved_input == "What is our goal?"
+    with pytest.raises(ValueError, match="server-owned"):
+        _ = build_work_intent(
+            database,
+            "founder",
+            "company-session",
+            "Continue",
+            WorkApproval(
+                operation=WorkOperation.READ_ONLY_STATE, company_id=state.context.company_id
+            ),
+        )
+    with pytest.raises(PermissionError):
+        _ = build_work_intent(database, "another-founder", "company-session", "Read", None)

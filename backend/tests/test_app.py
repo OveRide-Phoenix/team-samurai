@@ -78,13 +78,10 @@ def test_config_exposes_only_samurai_parent(
     assert config.workflows == []
     assert config.chat is not None
     assert config.chat.quick_prompts["samurai"] == [
-        (
-            "Build my business: describe the idea, customer, geography, budget, founder skills, "
-            "and goal."
-        ),
-        "Continue my company plan using the context and decisions already retained.",
-        "Create reviewable Builder, Marketer, and Sales drafts from my verified plan.",
-        "Analyze these provenance-labelled business metrics and recommend what to improve.",
+        "Explore my software idea: its users, problem, budget, skills and next validation goal.",
+        "Discuss an aspect of my idea using the context and decisions already retained.",
+        "Review product feasibility, technology, budget and resources, with assumptions visible.",
+        "Plan a small validation experiment and explain what evidence it could establish.",
     ]
     assert detail.is_factory is False
     assert cors.headers["access-control-allow-origin"] == "https://os.agno.com"

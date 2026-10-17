@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { CompanyView } from './model';
 import { companySnapshotSchema } from './agentos';
 
 const base = '/api/agentos/samurai';
@@ -28,6 +29,10 @@ export type DirectoryCompany = z.infer<typeof directoryCompanySchema>;
 
 export function shouldLoadWorkspaceDirectory(activeCompanyId: string | null): boolean {
   return activeCompanyId === null;
+}
+
+export function needsCompanyIntake(company: DirectoryCompany, role: WorkspaceDirectory['role']): boolean {
+  return company.current_revision === 0 && role !== 'viewer';
 }
 
 export function firstWritableWorkspace(workspaces: readonly WorkspaceDirectory[]): WorkspaceDirectory | undefined {
@@ -92,4 +97,9 @@ export function createWorkspaceCompany(workspaceId: string, submissionId: string
 
 export function openWorkspaceCompany(workspaceId: string, companyId: string): Promise<DirectoryCompany> {
   return request(`/workspaces/${uuid.parse(workspaceId)}/companies/${uuid.parse(companyId)}/open`, directoryCompanySchema, { method: 'POST', body: '{}' });
+}
+
+export function canonicalCompanyFields(company: DirectoryCompany): Pick<CompanyView, 'companyId' | 'currentRevision' | 'stateSha256' | 'actions' | 'nextAction' | 'currentArtifactIds'> {
+  if (!company.snapshot || company.snapshot.summary.company_id !== company.company_id || company.snapshot.summary.revision !== company.current_revision) throw new Error('Company snapshot does not match its canonical revision.');
+  return { companyId: company.company_id, currentRevision: company.current_revision, stateSha256: company.state_sha256, currentArtifactIds: company.snapshot.summary.current_artifact_ids ?? undefined, actions: company.snapshot.summary.actions, nextAction: company.snapshot.summary.next_action };
 }

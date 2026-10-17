@@ -1,5 +1,22 @@
 # Frontend contributor guide
 
+## Current software-idea UX — 17 October 2026
+
+Replace visible company-building and role-chat navigation with an idea mentor and
+six aspect nodes. Follow the current graph/checkpoint contract at the top of DESIGN.md;
+older company/role UX notes below are historical where they conflict. Reuse the
+backend journey, stage controls, wire scopes, existing panels and cache namespaces.
+Market maps to the existing research scope; Budget maps to strategy. Problem and
+Market share research evidence; pricing/scenarios belong in Budget; product plans,
+build drafts and reviews belong in Validation & delivery. Preserve existing drafts,
+history, cancellation, approval controls and source lineage. Checkpoint notes and
+readiness assessments are browser-local, explicitly labelled, and never evidence
+of independent validation. Do not introduce a new backend or dependency for this UX.
+
+Keep each aspect's frontend messages and drafts separate using its UI identity;
+translate to the existing wire scope only for transport and approvals. Retain that
+UI identity on saved runs so recovery returns replies to the originating aspect.
+
 Samurai's first slice uses React, TypeScript, Vite, Tailwind, assistant-ui, Radix, Lucide, and Zod. Follow root AGENTS.md and ponytail. Keep structured panel validation and the explicit sample-data/activity labels. Agent provider secrets belong on the backend. The authenticated AgentOS integration is implemented; BACKEND_CONTRACT.md records the interface.
 
 Run the local server yourself and open the preview in the browser available to this environment. Do not give the user server-start instructions when you can run it.
@@ -70,7 +87,7 @@ Production persistence must resolve the verified Google user namespace before Re
 
 The founder workspace uses the public CopilotKit headless context and a self-hosted runtime at `/api/copilotkit`, connected to the authenticated request-scoped Agno parent at `/agentos/agents/samurai/agui`. Keep assistant-ui for the existing conversation/composer and native AgentOS endpoints for cancellation and saved-run recovery. Preserve the exact `agents:samurai:run` scope; do not widen JWT scopes. Agno owns history and identity; do not add a process-global CopilotKit thread cache.
 
-The decided A2UI catalog is CompanyBrief, ResearchEvidence, Offer, Pricing, DeliveryPlan and ProspectList. The entry form creates the Company brief first. Subsequent panels follow founder-approved research, strategy and planning stages. Reuse existing BusinessPanel controls and persistent company state through the declarative renderer. Do not auto-generate every stage at intake. Additional declarative compositions use validated text, metric, list and table blocks. Custom components are created when the founder asks for one; never execute generated code in the host page.
+The decided OpenUI business catalog is CompanyBrief, ResearchEvidence, Offer, Pricing, DeliveryPlan and ProspectList. The entry form creates the Company brief first. Subsequent panels follow founder-approved research, strategy and planning stages. Reuse existing BusinessPanel controls and persistent company state through the declarative renderer. Do not auto-generate every stage at intake. Additional declarative compositions use validated text, metric, list and table blocks. Custom components are created when the founder asks for one; never execute generated code in the host page.
 
 The user explicitly requires every generated view to match Samurai's visual direction, with Inter Variable, warm porcelain/peach/graphite light colors, charcoal/champagne dark colors, quiet surfaces, rounded controls and restrained spacing. Generic browser widgets or developer-dashboard styling are unacceptable. Custom frames get embedded Inter and the same theme tokens; keep customer CSS on those tokens, avoid duplicate headings, and verify actual desktop/mobile rendering in both themes. Custom HTML/CSS/JS lives only in an `allow-scripts` iframe without same-origin access, host function bridges, network, navigation or form submission. The trusted shell may send only a height measurement; the host validates the exact iframe source, opaque origin, message shape and bounded integer height. Keep the frame CSP and parent navigation policy intact. Custom input state is local to the frame; the panel definition, not its ephemeral form values, is recovered on reload.
 
@@ -102,3 +119,36 @@ Home retains the original portfolio layout: the centered idea heading, floating 
 Do not show search controls anywhere in the product UI: Home, workspace headers, prospect cards or generated tables. Remove the Cmd/Ctrl+K search shortcut. Keep workflow filters, prospect fit/shortlist filters and panel actions.
 
 The Chat sidebar uses the plus control beside Pinned to add panels. Do not repeat an Add a panel button at the bottom of the sidebar; keep the existing composer and Company-header controls.
+
+
+### Visual result dashboard — 16 October 2026
+
+The dashboard is the founder's landing surface after a prompt. The user explicitly rejects a wall of text, technical readouts, and text-heavy cards. Make result panels visual first: real count/share rings, compatible numeric comparisons, assumption-labelled scenario endpoints, visual pricing choices and actual checklist progress. Use the restrained chart direction of beui.dev and bklit.com within Samurai's warm palette. Keep short labels and one clear next action; retain full evidence, exact values, sources and caveats through accessible Details. Never invent trend history, revenue, validation percentages or later-stage artifacts to fill the dashboard. A brief-only first prompt remains brief-only. Keep chat mounted and available through its floating control, with existing cancellation, drafts and state preserved.
+
+
+### OpenUI interaction standard — 16 October 2026
+
+The user requires OpenUI throughout founder-facing generated views, including chat and the controls used to answer Samurai. Use the allowlisted OpenUI React Lang components for business-result panels, chat messages, the reply composer, company-name entry and intake answers. Keep controls in Samurai's calm visual design; use visual summaries instead of text walls where the data supports them. New generated questions and answer forms must join this OpenUI layer rather than introducing a parallel renderer. Ordinary navigation and native controls inside registered components remain standard React/HTML primitives.
+
+`OpenUIRender.tsx` owns shared rendering/error presentation; `KnownPanel.tsx` owns the business catalog; `OpenUIChat.tsx` owns literal message text and the composer; `OpenUIAnswers.tsx` owns founder answer controls. Preserve assistant-ui's composer/runtime state and CopilotKit's authenticated AG-UI transport, cancellation, stage approvals, saved IDs, per-company drafts and backend authorization. Treat strings as data and serialize them with JSON escaping; never interpret user answers as executable OpenUI programs. Keep the custom-code iframe isolated. This supersedes the earlier A2UI renderer choice; do not restore the removed A2UI renderer or Zod 3 alias. Current backend business contracts remain validated JSON, projected into OpenUI on the client; direct model-native OpenUI streaming is not established by this migration.
+
+
+### Shared control finish — 16 October 2026
+
+Keep text fields, selects and scrollbars consistent with the calm palette across
+OpenUI intake/chat, operations and custom views. Use soft fills, fine borders,
+roomy padding, clear keyboard focus and thin rounded scroll thumbs. The chat
+composer starts at one line, grows for long drafts and retains scrolling at its
+height limit. Preserve native semantics, labels, resizing and both themes.
+
+
+### Small workflow cards — 16 October 2026
+
+On wide screens no utility panel should occupy a whole dashboard row. Files and
+Founder operations join the measured masonry grid at the same card width as
+business results. Keep management forms collapsed until requested. Company
+briefs use the existing OpenUI CompanyBrief component with five small reading
+steps: Idea, Customers, Resources, Milestone and Next move. Support Back/Next
+and direct step selection, with longer answers and evidence behind explicit
+disclosures. Keep every original value, caveat, source and draft action; moving
+through reading steps must never submit work or start another business stage.

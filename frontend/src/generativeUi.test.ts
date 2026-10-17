@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { panelSchema, latestPanels, emptyWorkspace, workspaceSchema } from './model';
-import { declarativeMessages } from './DeclarativePanel';
+import { declarativeResponse } from './DeclarativePanel';
 import { knownPanelComponent, onboardingPanelCatalog } from './KnownPanel';
 import { customFrameHeight, sandboxDocument } from './CustomPanel';
 import { filterProspects } from './StandardPanelBody';
@@ -24,10 +24,9 @@ describe('generative UI boundaries', () => {
     expect(panelSchema.safeParse({ ...panel, note: 'Verified' }).success).toBe(false);
     expect(panelSchema.safeParse({ ...panel, provenance: { artifact_type: 'strategy' } }).success).toBe(false);
   });
-  it('creates a real A2UI surface and retains panel updates and reload data', () => {
+  it('creates an OpenUI response and retains panel updates and reload data', () => {
     if (panel.kind !== 'declarative') throw new Error('Expected composed panel');
-    const messages = declarativeMessages(panel);
-    expect(messages[0]).toMatchObject({ version: 'v0.9', createSurface: { surfaceId: panel.id, catalogId: 'samurai://business/v1' } });
+    expect(declarativeResponse(panel)).toBe('root = Column([Table([\"Offer\"], [[\"Hypothesis\"]])])');
     const workspace = workspaceSchema.parse({ ...emptyWorkspace(), pinned: [panel], messages: [{ id: 'updated', role: 'assistant', text: '', panel: { ...panel, title: 'Updated view' } }] });
     expect(latestPanels(workspace)).toHaveLength(1);
     expect(latestPanels(workspace)[0].title).toBe('Updated view');

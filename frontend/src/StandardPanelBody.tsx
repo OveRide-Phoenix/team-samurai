@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
-import { ArrowRight, Check, CheckCheck, ChevronDown, Download, ExternalLink, MapPin, Plus, Sparkles, Target, Users, Wallet } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, CheckCheck, ChevronDown, Download, ExternalLink, MapPin, Plus, Sparkles, Target, Users } from 'lucide-react';
 import { downloadWorkspaceFile, getWorkspaceFile } from './files';
 import type { EvidenceSource, Panel } from './model';
+import { ShareRing } from './PanelCharts';
+import { verificationPayloadSchema } from './agentos';
+import { isWorkDraft, WorkDraftPanel } from './WorkDraftPanel';
 
 type StandardPanel = Exclude<Panel, { kind: 'custom' | 'declarative' | 'scenario' }>;
 type Props = {
@@ -16,34 +19,54 @@ function Discussion({ label, prompt, onDiscuss }: { label: string; prompt: strin
   return onDiscuss ? <button className="panel-discuss" onClick={() => onDiscuss(prompt)}><Sparkles size={14} />{label}<ArrowRight size={14} /></button> : null;
 }
 export function StandardPanelBody(props: Props) {
-  const body = props.panel.kind === 'offer' ? <OfferPanel {...props} panel={props.panel} />
+  const body = isWorkDraft(props.panel) ? <WorkDraftPanel panel={props.panel} onDiscuss={props.onDiscuss} /> : props.panel.kind === 'offer' ? <OfferPanel {...props} panel={props.panel} />
     : props.panel.kind === 'pricing' ? <PricingPanel {...props} panel={props.panel} />
       : props.panel.kind === 'prospects' ? <ProspectPanel {...props} panel={props.panel} />
         : props.panel.kind === 'launch-plan' ? <DeliveryPanel {...props} panel={props.panel} />
           : props.panel.title === 'Company brief' ? <BriefPanel {...props} panel={props.panel} /> : <EvidencePanel {...props} panel={props.panel} />;
   return <>{body}{props.panel.knowledge_sources && <details className="panel-details knowledge-panel-sources"><summary>Workspace context</summary>{props.panel.knowledge_sources.map(source => <EvidenceSourceLink key={source.chunk_id} source={source} workspaceId={props.workspaceId} />)}</details>}</>;
 }
+export function FounderContext({ context }: { context: NonNullable<StandardPanel['founder_context']> }) {
+  return <aside className="founder-context" aria-label="Founder decision context">
+    {context.next_decision && <div className="founder-next-decision"><span className="panel-kicker">Next decision</span><strong>{context.next_decision}</strong></div>}
+    {context.evidence_gaps.length > 0 && <div className="founder-evidence-gaps"><span className="panel-kicker">Evidence still needed</span><p>{context.evidence_gaps[0]}</p>{context.evidence_gaps.length > 1 && <details className="panel-details"><summary>More evidence to collect ({context.evidence_gaps.length - 1})</summary><ul>{context.evidence_gaps.slice(1).map(gap => <li key={gap}>{gap}</li>)}</ul></details>}</div>}
+    {context.framework && <details className="panel-details founder-attribution"><summary>Framework attribution</summary><p>{context.framework.attribution}</p><a href={context.framework.source_url} target="_blank" rel="noopener noreferrer">{context.framework.id} {context.framework.version}</a></details>}
+  </aside>;
+}
+
+function BriefCopy({ text }: { text: string }) {
+  if (text.length <= 220) return <p>{text}</p>;
+  const preview = Array.from(text).slice(0, 220).join('').replace(/\s+\S*$/, '');
+  return <div className="brief-step-copy"><p>{preview}…</p><details className="panel-details"><summary>Read full answer</summary><p>{text}</p></details></div>;
+}
+const briefStops = ['Idea', 'Customers', 'Resources', 'Milestone', 'Next move'] as const;
 function BriefPanel({ panel, onDiscuss }: Props & { panel: Extract<Panel, { kind: 'evidence' }> }) {
-  const [view, setView] = useState('Overview');
+  const [step, setStep] = useState(0);
   const fields = panel.claims.map(claim => { const index = claim.claim.indexOf(':'); return index < 0 ? { label: 'Context', value: claim.claim } : { label: claim.claim.slice(0, index), value: claim.claim.slice(index + 1).trim() }; });
   const value = (...labels: string[]) => fields.find(field => labels.includes(field.label))?.value;
   const core = ['Idea', 'First customers', 'Market', 'Budget', 'Founder skills', 'Skills & resources', 'First milestone'];
   const extra = fields.filter(field => !core.includes(field.label));
-  return <div className="interactive-brief">
-    <Choices label="Brief view" values={['Overview', 'Inputs']} selected={view} onSelect={setView} />
-    {view === 'Overview' ? <>
-      <div className="brief-idea"><p>{value('Idea') || 'Your idea is still taking shape.'}</p></div>
-      <div className="brief-context-grid">
-        {value('First customers') && <div><Users size={16} /><span>Customers</span><strong>{value('First customers')}</strong></div>}
-        {value('Market') && <div><MapPin size={16} /><span>Market</span><strong>{value('Market')}</strong></div>}
-      </div>
-      {value('Budget') && <div className="brief-budget"><Wallet size={16} /><span>Budget</span><strong>{value('Budget')}</strong></div>}
-      {value('First milestone') && <div className="brief-milestone"><span className="milestone-symbol"><Target size={19} /></span><div><span className="panel-kicker">Milestone</span><strong>{value('First milestone')}</strong></div></div>}
-    </> : <div className="company-brief"><dl>{fields.filter(field => core.includes(field.label)).map(field => <div key={field.label}><dt>{field.label === 'Founder skills' ? 'Skills & resources' : field.label}</dt><dd>{field.value}</dd></div>)}</dl></div>}
-    {extra.length > 0 && <details className="panel-details"><summary>Additional context</summary><dl>{extra.map(field => <div key={field.label}><dt>{field.label}</dt><dd>{field.value}</dd></div>)}</dl></details>}
-    <Discussion label="Refine brief" prompt="Help me refine my existing company brief. Ask what I want to change before updating it or starting research." onDiscuss={onDiscuss} />
+  const stop = briefStops[step];
+  const fact = (label: string, text: string | undefined) => <div className="brief-step-fact"><span className="panel-kicker">{label}</span><BriefCopy text={text || 'Not shared yet'} /></div>;
+  return <div className="interactive-brief brief-workflow">
+    <nav className="brief-step-track" aria-label="Idea brief steps">{briefStops.map((label, index) => <button type="button" key={label} title={label} aria-label={`Step ${index + 1}: ${label}`} aria-current={index === step ? 'step' : undefined} onClick={() => setStep(index)}><span>{index + 1}</span></button>)}</nav>
+    <div className="brief-step-content" aria-live="polite" aria-atomic="true">
+      <span className="brief-step-count">{step + 1} of {briefStops.length} · {stop}</span>
+      <h4>{['Your idea', 'Who is it for?', 'Your starting point', 'Your first milestone', 'One next move'][step]}</h4>
+      {step === 0 && <div className="brief-step-lead"><Sparkles size={22} aria-hidden="true" /><BriefCopy text={value('Idea') || 'Your idea is still taking shape.'} /></div>}
+      {step === 1 && <div className="brief-step-facts">{fact('Customers', value('First customers'))}{fact('Market', value('Market'))}</div>}
+      {step === 2 && <div className="brief-step-facts">{fact('Budget', value('Budget'))}{fact('Skills & resources', value('Founder skills', 'Skills & resources'))}</div>}
+      {step === 3 && <div className="brief-step-lead"><Target size={22} aria-hidden="true" /><BriefCopy text={value('First milestone') || 'Choose a small first milestone.'} /></div>}
+      {step === 4 && <>
+        <div className="brief-step-lead"><ArrowRight size={22} aria-hidden="true" /><BriefCopy text={panel.founder_context?.next_decision || 'Choose what to explore next.'} /></div>
+        {(extra.length > 0 || panel.founder_context) && <details className="panel-details brief-step-details"><summary>Evidence & context</summary>{panel.founder_context && <FounderContext context={{ ...panel.founder_context, next_decision: null }} />}<dl>{extra.map((field, index) => <div key={`${field.label}-${index}`}><dt>{field.label}</dt><dd>{field.value}</dd></div>)}</dl></details>}
+      </>}
+    </div>
+    <div className="brief-step-actions"><button type="button" className="soft-button" aria-label="Previous brief step" disabled={step === 0} onClick={() => setStep(current => Math.max(0, current - 1))}><ArrowLeft size={14} />Back</button>{step < briefStops.length - 1 ? <button type="button" className="samurai-action" aria-label="Next brief step" onClick={() => setStep(current => Math.min(briefStops.length - 1, current + 1))}>Next<ArrowRight size={14} /></button> : <button type="button" className="soft-button" onClick={() => setStep(0)}>Back to idea</button>}</div>
+    <Discussion label={step === 4 ? 'Talk it through' : 'Change this'} prompt={`Help me refine the ${stop.toLowerCase()} in my existing idea brief. Ask what I want to change before updating it or starting research.`} onDiscuss={onDiscuss} />
   </div>;
 }
+
 function OfferPanel({ panel, approved, onApprove, onDiscuss }: Props & { panel: Extract<Panel, { kind: 'offer' }> }) {
   const [view, setView] = useState('The offer');
   return <div className="interactive-offer"><Choices label="Offer view" values={['The offer', 'Included']} selected={view} onSelect={setView} />
@@ -66,7 +89,7 @@ function ProspectPanel({ panel, shortlisted, onShortlist, compact }: Props & { p
   const [filter, setFilter] = useState('All');
   const rows = filterProspects(panel.rows, filter, shortlisted);
   const saved = panel.rows.filter(row => shortlisted.includes(row.id)).length;
-  return <div className="interactive-prospects"><div className="prospect-counts"><strong>{panel.rows.length}<span>to explore</span></strong><strong>{saved}<span>shortlisted</span></strong></div>
+  return <div className="interactive-prospects"><ShareRing value={String(panel.rows.length)} label="to explore" segments={[{ label: 'High fit', value: panel.rows.filter(row => row.fit === 'High').length }, { label: 'Medium fit', value: panel.rows.filter(row => row.fit === 'Medium').length }]} /><p className="visual-footnote">{saved} shortlisted</p>
     <Choices label="Filter prospects" values={['All', 'High fit', 'Shortlisted']} selected={filter} onSelect={setFilter} />
     <div className="prospect-list">{rows.map(row => {
       const identity = <><strong>{row.name}</strong><span className="prospect-meta"><MapPin size={11} />{row.area}<span className="fit-label">{row.fit} fit</span></span></>;
@@ -111,6 +134,8 @@ function EvidenceSourceLink({ source, workspaceId }: { source: EvidenceSource; w
 }
 function EvidencePanel({ panel, compact, workspaceId }: Props & { panel: Extract<Panel, { kind: 'evidence' }> }) {
   const [filter, setFilter] = useState('All findings');
+  const review = panel.provenance?.artifact_type === 'verification' ? verificationPayloadSchema.safeParse(panel.provenance.payload) : undefined;
+  const reviewLabel = review?.success ? { verified: 'Review complete', needs_input: 'More input needed', needs_rework: 'Changes needed' }[review.data.outcome] : undefined;
   const findings = panel.claims.filter(claim => !/^(info|warning|error):/.test(claim.detail));
   const supported = findings.filter(claim => claim.status === 'supported').length;
   const filtered = findings.filter(claim => filter === 'All findings' || (filter === 'Needs review' ? claim.status !== 'supported' : claim.sources.length > 0));
@@ -119,18 +144,17 @@ function EvidencePanel({ panel, compact, workspaceId }: Props & { panel: Extract
   const sourceKey = (source: EvidenceSource) => source.kind === 'external' ? source.url : source.chunk_id;
   const sourceLinks = (sources: EvidenceSource[]) => sources.map(source => <EvidenceSourceLink key={sourceKey(source)} source={source} workspaceId={workspaceId} />);
   const render = (claim: typeof panel.claims[number]) => <div className="evidence-row" key={claim.id}><span className="finding-state"><span />{claim.status === 'supported' ? 'Supported' : claim.status === 'hypothesis' ? 'Hypothesis' : 'Needs review'}</span>{claim.claim.length > 240 ? <details className="evidence-reading"><summary><strong>{claim.claim.slice(0, 200)}…</strong><span>Read more</span></summary><p>{claim.claim}</p></details> : <strong>{claim.claim}</strong>}{!compact && sourceLinks(claim.sources.slice(0, 2))}{!compact && claim.sources.length > 2 && <details className="panel-details"><summary>More sources</summary>{sourceLinks(claim.sources.slice(2))}</details>}</div>;
-  return <div className="evidence-list"><div className="evidence-overview"><span className="evidence-number">{findings.length}</span><div><strong>Findings</strong><p>{supported} supported · {findings.length - supported} to review</p></div></div><Choices label="Evidence filters" values={['All findings', 'Needs review', 'With sources']} selected={filter} onSelect={setFilter} />
+  return <div className="evidence-list">{review?.success ? <div className="brief-step-lead"><CheckCheck size={24} aria-hidden="true" /><p>{reviewLabel}</p><span className="visual-footnote">{review.data.checked_artifact_ids.length} artifacts checked · This is not customer validation.</span></div> : <ShareRing value={`${supported}/${findings.length}`} label="supported" segments={[{ label: 'Supported', value: supported }, { label: 'Needs review', value: findings.filter(claim => claim.status === 'needs-check').length }, { label: 'Hypotheses', value: findings.filter(claim => claim.status === 'hypothesis').length }]} />}<details className="panel-details visual-findings"><summary>{review?.success ? 'Review notes' : <>Review {findings.length} findings</>}</summary><Choices label="Evidence filters" values={['All findings', 'Needs review', 'With sources']} selected={filter} onSelect={setFilter} />
     {filtered.slice(0, 3).map(render)}{!filtered.length && <p className="empty-note">No findings in this view. Evidence may still be needed.</p>}
     {(filtered.length > 3 || warnings.length > 0 || support.length > 0) && <details className="panel-details"><summary>Details</summary>{filtered.slice(3).map(render)}{warnings.map(claim => <p key={claim.id}>{claim.claim}</p>)}{support.map(claim => <div className="evidence-row" key={`support-${claim.id}`}><strong>{claim.detail.startsWith('contradicted;') ? 'Conflicting evidence' : /^(unverified|supported);/.test(claim.detail) ? 'Source support' : 'Context'}</strong><p className="source-support-claim">{claim.claim}</p><p>{claim.detail.replace(/^(unverified|supported|contradicted); (mapped|unmapped)\.\s*/, '') || 'Source support has not been retained for this finding.'}</p></div>)}</details>}
-  </div>;
+  </details></div>;
 }
 function DeliveryPanel({ panel, completedTasks, onComplete, compact }: Props & { panel: Extract<Panel, { kind: 'launch-plan' }> }) {
   const completed = panel.tasks.filter(task => completedTasks.includes(JSON.stringify([panel.id, task.id]))).length;
-  const fraction = panel.tasks.length ? completed / panel.tasks.length : 0;
   const render = (task: typeof panel.tasks[number], index: number) => {
     const id = JSON.stringify([panel.id, task.id]);
     const done = completedTasks.includes(id);
     return <div className={`launch-task ${done ? 'task-done' : ''}`} key={task.id}><button className="task-check" aria-label={`${done ? 'Reopen' : 'Complete'} ${task.title}`} aria-pressed={done} onClick={() => onComplete(id)}>{done ? <Check size={15} /> : index + 1}</button><div><strong>{task.title}</strong>{task.timing !== 'Not scheduled' && <span>{task.timing}</span>}{!compact && <details className="task-detail"><summary aria-label={`Details for ${task.title}`}>Details<ChevronDown size={12} /></summary><p>Owner: {task.owner}</p>{!['complete', 'needs_rework', 'needs_input', 'draft_only'].includes(task.detail) && <p>{task.detail}</p>}</details>}</div></div>;
   };
-  return <div className="launch-plan"><div className="delivery-overview"><svg className="delivery-ring" viewBox="0 0 48 48" role="img" aria-label={`${completed} of ${panel.tasks.length} checklist steps complete`}><circle cx="24" cy="24" r="19" /><circle cx="24" cy="24" r="19" pathLength="100" strokeDasharray={`${fraction * 100} 100`} /><text x="24" y="28" textAnchor="middle">{completed}</text></svg><div><strong>Checklist</strong><span>{completed} of {panel.tasks.length} complete</span></div></div><progress className="sr-only" aria-label="Launch progress" value={completed} max={panel.tasks.length || 1} />{panel.tasks.slice(0, 3).map(render)}{panel.tasks.length > 3 && <details className="panel-details"><summary>More steps ({panel.tasks.length - 3})</summary>{panel.tasks.slice(3).map((task, index) => render(task, index + 3))}</details>}</div>;
+  return <div className="launch-plan"><ShareRing value={`${completed}/${panel.tasks.length}`} label="steps complete" segments={[{ label: 'Complete', value: completed }, { label: 'Remaining', value: panel.tasks.length - completed }]} /><progress className="sr-only" aria-label="Launch progress" value={completed} max={panel.tasks.length || 1} />{panel.tasks.slice(0, 3).map(render)}{panel.tasks.length > 3 && <details className="panel-details"><summary>More steps ({panel.tasks.length - 3})</summary>{panel.tasks.slice(3).map((task, index) => render(task, index + 3))}</details>}</div>;
 }

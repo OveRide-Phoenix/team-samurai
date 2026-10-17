@@ -15,7 +15,18 @@ from inspect import isasyncgenfunction, iscoroutinefunction, isgeneratorfunction
 from pathlib import Path
 from time import time
 from types import MethodType
-from typing import TYPE_CHECKING, ClassVar, Final, Never, TypedDict, cast, final, override
+from typing import (
+    TYPE_CHECKING,
+    ClassVar,
+    Final,
+    Literal,
+    Never,
+    TypedDict,
+    cast,
+    final,
+    overload,
+    override,
+)
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 import anyio
@@ -24,7 +35,8 @@ from agno.db.base import SessionType
 from agno.exceptions import InputCheckError, OutputCheckError, StopAgentRun
 from agno.models.base import Model
 from agno.run import RunContext
-from agno.run.agent import CustomEvent, RunOutput
+from agno.run.agent import CustomEvent, RunOutput, RunOutputEvent
+from agno.run.base import RunStatus
 from agno.run.cancel import acancel_run, acleanup_run, ais_cancelled
 from agno.run.concurrency import get_worker_ownership
 from agno.run.workflow import (
@@ -49,6 +61,7 @@ from samurai.analysis_workflow import (
     create_analysis_workflow,
     run_analysis,
 )
+from samurai.company_actions import ActionId, CompanyAction, company_actions
 from samurai.company_store import CompanyStore
 from samurai.company_store_contracts import WorkspaceRole
 from samurai.company_workflow import (
@@ -73,6 +86,7 @@ from samurai.contracts import (
     VerificationFinding,
     WorkflowRequest,
     WorkflowResult,
+    current_artifacts,
 )
 from samurai.execution_state import (
     ApprovedStage,
@@ -93,10 +107,16 @@ from samurai.launch_workflows import (
 )
 from samurai.learning import LearningContext, LearningStore
 from samurai.panels import presentation_tools
-from samurai.team_areas import TeamArea, journey_handoff, suggest_team_area, team_instructions
+from samurai.team_areas import (
+    TeamArea,
+    journey_handoff,
+    selected_area,
+    suggest_team_area,
+    team_instructions,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+    from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Iterator
 
     from agno.db.base import BaseDb
     from agno.models.response import ModelResponse
@@ -104,7 +124,7 @@ if TYPE_CHECKING:
 
 PARENT_AGENT_ID: Final = "samurai"
 PARENT_AGENT_NAME: Final = "Samurai"
-PARENT_DESCRIPTION: Final = "Build and improve one evidence-linked company with Samurai."
+PARENT_DESCRIPTION: Final = "Explore and validate a software idea with evidence-linked mentoring."
 REGISTRY_EXECUTION_ERROR: Final = "registered parent cannot execute"
 PARENT_COPY_UPDATE_ERROR: Final = "Samurai parent copy does not accept updates"
 TOOL_RESULT_MARKER: Final = "\nSAMURAI_WORKFLOW_RESULT="
@@ -121,10 +141,10 @@ CORE_EXECUTOR_AGENT_FIELDS: Final = (
 PARENT_BINDING_KEYS: Final = frozenset({"child_session_id", "company_id", "current_revision"})
 AGNO_SESSION_KEYS: Final = frozenset({"current_user_id", "current_session_id", "current_run_id"})
 STARTER_PROMPTS: Final = [
-    "Build my business: describe the idea, customer, geography, budget, founder skills, and goal.",
-    "Continue my company plan using the context and decisions already retained.",
-    "Create reviewable Builder, Marketer, and Sales drafts from my verified plan.",
-    "Analyze these provenance-labelled business metrics and recommend what to improve.",
+    "Explore my software idea: its users, problem, budget, skills and next validation goal.",
+    "Discuss an aspect of my idea using the context and decisions already retained.",
+    "Review product feasibility, technology, budget and resources, with assumptions visible.",
+    "Plan a small validation experiment and explain what evidence it could establish.",
 ]
 METRIC_INPUT_QUESTIONS: Final = (
     "What exact unit, UTC window_start, UTC window_end, and UTC collected_at apply to each metric?",
@@ -159,6 +179,9 @@ class CompanyStateSummary(Contract):
     artifacts: tuple[ArtifactEnvelope, ...] = ()
     frameworks: tuple[FrameworkReference, ...] = ()
     learning_context: LearningContext = LearningContext(records=())
+    next_action: ActionId | None = None
+    actions: tuple[CompanyAction, ...] = ()
+    current_artifact_ids: tuple[UUID, ...] | None = None
 
     @override
     def __str__(self) -> str:
@@ -393,11 +416,13 @@ class SamuraiParentAgent(Agent):
         instructions: list[str],
         executable: bool,
         team_area: TeamArea,
+        read_only: bool,
     ) -> None:
         self.samurai_db = db
         self.samurai_settings = settings
         self.samurai_model_factory = model_factory
         self.samurai_team_area: TeamArea = team_area
+        self.samurai_read_only = read_only
 
         def reject_registry_execution() -> None:
             raise InputCheckError(REGISTRY_EXECUTION_ERROR)
@@ -426,6 +451,71 @@ class SamuraiParentAgent(Agent):
             telemetry=False,
         )
 
+    @overload
+    def arun(
+        self, *args: object, stream: Literal[False] = False, **kwargs: object
+    ) -> Coroutine[object, object, RunOutput]: ...
+
+    @overload
+    def arun(
+        self, *args: object, stream: Literal[True], **kwargs: object
+    ) -> AsyncIterator[RunOutputEvent]: ...
+
+    @override
+    def arun(  # pyright: ignore[reportIncompatibleMethodOverride] - forward Agno's overloaded dispatch.
+        self, *args: object, stream: bool = False, **kwargs: object
+    ) -> Coroutine[object, object, RunOutput] | AsyncIterator[RunOutputEvent]:
+        metadata = kwargs.get("metadata")
+        runner: Agent = self
+        if isinstance(metadata, dict) and "samurai_work_operation" in metadata:
+            run_id = kwargs.get("run_id")
+            if not isinstance(run_id, str) or get_worker_ownership(run_id) is None:
+                message = "Queued execution requires worker ownership"
+                raise InputCheckError(message)
+            metadata = cast("dict[str, object]", metadata)
+            operation = WorkOperation(str(metadata["samurai_work_operation"]))
+            area = selected_area({"team_area": metadata.get("team_area", "overview")})
+            runner = create_parent_agent(
+                self.samurai_db,
+                self.samurai_settings,
+                model_factory=self.samurai_model_factory,
+                team_area=area,
+                read_only=operation is WorkOperation.READ_ONLY_STATE,
+            )
+        invoke = cast(
+            "Callable[..., Coroutine[object, object, RunOutput] | AsyncIterator[RunOutputEvent]]",
+            Agent.arun,
+        )
+        execution = invoke(runner, *args, stream=stream, **kwargs)
+        if not stream or not kwargs.get("yield_run_output"):
+            return execution
+
+        async def worker_events() -> AsyncIterator[RunOutputEvent | RunOutput]:
+            yielded_output = False
+            async for event in cast("AsyncIterator[RunOutputEvent | RunOutput]", execution):
+                yielded_output = yielded_output or isinstance(event, RunOutput)
+                yield event
+            if not yielded_output:
+                # Agno omits failed stream outputs; the native worker still needs the saved status.
+                run_id = kwargs.get("run_id")
+                if not isinstance(run_id, str):
+                    raise _ParentModelError
+                output = await runner.aget_run_output(
+                    run_id,
+                    session_id=cast("str | None", kwargs.get("session_id")),
+                    user_id=cast("str | None", kwargs.get("user_id")),
+                )
+                if output is None or output.status not in {
+                    RunStatus.completed,
+                    RunStatus.error,
+                    RunStatus.cancelled,
+                    RunStatus.paused,
+                }:
+                    raise _ParentModelError
+                yield output
+
+        return cast("AsyncIterator[RunOutputEvent]", worker_events())
+
     @override
     def deep_copy(self, *, update: dict[str, object] | None = None) -> Agent:
         if update:
@@ -435,6 +525,7 @@ class SamuraiParentAgent(Agent):
             self.samurai_settings,
             model_factory=self.samurai_model_factory,
             team_area=self.samurai_team_area,
+            read_only=self.samurai_read_only,
         )
 
 
@@ -1129,6 +1220,8 @@ def _bind_normalized_work(
         raise InputCheckError(message)
     bound = candidate
     user_id, parent_session_id, child_id = _trusted_identity(run_context)
+    if isinstance(db, SamuraiPostgresDb) and db.table_exists("samurai_company_actor_bindings"):
+        child_id, _state = _child_state(db, run_context)
     if (
         bound.approval.owner_id,
         bound.approval.parent_session_id,
@@ -1166,6 +1259,7 @@ def create_parent_agent(  # noqa: C901, PLR0913, PLR0915 - bounded tool surface.
     model_factory: Callable[[], Model] | None = None,
     executable: bool = True,
     team_area: TeamArea = "overview",
+    read_only: bool = False,
 ) -> SamuraiParentAgent:
     """Create a fresh ordinary Samurai Agent and its bounded native tools."""
     framework_metadata = load_framework_catalog().metadata
@@ -1258,6 +1352,9 @@ def create_parent_agent(  # noqa: C901, PLR0913, PLR0915 - bounded tool surface.
             goal=requested.goal or None,
             supplied_context=requested.supplied_context,
             assumptions=requested.assumptions,
+            research_after_revision=normalized.expected_revision
+            if requested.stage == "research"
+            else None,
         )
         workflow = _sanitize_workflow(
             create_company_workflow(db, settings, stage=requested.stage),
@@ -1347,7 +1444,7 @@ def create_parent_agent(  # noqa: C901, PLR0913, PLR0915 - bounded tool surface.
             raise
         except Exception:  # noqa: BLE001 - child details must stop before Agno logs them.
             raise _ChildWorkflowError from None
-        return _ParentWorkflowResult.model_validate(result)
+        return _ParentWorkflowResult.model_validate(result.model_dump())
 
     async def analyze_metrics(
         run_context: RunContext,
@@ -1414,16 +1511,19 @@ def create_parent_agent(  # noqa: C901, PLR0913, PLR0915 - bounded tool surface.
         brief = intake.brief if intake is not None else None
         founder_truth = intake.founder_truth if intake is not None else FounderTruth()
         retained_frameworks = intake.frameworks if intake is not None else ()
+        current = current_artifacts(state)
         conflicts = tuple(
             conflict
-            for artifact in state.artifacts
+            for artifact in current.values()
             if isinstance(artifact.payload, ResearchArtifact)
             for conflict in artifact.payload.conflicts
         )
         findings = tuple(
-            finding for artifact in state.artifacts for finding in artifact.verification_findings
+            finding for artifact in current.values() for finding in artifact.verification_findings
         )[-20:]
-        sources = tuple(source for artifact in state.artifacts for source in artifact.sources)[-20:]
+        sources = tuple(source for artifact in current.values() for source in artifact.sources)[
+            -20:
+        ]
         next_decision = founder_truth.next_decision
         learning_context = LearningContext(records=())
         if isinstance(db, SamuraiPostgresDb):
@@ -1437,6 +1537,7 @@ def create_parent_agent(  # noqa: C901, PLR0913, PLR0915 - bounded tool surface.
                     access.workspace_id,
                     state.context.company_id,
                 )
+        next_action, actions = company_actions(state)
         return CompanyStateSummary(
             company_id=state.context.company_id,
             revision=state.current_revision,
@@ -1448,9 +1549,12 @@ def create_parent_agent(  # noqa: C901, PLR0913, PLR0915 - bounded tool surface.
             verification_findings=findings,
             next_decision=next_decision,
             founder_truth=founder_truth,
-            artifacts=tuple({item.artifact_type: item for item in state.artifacts}.values()),
+            artifacts=tuple(current.values()),
+            current_artifact_ids=tuple(item.artifact_id for item in current.values()),
             frameworks=retained_frameworks or framework_metadata,
             learning_context=learning_context,
+            next_action=next_action,
+            actions=actions,
         )
 
     capabilities = ", ".join(
@@ -1460,8 +1564,10 @@ def create_parent_agent(  # noqa: C901, PLR0913, PLR0915 - bounded tool surface.
         Function(
             name=tool.__name__,
             entrypoint=tool,
-            stop_after_tool_call=team_area == "overview" or tool is not read_company_state,
-            show_result=team_area == "overview" or tool is not read_company_state,
+            stop_after_tool_call=(team_area == "overview" and not read_only)
+            or tool is not read_company_state,
+            show_result=(team_area == "overview" and not read_only)
+            or tool is not read_company_state,
         )
         for tool in (
             run_company_journey,
@@ -1480,6 +1586,8 @@ def create_parent_agent(  # noqa: C901, PLR0913, PLR0915 - bounded tool surface.
             show_result=True,
         ),
     )
+    if read_only:
+        tools = [tool for tool in tools if tool.name == "read_company_state"]
     skills = _BoundedSkills(
         loaders=[
             LocalSkills(
@@ -1509,7 +1617,19 @@ def create_parent_agent(  # noqa: C901, PLR0913, PLR0915 - bounded tool surface.
             (Path(__file__).parent / "prompts" / "main.md").read_text(encoding="utf-8"),
             f"Capability catalogue: {capabilities}",
             team_instructions(team_area),
+            *(
+                [
+                    (
+                        "This turn is read-only. Mentor from retained state; label assumptions. "
+                        "Missing inputs do not block discussion; saved work needs approval. "
+                        "Do not claim new research or execution has run."
+                    )
+                ]
+                if read_only
+                else []
+            ),
         ],
         executable=executable,
         team_area=team_area,
+        read_only=read_only,
     )

@@ -12,6 +12,7 @@ from agno.db.postgres import PostgresDb
 from agno.db.schemas.jobs import QueuedJob
 from agno.run import RunContext
 from agno.run.concurrency import worker_managed_execution
+from agno.session.agent import AgentSession
 from agno.session.workflow import WorkflowSession
 from pydantic import BaseModel, JsonValue, TypeAdapter
 from sqlalchemy import MetaData, Table
@@ -967,3 +968,80 @@ def test_acceptance_cancelled_job_cannot_commit_late_state(
 
     # Then the shared job-row lock fences the late acceptance.
     assert raised.value.issue is WorkIntentIssue.CANCELLED
+
+
+@pytest.mark.parametrize("older_timestamp", [20, 30])
+def test_parent_cache_uses_highest_accepted_revision_when_timestamps_tie_or_retry(
+    database: SamuraiPostgresDb,
+    older_timestamp: int,
+) -> None:
+    first_intent, first_token = _prepare(database, "binding-first")
+    first = _state(first_intent.parent_session_id)
+    with worker_managed_execution(
+        first_token.parent_run_id, first_token.worker_id, first_token.attempt
+    ):
+        _ = database.accept_company_state(first, first_token)
+    assert database.complete_job(
+        first_token.parent_run_id, first_token.worker_id, first_token.attempt, "completed"
+    )
+    second_intent = _intent(expected_revision=1, company_id=first.context.company_id)
+    assert (
+        database.enqueue_job(_job("binding-second", second_intent, key="second-binding-key"))[
+            "accepted"
+        ]
+        is True
+    )
+    claimed = database.claim_job("worker-2", lock_grace_seconds=60)
+    assert claimed is not None
+    attempt = _ClaimedJob.model_validate(claimed).attempt
+    second = accept_artifact(
+        first,
+        first.artifacts[0].model_copy(
+            update={
+                "artifact_id": uuid4(),
+                "revision": 2,
+                "input_revision": 1,
+                "acceptance_status": "pending",
+            }
+        ),
+        authenticated_session_id=first_intent.parent_session_id,
+    )
+    with worker_managed_execution("binding-second", "worker-2", attempt):
+        second_token = database.bind_work_intent("binding-second", _normalized(second_intent)).token
+        _ = database.accept_company_state(second, second_token)
+    intents = Table(
+        database.work_intent_table_name,
+        MetaData(schema=database.db_schema),
+        autoload_with=database.db_engine,
+    )
+    with database.db_engine.begin() as connection:
+        _ = connection.execute(intents.update().values(updated_at=20))
+        _ = connection.execute(
+            intents.update()
+            .where(intents.c.job_id == "binding-first")
+            .values(updated_at=older_timestamp)
+        )
+    stale_binding = database.get_parent_binding("binding-first", first_intent.owner_id)
+    assert stale_binding is not None
+    _ = database.upsert_session(
+        AgentSession(
+            session_id=first_intent.parent_session_id,
+            user_id=first_intent.owner_id,
+            agent_id="samurai",
+            created_at=20,
+            updated_at=20,
+            session_data={"session_state": stale_binding.model_dump(mode="json")},
+        )
+    )
+    restored = database.get_session(
+        first_intent.parent_session_id,
+        session_type=SessionType.AGENT,
+        user_id=first_intent.owner_id,
+    )
+    assert isinstance(restored, AgentSession)
+    assert restored.session_data is not None
+    assert restored.session_data["session_state"] == {
+        "child_session_id": first_intent.child_session_id,
+        "company_id": str(first.context.company_id),
+        "current_revision": 2,
+    }

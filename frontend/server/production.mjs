@@ -18,7 +18,7 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const runPath = '/api/agentos/agents/samurai/runs';
 const workspacePath = '/api/agentos/samurai/workspaces';
 const operations = new Set(['journey', 'launch_drafts', 'metrics_analysis']);
-const stages = new Set(['brief', 'research', 'strategy', 'plan']);
+const stages = new Set(['brief', 'research', 'strategy', 'plan', 'verify']);
 const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.json': 'application/json' };
 const bodyLimit = 64 * 1024;
 function json(res, status, value) {

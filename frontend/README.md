@@ -1,5 +1,13 @@
 # Samurai UI
 
+The current UX is a software idea mentor: an idea-centered graph with six independently
+accessible aspects, eighteen checkpoints and saved user readiness assessments.
+Notes and assessments persist in the existing account-scoped browser cache. Existing
+backend journeys, APIs, approval guards and panel renderers are reused. The historical
+implementation notes below retain internal company names for compatibility. The
+normal route still uses the configured backend; `?preview=panels` demonstrates the
+same graph and controls with labelled illustrative data and no provider calls.
+
 The React/Vite founder workspace for AI Idea → Company. New companies use the configured local AgentOS backend; existing and demo companies retain labelled Preview mode. Live Gemini runs may incur provider charges. The workspace does not send, publish or deploy; recorded production Node-proxy revisions used team-only Google IAP, with Google sign-in, live brief creation, and reload verified there rather than for the current source.
 
 ## Run locally
@@ -78,3 +86,7 @@ The production BFF defaults to `FRONTEND_AUTH_MODE=iap`. The staged `guest` mode
 creates signed browser identities while retaining scoped server-to-server JWTs.
 See [public guest access](../docs/public-guest-access.md) for limits, cookie lifetime,
 verification scope and the blocked production activation sequence.
+
+### OpenUI composed views
+
+Generated text, metric, list, and table compositions render through `@openuidev/react-lang` 1.0.1 with Samurai's existing theme. The backend and saved-panel JSON format remain compatible; CopilotKit still transports chat; OpenUI renders the business catalog, chat messages, reply composer, company-name entry and intake answer fields. The existing assistant-ui runtime and native cancellation remain in place; direct model-native OpenUI streaming is not implemented. Inspect Pilot comparison in the existing `?preview=panels` route; see [the generative UI contract](../docs/generative-ui.md#openui-composed-panels--16-october-2026).

@@ -22,7 +22,12 @@ export function validateCopilotBody(value) {
     return value;
   }
   const props = value.body?.forwardedProps;
-  if (props != null && (typeof props !== 'object' || Array.isArray(props) || Object.keys(props).some(key => key !== 'team_area') || (Object.keys(props).length && !['overview', 'research', 'strategy', 'verification', 'sales'].includes(props.team_area)))) throw new Error('Invalid team area.');
+  if (props != null && (typeof props !== 'object' || Array.isArray(props) || Object.keys(props).some(key => !['team_area', 'work_approval'].includes(key)) || (props.team_area !== undefined && !['overview', 'research', 'strategy', 'verification', 'sales'].includes(props.team_area)))) throw new Error('Invalid team area.');
+  if (props?.work_approval !== undefined) {
+    const approval = props.work_approval;
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!approval || typeof approval !== 'object' || Array.isArray(approval) || Object.keys(approval).length !== 4 || Object.keys(approval).some(key => !['operation', 'stage', 'expected_revision', 'company_id'].includes(key)) || !['journey', 'launch_drafts', 'metrics_analysis'].includes(approval.operation) || !['brief', 'research', 'strategy', 'plan', 'verify'].includes(approval.stage) || (approval.operation !== 'journey' && approval.stage !== 'plan') || !Number.isSafeInteger(approval.expected_revision) || approval.expected_revision < 0 || typeof approval.company_id !== 'string' || !uuid.test(approval.company_id)) throw new Error('Invalid work approval.');
+  }
   const body = value.body;
   if (value.method !== 'agent/run' || value.params?.agentId !== 'samurai' || Object.keys(value.params).some(key => key !== 'agentId') || !body || typeof body !== 'object' || Array.isArray(body)) throw new Error('CopilotKit method not allowed.');
   const allowed = ['threadId', 'runId', 'protocolVersion', 'parentRunId', 'state', 'messages', 'tools', 'context', 'forwardedProps', 'resume'];

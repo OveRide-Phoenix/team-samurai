@@ -4,6 +4,8 @@ from uuid import uuid4
 
 import pytest
 from agno.agent import Agent
+from agno.utils.gemini import prepare_response_schema
+from google.genai.types import Schema
 from pydantic import BaseModel, ValidationError
 
 from samurai.agents import (
@@ -218,3 +220,14 @@ def test_invalid_model_budget_fails_without_revealing_secrets(
         _ = Settings.model_validate({"os_security_key": redacted_value, field: value})
 
     assert redacted_value not in str(raised.value)
+
+
+def test_intake_model_schema_excludes_server_owned_provenance() -> None:
+    catalog = create_role_catalog(Settings.model_validate({}))
+    schema = catalog[Role.INTAKE].agent.output_schema
+    assert isinstance(schema, type)
+    assert issubclass(schema, BaseModel)
+    assert set(schema.model_fields) == {"brief", "founder_truth"}
+    prepared = prepare_response_schema(schema)
+    assert isinstance(prepared, Schema)
+    assert "additional_properties" not in prepared.model_dump_json(exclude_none=True)

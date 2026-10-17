@@ -1,4 +1,4 @@
-"""Team scopes preserve ownership and refuse cross-area work before execution."""
+"""Independent mentor aspects preserve ownership and bounded execution."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from agno.db.sqlite import SqliteDb
 from pydantic import ValidationError
 
 from samurai.config import Settings
+from samurai.panels import PANEL_MARKER
 from samurai.parent import child_session_id, create_parent_agent
 from samurai.team_areas import HANDOFF_MARKER, selected_area
 from tests.test_agui import fixture, payload
@@ -97,3 +98,40 @@ def test_http_area_is_retained_in_owned_run_and_foreign_context_stays_blocked(
     assert saved.status_code == 200
     assert saved.json()["metadata"]["team_area"] == "research"
     assert forged.status_code == 422
+
+
+@pytest.mark.parametrize("area", ["overview", "research", "sales", "strategy", "verification"])
+def test_aspect_can_read_then_compose_without_upstream_work(tmp_path: Path, area: str) -> None:
+    # Given an authenticated mentor conversation with no saved brief or evidence.
+    model = _ToolSequenceModel(
+        "read_company_state",
+        "compose_panel",
+        arguments={
+            "compose_panel": json.dumps(
+                {
+                    "panel_key": "working-assumptions",
+                    "title": "Working assumptions",
+                    "blocks": [{"kind": "text", "text": "Scope and costs are assumptions."}],
+                }
+            )
+        },
+    )
+    client, headers, db = fixture(tmp_path, model)
+    # When the founder discusses an aspect before completing any other aspect.
+    with client:
+        response = client.post(
+            "/agentos/agents/samurai/agui",
+            json=payload(forwardedProps={"team_area": area}),
+            headers=headers,
+        )
+    # Then state recall can continue into a draft view without child execution.
+    assert response.status_code == 200
+    assert PANEL_MARKER in response.text
+    assert HANDOFF_MARKER not in response.text
+    assert model.calls == 2
+    for tool in ("run_company_journey", "create_launch_drafts", "analyze_metrics"):
+        assert tool not in model.advertised_tools_json
+    assert (
+        db.get_session(child_session_id("founder", "company-1"), session_type=SessionType.WORKFLOW)
+        is None
+    )

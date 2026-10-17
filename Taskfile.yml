@@ -98,6 +98,11 @@ tasks:
       - task: redis:up
       - uv run --directory backend uvicorn samurai.app:create_app --factory --app-dir src --host 127.0.0.1 --port 8000
 
+  frontend:auth:
+    desc: Refresh the existing signed local frontend identity for 24 hours (development only)
+    cmds:
+      - uv run --directory backend python ../scripts/refresh_local_auth.py "{{.ROOT_DIR}}"
+
   frontend:setup:
     desc: Install locked frontend dependencies
     preconditions:

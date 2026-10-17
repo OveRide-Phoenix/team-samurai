@@ -1,6 +1,6 @@
 FROM ghcr.io/astral-sh/uv:0.9.21 AS uv
 
-FROM public.ecr.aws/docker/library/python:3.14.5-slim-bookworm
+FROM mirror.gcr.io/library/python:3.14.5-slim-bookworm
 
 COPY --from=uv /uv /uvx /bin/
 

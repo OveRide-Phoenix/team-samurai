@@ -15,7 +15,7 @@ from samurai.contracts import (
     AnalysisDraft,
     ArtifactType,
     BuilderDraftArtifact,
-    IntakeArtifact,
+    IntakeDraft,
     KnowledgeReference,
     MarketingDraftArtifact,
     ProductPlanArtifact,
@@ -83,7 +83,7 @@ class KnowledgeContext:
 
 
 ROLE_SPECS: Final = (
-    _RoleSpec(Role.INTAKE, "Intake", IntakeArtifact, "active", ArtifactType.INTAKE),
+    _RoleSpec(Role.INTAKE, "Intake", IntakeDraft, "active", ArtifactType.INTAKE),
     _RoleSpec(
         Role.RESEARCHER,
         "Researcher",

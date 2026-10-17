@@ -1,10 +1,11 @@
 import type { TeamArea } from './model';
+import type { AgentosApproval } from './agentos';
 import type { AbstractAgent } from '@ag-ui/client';
 import type { CopilotKitCoreReact } from '@copilotkit/react-core/v2/context';
 
 // Feed CopilotKit's authenticated AG-UI events into the retained workspace/recovery adapter.
 export function createCopilotStart(core: CopilotKitCoreReact, agent: AbstractAgent, sessionId: string) {
-  return async (input: string, signal: AbortSignal, area: TeamArea = 'overview'): Promise<Response> => {
+  return async (input: string, signal: AbortSignal, area: TeamArea = 'overview', approval?: AgentosApproval, submissionId: string = crypto.randomUUID()): Promise<Response> => {
     agent.threadId = sessionId;
     agent.setState({});
     agent.setMessages([{ id: crypto.randomUUID(), role: 'user', content: input }]);
@@ -24,7 +25,7 @@ export function createCopilotStart(core: CopilotKitCoreReact, agent: AbstractAge
         onRunErrorEvent() { if (!closed) { closed = true; controller.error(new Error('Samurai could not complete this run.')); } },
       });
       unsubscribe = () => subscription.unsubscribe();
-      void core.runAgent({ agent, runId: crypto.randomUUID(), forwardedProps: { team_area: area } }).then(() => {
+      void core.runAgent({ agent, runId: submissionId, forwardedProps: { team_area: area, ...(approval ? { work_approval: { operation: approval.operation, stage: approval.stage, expected_revision: approval.expectedRevision, company_id: approval.companyId } } : {}) } }).then(() => {
         if (!closed) {
           if (terminal) controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(terminal)}\n\n`));
           closed = true; controller.close();

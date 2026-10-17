@@ -1,14 +1,20 @@
 # Backend
 
-Owns the server-side behavior for **AI Idea → Company**. Read the root [AGENTS.md](../AGENTS.md) and [logical architecture](../README.md#logical-architecture) first.
+Owns the server-side behavior for **Samurai**, a mentor and validator for software ideas: apps, websites and software enhancements. Read the root [AGENTS.md](../AGENTS.md) and [logical architecture](../README.md#logical-architecture) first.
 
 ## Responsibilities
 
 - Authenticate requests and enforce company access and authorization for consequential actions.
-- Coordinate research, strategy, product work, building, marketing, sales, analysis, and verification around shared company state.
+- Reuse the existing research, strategy, product planning, draft and verification journey around shared idea state; preserve its company identity and persistence contracts.
 - Integrate Gemini and approved tools; retain evidence, decisions, artifact lineage, and explicit uncertainties.
 - Persist work status, approvals, results, and business measurements, and expose structured data to the frontend.
 - Execute authorized integrations and jobs with observable success and failure outcomes.
+
+## Mentoring and execution
+
+The founder can discuss six aspects independently: Problem & demand, Market & alternatives, Sales & distribution, Product & technology, Budget & resources, and Validation & delivery. Idea is the shared overview. Missing evidence or technical decisions are labelled gaps and assumptions; they do not lock another conversation. Area suggestions are optional. Ordinary authenticated chat can read owned state and compose a draft comparison or estimate without an intake artifact or research. The mentor's software-only scope is prompt guidance, not a keyword classifier.
+
+The frontend maps these aspects onto the existing `team_area` values: `overview` for Idea, `research` for problem/demand and market/alternatives, `strategy` for product/technology and budget/resources, `sales` for sales/distribution, and `verification` for validation/delivery. The backend journey, API schema, saved identities, action eligibility and evidence gates are unchanged. Canonical workflow artifacts still require explicit approved work and supported inputs; discussion and generated views do not establish verified outputs. No provider or service is added for an aspect.
 
 ## Current local acceptance boundary
 
@@ -175,7 +181,7 @@ The user funded the API account and now requests `gemini-3.5-flash-lite` with na
 A fresh authenticated AgentOS console run on `gemini-3.5-flash-lite` completed a synthetic fitness-app journey in about 16 seconds. The saved parent and child runs are COMPLETED. Canonical state reached revision 5: intake, research, strategy, product plan and verification. Research retained two sources and one mapped but unverified claim, propagated into strategy/product planning; final verification was `needs_rework` because conflicts remained. This verifies native Search access on the currently configured account, not customer demand or factual validation. Parent metrics recorded 1,858 input and 143 output tokens; child workflow metrics did not aggregate its model usage, so these are not a full billing receipt. No launch drafts, outreach or deployment were performed.
 
 ### CopilotKit AG-UI
-The authenticated `/agentos/agents/samurai/agui` interface resolves the existing parent per request and uses the same JWT run scope and native persistence. It rejects client tools, state/context/identity overrides, foreign sessions and reused run IDs. `compose_panel` and `create_custom_panel` add validated draft presentation to the four business tools; neither mutates canonical company state nor performs an external action. Native read/cancel endpoints remain authoritative. See [the UI contract](../docs/generative-ui.md). No paid provider run or cloud redeployment was made for this integration.
+The authenticated `/agentos/agents/samurai/agui` interface uses the native durable worker for PostgreSQL. Enable local `QUEUE_ENABLED` and private Redis deliberately; missing coordination fails closed. The request UUID is also its durable submission identity. Bounded typed work approval shares native membership/company/revision validation; ordinary chat exposes read-only tools. The worker creates a fresh scoped parent and uses the authoritative shared-company child binding. Client tools, state/context/identity overrides, foreign sessions and reused run IDs are rejected. Presentation tools add validated drafts without mutating canonical state. Native owned receipts, reads, cancellation and replay remain authoritative. The 16 October local browser test accepted and recovered one real Gemini intake at revision 1; no later-stage provider test or cloud deployment is established. See [the UI contract](../docs/generative-ui.md).
 
 Guest admission is opt-in (`GUEST_ACCESS_ENABLED=false` by default). Migration
 `0005_guest_usage` adds shared daily counters. Production guests additionally require

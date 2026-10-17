@@ -8,13 +8,11 @@ from typing import TYPE_CHECKING, ClassVar, Final, Literal, cast, final
 from urllib.parse import parse_qs, urlsplit
 from uuid import UUID
 
-from agno.db.base import SessionType
 from agno.os import AgentOS
 from agno.os.auth import acheck_resource_access
 from agno.os.authz import Authorization
 from agno.os.config import AgentOSConfig, ChatConfig
 from agno.os.settings import AgnoAPISettings
-from agno.session.workflow import WorkflowSession
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
@@ -25,10 +23,7 @@ from starlette.formparsers import MultiPartException
 from starlette.requests import Request
 
 from samurai.agui import SamuraiAGUI
-from samurai.company_store import CompanyStore
-from samurai.company_store_contracts import WorkspaceRole
 from samurai.config import Settings, create_queue_config
-from samurai.contracts import CompanyState
 from samurai.execution_state import (
     WORK_INTENT_METADATA_KEY,
     ApprovedStage,
@@ -47,11 +42,11 @@ from samurai.learning_api import learning_router
 from samurai.parent import (
     PARENT_AGENT_ID,
     STARTER_PROMPTS,
-    child_session_id,
     create_parent_agent,
 )
 from samurai.scenario_api import scenario_router
 from samurai.schedule_api import schedule_router
+from samurai.work_admission import WorkApproval, build_work_intent
 from samurai.workspace_api import workspace_router
 
 __all__ = ["Settings"]
@@ -64,7 +59,6 @@ if TYPE_CHECKING:
     from starlette.datastructures import FormData
     from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-    from samurai.company_store_contracts import CompanyAccess
 RUN_PATH: Final = f"/agentos/agents/{PARENT_AGENT_ID}/runs"
 RUN_CONTINUE_PREFIX: Final = f"{RUN_PATH}/"
 RUN_CONTINUE_SUFFIX: Final = "/continue"
@@ -193,106 +187,23 @@ async def _queue_readiness_response(
     )
 
 
-def _canonical_company(
-    runtime_db: BaseDb | None,
-    owner_id: str,
-    parent_session_id: str,
-    child_id: str,
-) -> tuple[CompanyState | None, CompanyAccess | None]:
-    if runtime_db is None:
-        return None, None
-    if isinstance(runtime_db, SamuraiPostgresDb) and runtime_db.table_exists(
-        "samurai_company_actor_bindings"
-    ):
-        access = CompanyStore(
-            runtime_db.db_engine,
-            schema=runtime_db.db_schema,
-        ).read_for_actor(owner_id, parent_session_id)
-        return (None, None) if access is None else (access.state, access)
-    child = runtime_db.get_session(
-        child_id,
-        session_type=SessionType.WORKFLOW,
-        user_id=owner_id,
-    )
-    if child is None:
-        return None, None
-    if not isinstance(child, WorkflowSession) or child.user_id != owner_id:
-        raise PermissionError
-    session_data = cast("dict[str, object]", child.session_data or {})
-    session_state: object = session_data.get("session_state") or {}
-    if not isinstance(session_state, dict):
-        raise TypeError
-    typed_session_state = cast("dict[str, object]", session_state)
-    payload = typed_session_state.get("company")
-    return (None if payload is None else CompanyState.model_validate(payload)), None
-
-
 def _work_approval(runtime_db: BaseDb | None, scope: Scope, form: FormData) -> WorkIntentInput:
-    message = form.get("message")
-    session_id = form.get("session_id")
+    message, session_id = form.get("message"), form.get("session_id")
     state = cast("dict[str, object]", scope.setdefault("state", {}))
     owner_id = state.get("user_id")
     if not all(isinstance(value, str) and value for value in (message, session_id, owner_id)):
-        message = "authenticated durable owner is required"
-        raise PermissionError(message)
+        detail = "authenticated durable owner is required"
+        raise PermissionError(detail)
     headers = dict(cast("list[tuple[bytes, bytes]]", scope.get("headers", [])))
-    operation = WorkOperation(headers.get(b"x-samurai-operation", b"journey").decode("ascii"))
-    stage = ApprovedStage(headers.get(b"x-samurai-stage", b"brief").decode("ascii"))
-    expected_revision = int(headers.get(b"x-samurai-expected-revision", b"0").decode("ascii"))
-    child_id = child_session_id(cast("str", owner_id), cast("str", session_id))
-    company, access = _canonical_company(
-        runtime_db,
-        cast("str", owner_id),
-        cast("str", session_id),
-        child_id,
-    )
     company_header = headers.get(b"x-samurai-company-id")
-    if company is None:
-        if isinstance(runtime_db, SamuraiPostgresDb) and runtime_db.table_exists(
-            "samurai_company_actor_bindings"
-        ):
-            raise PermissionError
-        if (
-            company_header is not None
-            or expected_revision != 0
-            or operation is not WorkOperation.JOURNEY
-            or stage is not ApprovedStage.BRIEF
-        ):
-            raise ValueError
-        company_id = None
-    else:
-        if access is not None and access.role not in {
-            WorkspaceRole.OWNER,
-            WorkspaceRole.EDITOR,
-        }:
-            raise PermissionError
-        if company_header is None or (
-            access is None and company.context.authenticated_session_id != session_id
-        ):
-            raise PermissionError
-        company_id = UUID(company_header.decode("ascii"))
-        if (
-            company_id != company.context.company_id
-            or expected_revision != company.current_revision
-        ):
-            raise PermissionError
-    if operation is WorkOperation.READ_ONLY_STATE:
-        message = "read-only work does not create a durable write intent"
-        raise ValueError(message)
-    if operation is not WorkOperation.JOURNEY and stage is not ApprovedStage.PLAN:
-        message = "the approved operation and stage do not match"
-        raise ValueError(message)
-    return WorkIntentInput(
-        owner_id=cast("str", owner_id),
-        parent_session_id=cast("str", session_id),
-        child_session_id=access.child_session_id if access is not None else child_id,
-        workspace_id=access.workspace_id if access is not None else None,
-        authorization_epoch=access.authorization_epoch if access is not None else None,
-        company_id=company_id,
-        operation=operation,
-        stage=stage,
-        expected_revision=expected_revision,
-        approved_input=cast("str", message),
+    approval = WorkApproval(
+        operation=WorkOperation(headers.get(b"x-samurai-operation", b"journey").decode("ascii")),
+        stage=ApprovedStage(headers.get(b"x-samurai-stage", b"brief").decode("ascii")),
+        expected_revision=int(headers.get(b"x-samurai-expected-revision", b"0").decode("ascii")),
+        company_id=None if company_header is None else UUID(company_header.decode("ascii")),
+    )
+    return build_work_intent(
+        runtime_db, cast("str", owner_id), cast("str", session_id), cast("str", message), approval
     )
 
 

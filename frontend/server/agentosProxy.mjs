@@ -12,7 +12,9 @@ const RUN = /^\/api\/agentos\/agents\/samurai\/runs$/;
 const SAFE_ID = '[A-Za-z0-9_-]{1,200}';
 const RUN_ID = new RegExp(`^/api/agentos/agents/samurai/runs/(${SAFE_ID})$`);
 const CANCEL = new RegExp(`^/api/agentos/agents/samurai/runs/(${SAFE_ID})/cancel$`);
+const RESUME = new RegExp(`^/api/agentos/agents/samurai/runs/(${SAFE_ID})/resume$`);
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
+const RECEIPT = new RegExp(`^/api/agentos/work-receipts/(${UUID})$`, 'i');
 const IDEMPOTENCY_KEY = new RegExp(`^${UUID}$`, 'i');
 const WORKSPACES = /^\/api\/agentos\/samurai\/workspaces$/;
 const MEMBERS = new RegExp(`^/api/agentos/samurai/workspaces/(${UUID})/members/([A-Za-z0-9._:@-]{1,200})$`);
@@ -157,6 +159,24 @@ async function directoryBody(req, kind) {
   throw new DirectoryRequestError(400, 'Invalid workspace request fields.');
 }
 
+async function resumeBody(req) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req.iterator({ destroyOnReturn: false })) {
+    size += chunk.length;
+    if (size > 65536) throw new DirectoryRequestError(413, 'Request too large.');
+    chunks.push(chunk);
+  }
+  const type = req.headers['content-type'] ?? '';
+  if (!type.startsWith('multipart/form-data;') && type !== 'application/x-www-form-urlencoded') throw new DirectoryRequestError(415, 'Form data required.');
+  let form;
+  try { form = await new Response(Buffer.concat(chunks), { headers: { 'content-type': type } }).formData(); }
+  catch { throw new DirectoryRequestError(400, 'Invalid form data.'); }
+  const session = form.get('session_id'), cursors = form.getAll('last_event_index');
+  if ([...form.keys()].some(key => !['session_id', 'last_event_index'].includes(key)) || form.getAll('session_id').length !== 1 || typeof session !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(session) || cursors.length > 1 || (cursors.length && (typeof cursors[0] !== 'string' || !/^(0|[1-9][0-9]*)$/.test(cursors[0])))) throw new DirectoryRequestError(400, 'Invalid resume fields.');
+  return form;
+}
+
 export function agentosProxy(root, fetchImpl = fetch) {
   return async (req, res, next) => {
     res.setHeader('Content-Security-Policy', sandboxPolicy);
@@ -192,16 +212,18 @@ export function agentosProxy(root, fetchImpl = fetch) {
       : !url.search && MEMBERS.test(url.pathname) ? (req.method === 'PUT' ? 'member_update' : req.method === 'DELETE' ? 'member_delete' : undefined)
         : !url.search && COMPANIES.test(url.pathname) ? (req.method === 'GET' ? 'company_list' : req.method === 'POST' ? 'company_create' : undefined)
           : !url.search && OPEN_COMPANY.test(url.pathname) && req.method === 'POST' ? 'company_open' : undefined;
-    const match = url.pathname.match(RUN) ?? url.pathname.match(RUN_ID) ?? url.pathname.match(CANCEL);
+    const match = url.pathname.match(RUN) ?? url.pathname.match(RUN_ID) ?? url.pathname.match(CANCEL) ?? url.pathname.match(RESUME) ?? url.pathname.match(RECEIPT);
     const isRun = RUN.test(url.pathname) && req.method === 'POST';
     const isRead = RUN_ID.test(url.pathname) && req.method === 'GET';
+    const isResume = RESUME.test(url.pathname) && req.method === 'POST';
+    const isReceipt = RECEIPT.test(url.pathname) && req.method === 'GET';
     const isCancel = CANCEL.test(url.pathname) && req.method === 'POST';
-    if (!operation && !isIntake && !directoryKind && !fileKind && (!match || (!isRun && !isRead && !isCancel))) return reject(res, 404, 'route not available');
+    if (!operation && !isIntake && !directoryKind && !fileKind && (!match || (!isRun && !isRead && !isCancel && !isResume && !isReceipt))) return reject(res, 404, 'route not available');
     const sessions = url.searchParams.getAll('session_id');
-    if (!operation && ([...url.searchParams.keys()].some(key => key !== 'session_id') || (isRun && url.search) || (!directoryKind && !fileKind && !isRun && !isIntake && (sessions.length !== 1 || !/^[A-Za-z0-9_-]{1,200}$/.test(sessions[0]))))) return reject(res, 400, 'query not allowed');
+    if (!operation && ([...url.searchParams.keys()].some(key => key !== 'session_id') || ((isRun || isResume) && url.search) || (!directoryKind && !fileKind && !isRun && !isResume && !isIntake && (sessions.length !== 1 || !/^[A-Za-z0-9_-]{1,200}$/.test(sessions[0]))))) return reject(res, 400, 'query not allowed');
     const target = operation ? `${BACKEND}${operation.path}` : isIntake ? `${BACKEND}/api/company/intake` : `${BACKEND}/agentos${url.pathname.slice('/api/agentos'.length)}${url.search}`;
     const headers = { authorization: `Bearer ${token}`, 'x-samurai-client': '1' };
-    if (req.headers['content-type']) headers['content-type'] = req.headers['content-type'];
+    if (!isResume && req.headers['content-type']) headers['content-type'] = req.headers['content-type'];
     if (operation) Object.assign(headers, founderOperationsHeaders(req, operation));
     if (directoryKind === 'company_create') {
       const submissionId = req.headers['x-samurai-submission-id'];
@@ -211,7 +233,7 @@ export function agentosProxy(root, fetchImpl = fetch) {
     const controller = new AbortController();
     res.once('close', () => { if (!res.writableFinished) controller.abort(); });
     try {
-      const body = operation?.body ? await founderOperationsBody(req, operation.body) : directoryKind && !['workspace_list', 'company_list', 'member_delete'].includes(directoryKind) ? await directoryBody(req, directoryKind) : fileKind === 'file_upload' ? multipartFileBody(req) : isRun ? req : undefined;
+      const body = isResume ? await resumeBody(req) : operation?.body ? await founderOperationsBody(req, operation.body) : directoryKind && !['workspace_list', 'company_list', 'member_delete'].includes(directoryKind) ? await directoryBody(req, directoryKind) : fileKind === 'file_upload' ? multipartFileBody(req) : isRun || isResume ? req : undefined;
       if (directoryKind && body) headers['content-type'] = 'application/json';
       if (fileKind === 'file_upload') headers['content-type'] = req.headers['content-type'];
       if ((operation && !operation.body || fileKind && fileKind !== 'file_upload') && (req.headers['transfer-encoding'] || Number(req.headers['content-length'] ?? 0) > 0)) return reject(res, 400, 'Body not allowed.');

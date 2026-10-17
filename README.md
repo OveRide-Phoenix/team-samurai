@@ -1,8 +1,12 @@
-# Team Samurai — AI Idea → Company
+# Team Samurai — Software idea mentor
 
-An AI company-building workspace, developed as a general-purpose product and for Google AI Builder Cup 2026. Founders describe a business idea and work with one connected system to validate demand, shape an offer, find customers, coordinate delivery, and improve through business feedback.
+An AI mentor for validating and implementing software ideas, developed for Google AI Builder Cup 2026. Describe an app, website or software enhancement and explore its problem, market, sales, product, resources and delivery in one connected workspace.
 
-Software generation is a supporting capability when the company needs it. The product's goal is business progress, not simply generating an app.
+The idea map opens six independent aspects with checkpoints, notes and readiness lights. Readiness is a user assessment, not an invented success score. The existing backend journey and artifact lineage are reused; internal company terminology remains in IDs and API contracts for compatibility.
+
+See the [software idea mentor handoff](docs/idea-validation-handoff.md) for the six
+aspects, existing backend mappings, implementation entry points, verification and
+review walkthrough.
 
 ## Current status
 
@@ -43,7 +47,7 @@ The separate [Founder operations acceptance record](docs/local-development.md#fo
 
 The local AgentOS screenshots demonstrate the saved **Samurai Local** connection, a retained journey, and state recall. They are sanitized local QA evidence, intentionally excluded from Git; the rendered output is a technical AgentOS console with raw structured JSON, not the React/Vite founder workspace.
 
-## The idea: “Build my business.”
+## Explore a software idea
 
 The founder starts with one question:
 
@@ -51,7 +55,7 @@ The founder starts with one question:
 >
 > “An AI receptionist for Indian dental clinics.”
 
-They interact with one company workspace, not seven separate agent chats. Behind that experience, connected specialist roles carry the idea through research, strategy, product definition, execution, customer acquisition, and improvement.
+They interact with one mentor and an idea map. Each aspect can be discussed independently, with related assumptions and gaps visible as soft connections. Existing specialist roles remain internal executors of the unchanged research, strategy, planning and verification journey.
 
 | Role | Produces or discovers |
 |---|---|
@@ -175,7 +179,7 @@ For the competition, demonstrate a focused end-to-end journey with meaningful Ge
 
 CopilotKit 1.79.0 is integrated locally through AG-UI and the existing Agno backend. The same Node frontend server hosts the open-source runtime; no CopilotKit Cloud/Enterprise account or extra agent service is used. New live companies use its headless transport while retaining Samurai's assistant-ui chat, actions, company persistence, native cancellation and saved-run recovery.
 
-The entry form yields a declarative Company brief. Research/evidence, offer/pricing and delivery-plan panels follow the existing founder-approved stages. The A2UI catalog also covers prospect lists and reuses the same business components in chat, Home and the dashboard. Additional views compose typed text, metrics, lists and tables. Founder-requested custom HTML/CSS/JS runs in an isolated frame with embedded Inter, theme tokens, blocked host access and blocked network/navigation. Generated panels remain drafts; their definitions persist, while custom frame input values are temporary.
+The entry form yields a declarative Company brief. Research/evidence, offer/pricing and delivery-plan panels follow the existing founder-approved stages. The OpenUI catalog also covers prospect lists and reuses the same business components in chat, Home and the dashboard. Additional views compose typed text, metrics, lists and tables. OpenUI also renders chat messages, the reply composer, company-name entry and prerequisite answer fields; assistant-ui retains runtime/draft state and CopilotKit retains authenticated AG-UI transport. Founder-requested custom HTML/CSS/JS runs in an isolated frame with embedded Inter, theme tokens, blocked host access and blocked network/navigation. Generated panels remain drafts; their definitions persist, while custom frame input values are temporary.
 
 This is a source/local integration. The recorded Cloud Run revisions were not updated for these new endpoints. Validation uses deterministic models rather than paid Gemini calls; see [the generative UI contract](docs/generative-ui.md).
 

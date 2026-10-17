@@ -22,8 +22,10 @@ describe('focused company areas', () => {
     const panels = [brief, evidence, review, offer, pricing, launchPlan, prospects];
     expect(panelsForArea(panels, workspace, 'overview')).toEqual([brief]);
     expect(panelsForArea(panels, workspace, 'research')).toEqual([evidence]);
-    expect(panelsForArea(panels, workspace, 'verification')).toEqual([review]);
-    expect(panelsForArea(panels, workspace, 'strategy')).toEqual([offer, pricing, launchPlan]);
+    expect(panelsForArea(panels, workspace, 'market')).toEqual([evidence]);
+    expect(panelsForArea(panels, workspace, 'verification')).toEqual([review, launchPlan]);
+    expect(panelsForArea(panels, workspace, 'strategy')).toEqual([offer]);
+    expect(panelsForArea(panels, workspace, 'resources')).toEqual([pricing]);
     expect(panelsForArea(panels, workspace, 'sales')).toEqual([prospects]);
   });
   it('shows the latest native result while retaining its older lineage in conversation', () => {
@@ -69,7 +71,7 @@ describe('focused company areas', () => {
     const panels = [brief, evidence, offer, pricing, launchPlan, prospects];
     const workspace = emptyWorkspace();
     expect(panelsForAreas(panels, workspace, [])).toEqual(panels);
-    expect(panelsForAreas(panels, workspace, ['research', 'strategy'])).toEqual([evidence, offer, pricing, launchPlan]);
+    expect(panelsForAreas(panels, workspace, ['research', 'strategy'])).toEqual([evidence, offer]);
     expect(panelsForAreas(panels, workspace, ['sales'])).toEqual([prospects]);
   });
   it('appends newly selected workflows in click order and returns reselected groups to the end', () => {
@@ -78,18 +80,19 @@ describe('focused company areas', () => {
     areas = toggleWorkflowArea(areas, 'research');
     expect(areas).toEqual(['sales', 'strategy', 'research']);
     const panels = [brief, evidence, offer, pricing, launchPlan, prospects];
-    expect(panelsForAreas(panels, emptyWorkspace(), areas)).toEqual([prospects, offer, pricing, launchPlan, evidence]);
+    expect(panelsForAreas(panels, emptyWorkspace(), areas)).toEqual([prospects, offer, evidence]);
     areas = toggleWorkflowArea(areas, 'strategy');
     areas = toggleWorkflowArea(areas, 'strategy');
     expect(areas).toEqual(['sales', 'research', 'strategy']);
-    expect(panelsForAreas(panels, emptyWorkspace(), areas)).toEqual([prospects, evidence, offer, pricing, launchPlan]);
+    expect(panelsForAreas(panels, emptyWorkspace(), areas)).toEqual([prospects, evidence, offer]);
     const restored = workspaceSchema.parse(JSON.parse(JSON.stringify({ ...emptyWorkspace(), selectedAreas: areas })));
     expect(selectedWorkflowAreas(restored)).toEqual(areas);
   });
-  it('suggests a switch for a pricing request in Researcher without producing strategy work', async () => {
+  it('can explore sample pricing from a different aspect without a forced handoff', async () => {
     const events = [];
     for await (const event of demoTransport('Change our pricing', new AbortController().signal, 'research')) events.push(event);
-    expect(events).toEqual([{ type: 'message', text: 'This belongs with Strategist. Switch there to continue.', handoff: 'strategy' }]);
+    expect(events.some(event => event.type === 'message' && event.panel?.kind === 'pricing')).toBe(true);
+    expect(events.some(event => event.type === 'message' && event.handoff)).toBe(false);
   });
   it('labels cancelled preview activity without claiming a backend acknowledgement', () => {
     const history = finishActivities([{ type: 'activity', agent: 'Sales', state: 'working', detail: 'Preparing a sample' }], 'cancelled', 'preview');

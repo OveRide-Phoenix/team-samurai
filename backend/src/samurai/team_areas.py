@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Final, Literal
 
 from pydantic import TypeAdapter
 
-from samurai.contracts import ArtifactType
+from samurai.contracts import ArtifactType, current_artifacts
 
 if TYPE_CHECKING:
     from samurai.company_workflow import JourneyStage
@@ -16,11 +16,11 @@ if TYPE_CHECKING:
 type TeamArea = Literal["overview", "research", "strategy", "verification", "sales"]
 AREA_ADAPTER: Final = TypeAdapter(TeamArea)
 AREA_NAMES: Final = {
-    "overview": "Company",
-    "research": "Researcher",
-    "strategy": "Strategist",
-    "verification": "Verifier",
-    "sales": "Sales",
+    "overview": "Idea",
+    "research": "Problem, demand & market",
+    "strategy": "Product, technology & resources",
+    "verification": "Validation & delivery",
+    "sales": "Sales & distribution",
 }
 HANDOFF_MARKER: Final = "SAMURAI_HANDOFF="
 
@@ -39,31 +39,32 @@ def suggest_team_area(area: TeamArea) -> str:
     return HANDOFF_MARKER + json.dumps(
         {
             "area": checked,
-            "text": f"This belongs with {AREA_NAMES[checked]}. Switch there to continue.",
+            "text": f"You can also explore {AREA_NAMES[checked]} when useful.",
         }
     )
 
 
 def team_instructions(area: TeamArea) -> str:
-    """Keep the current conversation focused while retaining shared company context."""
-    if area == "overview":
-        return "Company overview: help the founder choose the next team area."
+    """Focus software-idea mentoring without gating discussion on another aspect."""
     scopes = {
-        "research": "market research, competitors, customer problems and source evidence",
-        "strategy": "positioning, the offer, pricing and product/delivery planning",
-        "verification": "existing evidence, conflicting claims, unsupported assumptions and review",
-        "sales": "qualified prospects, customer discovery and reviewable sales drafts",
+        "overview": "the software idea, its users and the next validation decision",
+        "research": "customer problems, demand, market size and existing alternatives",
+        "strategy": "software product scope, technology, feasibility, budget and resources",
+        "verification": "validation experiments, evidence quality, delivery risks and review",
+        "sales": "customer discovery, sales, distribution and reviewable outreach drafts",
     }
     return (
-        f"The founder is in the {AREA_NAMES[area]} team area. Stay within {scopes[area]}. "
-        "Read the owned company state before giving company-specific guidance. Preserve its "
-        "brief, goal, evidence and decisions. Shared history is context, not permission to "
-        "execute a task from another area. If the request belongs to another area, call "
-        "suggest_team_area and stop; do not answer or execute that task here. For unrelated "
-        "topics, briefly return to this area's business goal. Research uses stage=research; "
-        "strategy uses stage=strategy or plan after prerequisites; verification uses stage=verify "
-        "on existing artifacts; sales creates only kind=sales drafts. Never create missing "
-        "upstream work silently. No outreach, publication or spending is authorized."
+        f"The founder is exploring {AREA_NAMES[area]}: {scopes[area]}. "
+        "Read the owned company state before idea-specific guidance. Preserve its brief, "
+        "goal, evidence and decisions. Every aspect is independently discussable: missing "
+        "research, technology choices or another aspect never blocks mentoring. Explain "
+        "assumptions, gaps and useful links to other aspects without requiring completion "
+        "or switching. Suggest another area only as an optional founder-controlled choice; "
+        "never redirect or start its work automatically. Shared history is context, not "
+        "execution permission. Existing workflow stages, evidence prerequisites and action "
+        "approval still govern saved work; do not silently create missing upstream work. "
+        "Discussion and generated views are not verified outputs. No outreach, publication "
+        "or spending is authorized."
     )
 
 
@@ -90,9 +91,9 @@ def journey_handoff(area: TeamArea, stage: JourneyStage, state: CompanyState | N
         return None
     if destinations[stage] != area:
         return suggest_team_area(destinations[stage])
-    latest = {} if state is None else {item.artifact_type: item for item in state.artifacts}
+    latest = {} if state is None else current_artifacts(state)
     if ArtifactType.INTAKE not in latest:
-        return _prerequisite("overview", "Save your company brief before starting this work.")
+        return _prerequisite("overview", "Save your idea brief before starting this work.")
     research = latest.get(ArtifactType.RESEARCH)
     if stage in {"strategy", "plan"} and (research is None or research.status != "complete"):
         return _prerequisite(

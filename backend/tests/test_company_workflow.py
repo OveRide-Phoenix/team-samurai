@@ -27,6 +27,7 @@ from pydantic import BaseModel, ConfigDict, HttpUrl, JsonValue, TypeAdapter, Val
 
 from samurai import source_fetch
 from samurai.agents import ROLE_CAPABILITIES, ConfiguredRole
+from samurai.company_actions import company_actions
 from samurai.company_workflow import (
     CompanyJourneyFailure,
     CompanyJourneyRequest,
@@ -35,6 +36,7 @@ from samurai.company_workflow import (
 )
 from samurai.config import Settings
 from samurai.contracts import (
+    ArtifactType,
     Assumption,
     CompanyBrief,
     CompanyMismatchError,
@@ -42,6 +44,7 @@ from samurai.contracts import (
     FounderKnownFact,
     FounderTruth,
     IntakeArtifact,
+    IntakeDraft,
     ProductPlanArtifact,
     ResearchArtifact,
     Role,
@@ -54,8 +57,10 @@ from samurai.contracts import (
     WorkflowRequest,
     WorkflowResult,
     accept_artifact,
+    current_artifacts,
 )
 from samurai.knowledge import KnowledgeResult, KnowledgeTrustClass
+from samurai.launch_workflows import MissingVerifiedLaunchInputsError, verified_launch_inputs
 from samurai.research import ResearchAgent, ResearchResult
 from samurai.source_adjudication import SourceAssessmentBatch, SourceAssessmentDecision
 from samurai.source_fetch import (
@@ -289,7 +294,9 @@ class _StaticModel(Model):
             )
         raw = self.content.model_dump_json()
         if isinstance(self.content, IntakeArtifact):
-            raw = raw.replace('"artifact_type":"intake"', '"artifact_type":"founder_intake"')
+            raw = IntakeDraft(
+                brief=self.content.brief, founder_truth=self.content.founder_truth
+            ).model_dump_json()
         return ModelResponse(content=raw)
 
     @override
@@ -429,7 +436,7 @@ def _catalog(
             agent=Agent(
                 id=f"test-{role.value}",
                 model=models[role],
-                output_schema=type(payload),
+                output_schema=IntakeDraft if role is Role.INTAKE else type(payload),
                 telemetry=False,
             ),
             capability=ROLE_CAPABILITIES[role],
@@ -813,6 +820,10 @@ def test_founder_truth_completeness_controls_model_action_authority(
     assert intake_result.brief.next_actions == ([model_action] if complete else [])
     assert summary.next_decision == intake_result.founder_truth.next_decision
     assert result.artifacts[0].status == ("complete" if complete else "needs_input")
+    next_action, actions = company_actions(CompanyState.model_validate(state["company"]))
+    assert next_action == ("research" if complete else "brief")
+    assert next(action for action in actions if action.id == "research").eligible is complete
+
     assert models[Role.RESEARCHER].calls == 0
 
 
@@ -1524,6 +1535,13 @@ def test_conflicting_grounded_research_stops_before_an_offer_draft(
     assert models[Role.STRATEGIST].calls == 0
     assert models[Role.PRODUCT_MANAGER].calls == 0
     assert models[Role.VERIFIER].calls == 1
+    next_action, actions = company_actions(CompanyState.model_validate(session_state["company"]))
+    assert next_action == "research"
+    assert next(action for action in actions if action.id == "research").eligible
+    strategy_action = next(action for action in actions if action.id == "strategy")
+    assert not strategy_action.eligible
+    assert strategy_action.blocked_reason == "Resolve conflicting research before shaping an offer."
+    assert not next(action for action in actions if action.id == "sales").eligible
 
 
 def test_smoke_timeout_retains_sanitized_progress(
@@ -1690,6 +1708,18 @@ def test_approved_stages_resume_retry_reuses_the_same_retained_company(
         workflow = create_company_workflow(database, _settings(), stage=stage)
         output = anyio.run(partial(_run_workflow, workflow, request, state))
         result = WorkflowResult.model_validate(output.content)
+        canonical = CompanyState.model_validate(state["company"])
+        next_action, actions = company_actions(canonical)
+        expected_next = {
+            "brief": "research",
+            "research": "strategy",
+            "strategy": "plan",
+            "plan": "sales",
+        }[stage]
+        assert next_action == expected_next
+        assert next(action for action in actions if action.id == next_action).eligible
+        if stage == "strategy":
+            assert canonical.artifacts[-1].status == "draft_only"
         ids = {artifact.artifact_id for artifact in result.artifacts}
         assert previous_ids <= ids
         previous_ids = ids
@@ -1760,3 +1790,169 @@ def test_verification_area_reviews_existing_artifacts_without_upstream_runs(
         item.artifact_id for item in retained.artifacts
     }
     assert result.revision == before.revision + (1 if prior_stage == "plan" else 0)
+
+
+def test_brief_edit_invalidates_downstream_work_and_rebuilds_without_losing_history(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog, _models = _catalog()
+
+    def catalog_factory(_settings: Settings) -> Mapping[Role, ConfiguredRole]:
+        return catalog
+
+    monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
+    monkeypatch.setattr("samurai.company_workflow.run_research", _complete_research)
+    database = SqliteDb(db_file=str(tmp_path / "revise-company.db"))
+    state: dict[str, JsonValue] = {}
+    output = anyio.run(
+        partial(
+            _run_workflow,
+            create_company_workflow(database, _settings()),
+            _complete_request(),
+            state,
+        )
+    )
+    first = WorkflowResult.model_validate(output.content)
+    assert first.outcome == "verified"
+    original = CompanyState.model_validate(state["company"])
+    request = _complete_request().model_copy(
+        update={
+            "company_id": first.company_id,
+            "expected_revision": first.revision,
+            "budget": "INR 75000",
+        }
+    )
+    output = anyio.run(
+        partial(
+            _run_workflow,
+            create_company_workflow(database, _settings(), stage="brief"),
+            request,
+            state,
+        )
+    )
+    amended = CompanyState.model_validate(state["company"])
+    assert amended.current_revision == 7
+    assert amended.artifacts[:6] == original.artifacts
+    assert tuple(current_artifacts(amended)) == (ArtifactType.INTAKE,)
+    assert company_actions(amended)[0] == "research"
+    with pytest.raises(MissingVerifiedLaunchInputsError):
+        _ = verified_launch_inputs(amended)
+    for stage in ("research", "strategy", "plan"):
+        before = CompanyState.model_validate(state["company"])
+        request = request.model_copy(
+            update={
+                "expected_revision": before.current_revision,
+                "research_after_revision": before.current_revision if stage == "research" else None,
+            }
+        )
+        output = anyio.run(
+            partial(
+                _run_workflow,
+                create_company_workflow(database, _settings(), stage=stage),
+                request,
+                state,
+            )
+        )
+    revised = CompanyState.model_validate(state["company"])
+    assert WorkflowResult.model_validate(output.content).outcome == "verified"
+    assert revised.current_revision == 12
+    assert revised.artifacts[:6] == original.artifacts
+    strategy, product = verified_launch_inputs(revised)
+    assert strategy.revision == 10
+    assert product.revision == 11
+    assert company_actions(revised)[0] == "sales"
+
+
+def test_explicit_research_retry_resolves_conflict_and_reuses_committed_refresh(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog, _models = _catalog()
+
+    def catalog_factory(_settings: Settings) -> Mapping[Role, ConfiguredRole]:
+        return catalog
+
+    monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
+
+    async def conflicted(_agent: ResearchAgent, _brief: CompanyBrief) -> ResearchResult:
+        return _research_result(
+            conflicts=("Conflicting retained source",), verification_status="unverified"
+        )
+
+    monkeypatch.setattr("samurai.company_workflow.run_research", conflicted)
+    database = SqliteDb(db_file=str(tmp_path / "retry-research.db"))
+    state: dict[str, JsonValue] = {}
+    workflow = create_company_workflow(database, _settings(), stage="research")
+    _ = anyio.run(partial(_run_workflow, workflow, _complete_request(), state))
+    blocked = CompanyState.model_validate(state["company"])
+    assert blocked.current_revision == 3
+    assert company_actions(blocked)[0] == "research"
+    calls: list[str] = []
+
+    async def fresh(agent: ResearchAgent, brief: CompanyBrief) -> ResearchResult:
+        calls.append("research")
+        return await _complete_research(agent, brief)
+
+    monkeypatch.setattr("samurai.company_workflow.run_research", fresh)
+    request = _complete_request().model_copy(
+        update={
+            "company_id": blocked.context.company_id,
+            "expected_revision": 3,
+            "research_after_revision": 3,
+        }
+    )
+    _ = anyio.run(partial(_run_workflow, workflow, request, state))
+    updated = CompanyState.model_validate(state["company"])
+    assert updated.current_revision == 5
+    assert updated.artifacts[:3] == blocked.artifacts
+    assert company_actions(updated)[0] == "strategy"
+    request = request.model_copy(update={"expected_revision": updated.current_revision})
+    _ = anyio.run(partial(_run_workflow, workflow, request, state))
+    assert CompanyState.model_validate(state["company"]) == updated
+    assert calls == ["research"]
+
+
+def test_recovered_insufficient_research_does_not_repeat_the_provider_call(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog, _models = _catalog()
+
+    def catalog_factory(_settings: Settings) -> Mapping[Role, ConfiguredRole]:
+        return catalog
+
+    calls: list[str] = []
+
+    async def weak(_agent: ResearchAgent, _brief: CompanyBrief) -> ResearchResult:
+        calls.append("research")
+        return _unmapped_research_result()
+
+    monkeypatch.setattr("samurai.company_workflow.create_role_catalog", catalog_factory)
+    monkeypatch.setattr("samurai.company_workflow.run_research", weak)
+    database = SqliteDb(db_file=str(tmp_path / "recover-insufficient.db"))
+    state: dict[str, JsonValue] = {}
+    first = create_company_workflow(database, _settings(), stage="brief")
+    result = WorkflowResult.model_validate(
+        anyio.run(partial(_run_workflow, first, _complete_request(), state)).content
+    )
+    request = _complete_request().model_copy(
+        update={
+            "company_id": result.company_id,
+            "expected_revision": result.revision,
+            "research_after_revision": result.revision,
+        }
+    )
+    workflow = create_company_workflow(database, _settings(), stage="research")
+    result = WorkflowResult.model_validate(
+        anyio.run(partial(_run_workflow, workflow, request, state)).content
+    )
+    assert result.outcome == "insufficient_evidence"
+    before = CompanyState.model_validate(state["company"])
+    request = request.model_copy(update={"expected_revision": before.current_revision})
+    result = WorkflowResult.model_validate(
+        anyio.run(partial(_run_workflow, workflow, request, state)).content
+    )
+    assert result.outcome == "insufficient_evidence"
+    assert CompanyState.model_validate(state["company"]) == before
+    assert calls == ["research"]

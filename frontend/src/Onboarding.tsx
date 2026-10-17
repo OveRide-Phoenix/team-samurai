@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { companyBriefSchema, type CompanyBrief } from './model';
 import { z } from 'zod';
 import { TransitionGrain } from './TransitionGrain';
+import { OpenUIAnswers } from './OpenUIAnswers';
 
 const questionSchema = z.strictObject({ id: z.enum(['idea', 'customer', 'location', 'budget', 'founderSkills', 'goal']), label: z.string().min(1).max(120), placeholder: z.string().max(200), multiline: z.boolean() });
 const pagesSchema = z.array(z.strictObject({ title: z.string().min(1).max(120), questions: z.array(questionSchema).min(1).max(6) })).min(1).max(6).refine(pages => {
@@ -45,13 +46,9 @@ export function Onboarding({ name, onCancel, onComplete, previewPages }: { name:
     }}>
       <div className="onboarding-progress"><span>{name}</span><span>{step + 1} / {pages.length}</span></div>
       <h1 ref={heading} tabIndex={-1}>{page.title}</h1>
-      <div className="onboarding-fields">{page.questions.map(question => {
-        const limits = { idea: 1500, customer: 300, location: 120, budget: 120, goal: 500, founderSkills: 500 };
-        const props = { id: question.id, value: answers[question.id] ?? '', required: true, maxLength: limits[question.id], placeholder: question.placeholder, 'aria-describedby': error ? 'intake-error' : undefined, onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => { setAnswers({ ...answers, [question.id]: event.target.value }); setError(''); }, className: 'intake-input' };
-        return <div key={question.id}><label htmlFor={question.id}>{question.label}</label>{question.multiline ? <textarea {...props} rows={4} /> : <input {...props} />}</div>;
-      })}</div>
+      <OpenUIAnswers questions={page.questions} answers={answers} error={Boolean(error)} onAnswer={(id, value) => { setAnswers(current => ({ ...current, [id]: value })); setError(''); }} />
       {error && <p id="intake-error" className="intake-error" role="alert">{error}</p>}
-      <div className="onboarding-actions">{step > 0 && <button type="button" className="soft-button" onClick={() => { setError(''); setStep(step - 1); }}><ArrowLeft size={16} />Back</button>}<button className="primary-button" type="submit">{step === pages.length - 1 ? 'Build my company' : 'Continue'}<ArrowRight size={17} /></button></div>
+      <div className="onboarding-actions">{step > 0 && <button type="button" className="soft-button" onClick={() => { setError(''); setStep(step - 1); }}><ArrowLeft size={16} />Back</button>}<button className="primary-button" type="submit">{step === pages.length - 1 ? 'Explore my idea' : 'Continue'}<ArrowRight size={17} /></button></div>
       <p className="intake-preview-note">{previewPages ? 'UI preview · No provider calls' : 'Live Samurai workflow · Nothing is sent or published'}</p>
     </form>
   </div>;

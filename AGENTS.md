@@ -1,5 +1,17 @@
 # Team Samurai — Contributor Instructions
 
+## Current product direction — 17 October 2026
+
+The user now defines Samurai as a mentor/validator for **software ideas**: apps,
+websites and software enhancements. Use ideas we validate or implement, not companies
+we build. This supersedes the company-building positioning and role-based UX below.
+Preserve the existing backend structure and journey; the requested rework is the UX.
+Six aspect nodes surround the idea: Problem & demand, Market & alternatives, Sales &
+distribution, Product & technology, Budget & resources, and Validation & delivery.
+All aspects are independently discussable; related gaps are soft links. The existing
+workflow guards still protect approved execution and verified outputs. Keep internal
+company IDs, storage keys, routes, artifact formats and roles for compatibility.
+
 This is the parent repository for **AI Idea → Company**, a general-purpose company-building product also being developed for Google AI Builder Cup 2026. Build a useful long-term product while keeping the competition demo focused and demonstrable.
 
 ## Working conventions
@@ -213,8 +225,15 @@ Cloud deployment and IAP acceptance are historical, exact-revision evidence in [
 ### Public guest access preparation
 
 See [docs/public-guest-access.md](docs/public-guest-access.md). Public judges are an
-approved access model, but activation is blocked on the previously deferred cloud
-queue. Preserve signed guest cookies, distinct `guest:`/`iap:` identities, durable
+approved access model. On 17 October the user approved seven days of Basic Redis
+and one always-on backend in Mumbai, accepting temporary Redis outages. Activation
+requires the documented queue and guest checks. Preserve signed guest cookies, distinct `guest:`/`iap:` identities, durable
 per-guest/global admission limits, and backend membership checks. Never turn off
 IAP alone or weaken the production durable-run requirement. Keep guest flags off
 until the documented activation checks and hosting decision are complete.
+
+### OpenUI interaction standard — 16 October 2026
+
+The user requires OpenUI throughout founder-facing generated views, including chat and the controls used to answer Samurai. Use the allowlisted OpenUI React Lang components for business-result panels, chat messages, the reply composer, company-name entry and intake answers. Keep controls in Samurai's calm visual design; use visual summaries instead of text walls where the data supports them. New generated questions and answer forms must join this OpenUI layer rather than introducing a parallel renderer. Ordinary navigation and native controls inside registered components remain standard React/HTML primitives.
+
+`OpenUIRender.tsx` owns shared rendering/error presentation; `KnownPanel.tsx` owns the business catalog; `OpenUIChat.tsx` owns literal message text and the composer; `OpenUIAnswers.tsx` owns founder answer controls. Preserve assistant-ui's composer/runtime state and CopilotKit's authenticated AG-UI transport, cancellation, stage approvals, saved IDs, per-company drafts and backend authorization. Treat strings as data and serialize them with JSON escaping; never interpret user answers as executable OpenUI programs. Keep the custom-code iframe isolated. This supersedes the earlier A2UI renderer choice; do not restore the removed A2UI renderer or Zod 3 alias. Current backend business contracts remain validated JSON, projected into OpenUI on the client; direct model-native OpenUI streaming is not established by this migration.
