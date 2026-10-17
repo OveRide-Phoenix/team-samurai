@@ -34,7 +34,7 @@ export function businessPanelResponse(panel: Panel) {
 function PanelContent({ name, value }: { name: string; value: unknown }) {
   const view = useContext(ViewContext);
   const parsed = panelSchema.safeParse(value);
-  if (!view || !parsed.success || knownPanelComponent(parsed.data) !== name) return <p className="error-note" role="alert">This business panel contains incomplete data.</p>;
+  if (!view || !parsed.success || knownPanelComponent(parsed.data) !== name) return <p className="error-note" role="alert">This idea panel contains incomplete data.</p>;
   const { render: Render, ...options } = view;
   return <Render {...options} panel={parsed.data} />;
 }

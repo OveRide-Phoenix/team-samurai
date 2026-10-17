@@ -70,7 +70,7 @@ export function App({ scope }: { readonly scope: BrowserScope }) {
         const companies = await Promise.all(workspaces.map(async workspace => (await listWorkspaceCompanies(workspace.workspace_id)).map(company => ({ workspace, company }))));
         if (active) { setWorkspaces(workspaces); setDirectory(companies.flat()); setDirectoryError(''); }
       } catch (error) {
-        if (active) setDirectoryError(error instanceof Error ? 'Shared companies are unavailable. Try again from Home.' : 'Shared companies are unavailable.');
+        if (active) setDirectoryError(error instanceof Error ? 'Shared ideas are unavailable. Try again from Home.' : 'Shared ideas are unavailable.');
       }
     })();
     return () => { active = false; };
@@ -89,7 +89,7 @@ export function App({ scope }: { readonly scope: BrowserScope }) {
   const open = (activeId: string | null) => { openGuard.current.invalidate(); setReservation(null); setCompanyCreationRetry(null); updatePortfolio(current => ({ ...current, activeId })); };
   const create = (brief: CompanyBrief, pending: Reservation) => {
     const parentSessionId = pending.company.parent_session_id;
-    if (!parentSessionId) { setDirectoryError('The company reservation did not include a session. Return Home and try again.'); return; }
+    if (!parentSessionId) { setDirectoryError('The idea reservation did not include a session. Return Home and try again.'); return; }
     const local = {
       id: parentSessionId, name: name.trim(), workspace: { ...emptyCompanyView(), brief, executionMode: 'live' as const, companyId: pending.company.company_id, currentRevision: pending.company.current_revision },
       workspaceId: pending.workspace.workspace_id, companyId: pending.company.company_id,
@@ -111,7 +111,7 @@ export function App({ scope }: { readonly scope: BrowserScope }) {
       setCompanyCreationRetry(null); setReservation({ workspace, company }); setDirectoryError('');
     } catch {
       setCompanyCreationRetry(workspace ? { workspace, submissionId } : null);
-      setDirectoryError('Could not reserve a company. Try again.');
+      setDirectoryError('Could not reserve an idea. Try again.');
     } finally { startGate.current.finish(); setStartingCompany(false); }
   };
   const openShared = async (item: Reservation) => {
@@ -120,7 +120,7 @@ export function App({ scope }: { readonly scope: BrowserScope }) {
     setOpeningCompanyId(item.company.company_id);
     try {
       const opened = await openWorkspaceCompany(item.workspace.workspace_id, item.company.company_id);
-      if (!opened.parent_session_id || !opened.snapshot) throw new Error('The shared company could not be opened.');
+      if (!opened.parent_session_id || !opened.snapshot) throw new Error('The shared idea could not be opened.');
       if (!openGuard.current.isCurrent(request)) return;
       const existing = portfolioRef.current.companies.find(company => company.workspaceId === opened.workspace_id && company.companyId === opened.company_id);
       if (needsCompanyIntake(opened, item.workspace.role)) {
@@ -137,7 +137,7 @@ export function App({ scope }: { readonly scope: BrowserScope }) {
       updatePortfolio(current => ({ ...current, activeId: local.id, companies: existing ? current.companies.map(company => company.id === existing.id ? local : company) : [...current.companies, local] }));
       setDirectoryError('');
     } catch (error) {
-      if (openGuard.current.isCurrent(request)) setDirectoryError(error instanceof Error ? error.message : 'Could not open the shared company.');
+      if (openGuard.current.isCurrent(request)) setDirectoryError(error instanceof Error ? error.message : 'Could not open the shared idea.');
     } finally {
       openGuard.current.finish(request);
       if (openGuard.current.isCurrent(request)) setOpeningCompanyId(null);
@@ -155,11 +155,11 @@ export function App({ scope }: { readonly scope: BrowserScope }) {
   return <MotionConfig reducedMotion="user">{company ? <CompanyWorkspace key={company.id} company={company} workspace={company.workspace} setWorkspace={setCompanyView} persistWorkspace={persistCompanyView} mode={portfolio.mode} toggleMode={toggleMode} onOpen={open} storageError={storageError} readOnly={company.role === 'viewer'} /> :
     <div className="workspace landing"><Atmosphere mode={portfolio.mode} /><div className="bottom-blur" aria-hidden="true" />
       <header className="topbar"><span className="wordmark">Samurai</span><div className="topbar-actions"><ModeToggle mode={portfolio.mode} onToggle={toggleMode} /></div></header>
-      <main key={reservation ? 'intake' : 'home'} className="landing-content"><div className="landing-main">{reservation ? <Onboarding name={name.trim()} onCancel={() => setReservation(null)} onComplete={brief => create(brief, reservation)} /> : <><h1>An idea is<br />just the beginning.</h1><p className="landing-description">Build a company worth believing in.</p>
+      <main key={reservation ? 'intake' : 'home'} className="landing-content"><div className="landing-main">{reservation ? <Onboarding name={name.trim()} onCancel={() => setReservation(null)} onComplete={brief => create(brief, reservation)} /> : <><h1>An idea is<br />just the beginning.</h1><p className="landing-description">Your mentor for software ideas. Explore, validate, then implement.</p>
         <OpenUICompanyName name={name} pending={startingCompany} disabled={!name.trim() || portfolio.companies.length >= 50 || startingCompany || openGuard.current.isPending()} onName={value => { setName(value); setCompanyCreationRetry(null); }} onStart={() => { void startCompany(); }} />
-        {portfolio.companies.length >= 50 && <p className="empty-note">This local preview supports up to 50 companies.</p>}
-        {directory.length > 0 && <section className="company-library" aria-label="Shared companies"><h2>Shared companies</h2><div className="company-grid">{directory.map(item => <div className="company-tile" key={item.company.company_id}><button onClick={() => void openShared(item)} disabled={startingCompany || openingCompanyId === item.company.company_id} aria-busy={openingCompanyId === item.company.company_id}><Building2 size={20} /><span><strong>{companyName(item.workspace, item.company)}</strong><small>{item.workspace.role === 'viewer' ? 'Viewer · Read-only' : 'Shared workspace'}</small></span><ArrowRight size={16} /></button></div>)}</div></section>}
-        {portfolio.companies.length > 0 && <section className="company-library" aria-label="Your companies"><h2>Your companies</h2><div className="company-grid">{portfolio.companies.map(item => <div className="company-tile" key={item.id}><button onClick={() => open(item.id)}><Building2 size={20} /><span><strong>{item.name}</strong><small>{item.workspace.messages.length ? `${item.workspace.executionMode === 'live' ? 'Live' : 'Preview'} · Continue building` : 'Ready for your idea'}</small></span><ArrowRight size={16} /></button></div>)}</div></section>}
+        {portfolio.companies.length >= 50 && <p className="empty-note">This local preview supports up to 50 ideas.</p>}
+        {directory.length > 0 && <section className="company-library" aria-label="Shared ideas"><h2>Shared ideas</h2><div className="company-grid">{directory.map(item => <div className="company-tile" key={item.company.company_id}><button onClick={() => void openShared(item)} disabled={startingCompany || openingCompanyId === item.company.company_id} aria-busy={openingCompanyId === item.company.company_id}><Building2 size={20} /><span><strong>{companyName(item.workspace, item.company)}</strong><small>{item.workspace.role === 'viewer' ? 'Viewer · Read-only' : 'Shared workspace'}</small></span><ArrowRight size={16} /></button></div>)}</div></section>}
+        {portfolio.companies.length > 0 && <section className="company-library" aria-label="Your ideas"><h2>Your ideas</h2><div className="company-grid">{portfolio.companies.map(item => <div className="company-tile" key={item.id}><button onClick={() => open(item.id)}><Building2 size={20} /><span><strong>{item.name}</strong><small>{item.workspace.messages.length ? `${item.workspace.executionMode === 'live' ? 'Live' : 'Preview'} · Continue exploring` : 'Ready for your idea'}</small></span><ArrowRight size={16} /></button></div>)}</div></section>}
       </>}</div></main>
       {!reservation && <TransitionGrain />}{directoryError && <p className="storage-warning" role="alert">{directoryError}</p>}{storageError && <p className="storage-warning" role="status">Browser storage is unavailable. This session won’t be saved.</p>}
     </div>}</MotionConfig>;

@@ -1,5 +1,52 @@
 # Samurai design contract
 
+## Software idea mentor — 17 October 2026
+
+The current product is a mentor for validating and implementing software ideas.
+This supersedes the company-building labels and role-filter layout below. Preserve
+the existing atmosphere, Inter, themes, cards, chat, disclosures and saved data.
+IdeaProof is an information reference, not a visual target; its synthetic scores
+are not evidence of readiness. The Obsidian-style graph is navigational DOM/SVG,
+not an image, a force simulation, or a sequence of locked stages.
+
+The idea sits at the center of six aspect nodes: Problem & demand, Market &
+alternatives, Sales & distribution, Product & technology, Budget & resources,
+and Validation & delivery. Clicking a node opens three checkpoints, notes, related
+aspects and existing result cards. The center returns to the overview. Each aspect
+can be discussed independently; dashed connections suggest shared assumptions.
+Missing evidence can constrain verified execution without locking discussion.
+
+Reuse current button/card/field primitives, a 24px card radius, 12/14/18px text,
+8/12/16/24/32px spacing and the existing 850ms view transition. Graph nodes have
+44px minimum hit areas, a visible focus ring and aria-pressed selection. Graph
+edges never carry essential information. Mobile uses the same six-node topology
+with short labels and readable full labels below. Chat uses the existing shell.
+
+The map uses floating 20px-radius aspect cards: a 36px Lucide icon well with a
+readiness light, a 14px name, three checkpoint marks and a ready count. The central
+idea is a larger 200px frosted card with a 16px name; its full name remains in the
+button's accessible label and title. Solid curved spokes carry the hierarchy;
+faint dashed links carry the optional relationships. Use the existing surface,
+border, shadow and accent tokens. The framed map has 24px desktop / 16px compact
+padding and a 440px / 400px canvas. Below 650px of available component width,
+cards stack their icon and short label; side cards scale between 72–88px and the
+center between 96–116px, retaining the six-node topology. Names clamp to three lines with the full
+name available on the overview button. Hover/press feedback only signals navigation;
+no ambient movement or additional libraries are needed.
+
+Readiness is an explicit user assessment: amber #93601e (dark #efc27e), red uses
+--destructive, and green #32654d (dark #9bc6ab). Green requires all three checks
+marked ready; one blocked check makes only that aspect red. Unanswered checks
+remain amber. Always show status text and a legend; color is supplementary. Notes
+and assessments persist in the current account's browser cache and are labelled
+as such, distinct from backend evidence. No aggregate success score is invented.
+
+The new components own graph navigation and checkpoint editing. Existing panel
+renderers continue to own sources, draft warnings and interaction state. Preserve
+reduced motion, both themes, keyboard access, 375/768/1280px layouts and scrolling.
+Accepted debt: checkpoint assessments are browser-local, as are saved panel actions;
+backend conversations and generated panels retain their existing persistence.
+
 This documents the existing UI moved from ui/ into frontend/. This migration preserves appearance, DOM, callbacks and browser storage; it is not a redesign. Detailed user decisions remain in AGENTS.md.
 
 ## 1. Direction

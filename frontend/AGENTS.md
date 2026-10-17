@@ -1,5 +1,22 @@
 # Frontend contributor guide
 
+## Current software-idea UX — 17 October 2026
+
+Replace visible company-building and role-chat navigation with an idea mentor and
+six aspect nodes. Follow the current graph/checkpoint contract at the top of DESIGN.md;
+older company/role UX notes below are historical where they conflict. Reuse the
+backend journey, stage controls, wire scopes, existing panels and cache namespaces.
+Market maps to the existing research scope; Budget maps to strategy. Problem and
+Market share research evidence; pricing/scenarios belong in Budget; product plans,
+build drafts and reviews belong in Validation & delivery. Preserve existing drafts,
+history, cancellation, approval controls and source lineage. Checkpoint notes and
+readiness assessments are browser-local, explicitly labelled, and never evidence
+of independent validation. Do not introduce a new backend or dependency for this UX.
+
+Keep each aspect's frontend messages and drafts separate using its UI identity;
+translate to the existing wire scope only for transport and approvals. Retain that
+UI identity on saved runs so recovery returns replies to the originating aspect.
+
 Samurai's first slice uses React, TypeScript, Vite, Tailwind, assistant-ui, Radix, Lucide, and Zod. Follow root AGENTS.md and ponytail. Keep structured panel validation and the explicit sample-data/activity labels. Agent provider secrets belong on the backend. The authenticated AgentOS integration is implemented; BACKEND_CONTRACT.md records the interface.
 
 Run the local server yourself and open the preview in the browser available to this environment. Do not give the user server-start instructions when you can run it.
