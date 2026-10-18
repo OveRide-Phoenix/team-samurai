@@ -31,7 +31,7 @@ def admit_guest(engine: Engine, schema: str, actor_id: str, *, ai_run: bool) -> 
         )
         _ = connection.execute(text(f"DELETE FROM {table} WHERE day < {today}"))  # noqa: S608 - validated schema.
         # Check both budgets before creating a row for a new guest.
-        for actor, writes, runs in (("*", 300, 50), (actor_id, 60, 10)):
+        for actor, writes, runs in (("*", 300, 53), (actor_id, 60, 13)):
             allowed = connection.execute(
                 text(
                     f"""SELECT writes < :writes AND ai_runs + :ai <= :runs

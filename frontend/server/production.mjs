@@ -157,7 +157,7 @@ export function createProductionServer(config, { verifyIdentity = createIapVerif
           return await serveCopilot(req, res, { backend: config.backend, token: signAgentosToken(subject, config.key), origin: config.origin, signal: controller.signal, fetchImpl });
         }
         const selected = founderOperationsRoute(url, req.method) ?? route(url, req.method);
-        if (selected.kind === 'connection') return json(res, 200, { backend: config.backend, configured: true, auth: 'jwt', ...(config.authMode === 'guest' ? { guest: { sessionDays: 7, aiSubmissionsPerDay: 10 } } : {}), storageNamespace: createHash('sha256').update(subject).digest('hex') });
+        if (selected.kind === 'connection') return json(res, 200, { backend: config.backend, configured: true, auth: 'jwt', ...(config.authMode === 'guest' ? { guest: { sessionDays: 7, aiSubmissionsPerDay: 13 } } : {}), storageNamespace: createHash('sha256').update(subject).digest('hex') });
         const fileUpload = selected.kind === 'file_upload';
         if (!fileUpload && Number(req.headers['content-length'] ?? 0) > bodyLimit) throw new RequestError(413, 'Request too large.');
         const directoryKinds = ['workspace_create', 'member_update', 'company_create', 'company_open'];

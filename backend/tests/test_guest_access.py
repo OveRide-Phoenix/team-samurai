@@ -34,7 +34,7 @@ def test_guest_limits_are_atomic_global_and_survive_new_clients(
         return admit_guest(database.db_engine, database.db_schema, "guest:one", ai_run=True)
 
     with ThreadPoolExecutor(max_workers=8) as executor:
-        assert sum(executor.map(submit, range(20))) == 10
+        assert sum(executor.map(submit, range(20))) == 13
     for index in range(40):
         assert admit_guest(database.db_engine, database.db_schema, f"guest:{index}", ai_run=True)
     assert not admit_guest(database.db_engine, database.db_schema, "guest:new-cookie", ai_run=True)
