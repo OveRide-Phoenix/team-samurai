@@ -35,8 +35,8 @@ export function needsCompanyIntake(company: DirectoryCompany, role: WorkspaceDir
   return company.current_revision === 0 && role !== 'viewer';
 }
 
-export function firstWritableWorkspace(workspaces: readonly WorkspaceDirectory[]): WorkspaceDirectory | undefined {
-  return workspaces.find(workspace => workspace.role !== 'viewer');
+export function firstWritableWorkspace(workspaces: readonly WorkspaceDirectory[], companies: readonly Pick<DirectoryCompany, 'workspace_id'>[]): WorkspaceDirectory | undefined {
+  return workspaces.find(workspace => workspace.role !== 'viewer' && companies.filter(company => company.workspace_id === workspace.workspace_id).length < 10);
 }
 
 export function createOneAtATimeGate() {

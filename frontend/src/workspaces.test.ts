@@ -1,19 +1,25 @@
 import { canonicalCompanyFields, directoryCompanySchema, needsCompanyIntake } from './workspaces';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createLatestRequestGuard, createOneAtATimeGate, createWorkspaceCompany, firstWritableWorkspace, listWorkspaces, openWorkspaceCompany, shouldLoadWorkspaceDirectory } from './workspaces';
+import { createLatestRequestGuard, createOneAtATimeGate, createWorkspaceCompany, firstWritableWorkspace, listWorkspaces, openWorkspaceCompany, shouldLoadWorkspaceDirectory, type WorkspaceDirectory } from './workspaces';
 
 const workspaceId = '00000000-0000-4000-8000-000000000001';
 const companyId = '00000000-0000-4000-8000-000000000002';
-const workspace = { workspace_id: workspaceId, display_name: 'Founders', role: 'editor', authorization_epoch: 2 };
+const workspace = { workspace_id: workspaceId, display_name: 'Founders', role: 'editor', authorization_epoch: 2 } satisfies WorkspaceDirectory;
 const company = { workspace_id: workspaceId, company_id: companyId, current_revision: 1, state_sha256: 'a'.repeat(64), created_at: 1, parent_session_id: 'parent-a', child_session_id: 'child-a', snapshot: null };
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe('workspace directory client', () => {
-  it('loads the remote directory only on Home and chooses a writable empty workspace', () => {
+  it('loads the remote directory only on Home and skips writable workspaces at company capacity', () => {
     expect(shouldLoadWorkspaceDirectory(null)).toBe(true);
     expect(shouldLoadWorkspaceDirectory('cached-parent-session')).toBe(false);
-    expect(firstWritableWorkspace([{ ...workspace, role: 'viewer' }, { ...workspace, workspace_id: '00000000-0000-4000-8000-000000000003', role: 'editor' }])).toMatchObject({ role: 'editor' });
+    const available = { ...workspace, workspace_id: '00000000-0000-4000-8000-000000000003', role: 'editor' } satisfies WorkspaceDirectory;
+    const nearlyFullWorkspaceCompanies = Array.from({ length: 9 }, () => company);
+    const fullWorkspaceCompanies = Array.from({ length: 10 }, () => company);
+    expect(firstWritableWorkspace([{ ...workspace, role: 'viewer' }, available], fullWorkspaceCompanies)).toMatchObject({ role: 'editor' });
+    expect(firstWritableWorkspace([workspace, available], nearlyFullWorkspaceCompanies)).toEqual(workspace);
+    expect(firstWritableWorkspace([workspace, available], fullWorkspaceCompanies)).toEqual(available);
+    expect(firstWritableWorkspace([workspace], fullWorkspaceCompanies)).toBeUndefined();
   });
   it('uses fixed directory paths and maps a reservation submission ID to the company request', async () => {
     const request = vi.fn(async () => Response.json(company));

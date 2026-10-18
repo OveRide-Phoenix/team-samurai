@@ -32,6 +32,7 @@ export function App({ scope }: { readonly scope: BrowserScope }) {
   const [companyCreationRetry, setCompanyCreationRetry] = useState<CompanyCreationRetry | null>(null);
   const [workspaces, setWorkspaces] = useState<readonly WorkspaceDirectory[]>([]);
   const [directory, setDirectory] = useState<readonly Reservation[]>([]);
+  const [directoryLoaded, setDirectoryLoaded] = useState(false);
   const [directoryError, setDirectoryError] = useState('');
   const [storageError, setStorageError] = useState(false);
   const startGate = useRef(createOneAtATimeGate());
@@ -47,11 +48,12 @@ export function App({ scope }: { readonly scope: BrowserScope }) {
   useEffect(() => {
     if (!shouldLoadWorkspaceDirectory(portfolio.activeId)) return;
     let active = true;
+    setDirectoryLoaded(false);
     void (async () => {
       try {
         const workspaces = await listWorkspaces();
         const companies = await Promise.all(workspaces.map(async workspace => (await listWorkspaceCompanies(workspace.workspace_id)).map(company => ({ workspace, company }))));
-        if (active) { setWorkspaces(workspaces); setDirectory(companies.flat()); setDirectoryError(''); }
+        if (active) { setWorkspaces(workspaces); setDirectory(companies.flat()); setDirectoryLoaded(true); setDirectoryError(''); }
       } catch (error) {
         if (active) setDirectoryError(error instanceof Error ? 'Shared ideas are unavailable. Try again from Home.' : 'Shared ideas are unavailable.');
       }
@@ -79,19 +81,22 @@ export function App({ scope }: { readonly scope: BrowserScope }) {
       currentRevision: pending.company.current_revision, stateSha256: pending.company.state_sha256, createdAt: pending.company.created_at, role: pending.workspace.role,
     };
     updatePortfolio(current => ({ ...current, activeId: local.id, companies: [...current.companies.filter(company => company.id !== local.id), local] }));
-    setDirectory(current => [...current, pending]); setName(''); setReservation(null);
+    setName(''); setReservation(null);
   };
   const startCompany = async () => {
-    if (!name.trim() || portfolio.companies.length >= 50 || openGuard.current.isPending() || !startGate.current.tryBegin()) return;
+    if (!name.trim() || portfolio.companies.length >= 50 || (!directoryLoaded && !companyCreationRetry) || openGuard.current.isPending() || !startGate.current.tryBegin()) return;
     openGuard.current.invalidate();
     setStartingCompany(true);
     const retry = companyCreationRetry;
     const submissionId = retry?.submissionId ?? crypto.randomUUID();
     let workspace = retry?.workspace;
     try {
-      workspace ??= firstWritableWorkspace(workspaces) ?? await createWorkspace(`${name.trim()} workspace`);
-      const company = await createWorkspaceCompany(workspace.workspace_id, submissionId);
-      setCompanyCreationRetry(null); setReservation({ workspace, company }); setDirectoryError('');
+      const selectedWorkspace = workspace ?? firstWritableWorkspace(workspaces, directory.map(item => item.company)) ?? await createWorkspace(`${name.trim()} workspace`);
+      workspace = selectedWorkspace;
+      const company = await createWorkspaceCompany(selectedWorkspace.workspace_id, submissionId);
+      setWorkspaces(current => current.some(item => item.workspace_id === selectedWorkspace.workspace_id) ? current : [...current, selectedWorkspace]);
+      setDirectory(current => current.some(item => item.company.company_id === company.company_id) ? current : [...current, { workspace: selectedWorkspace, company }]);
+      setCompanyCreationRetry(null); setReservation({ workspace: selectedWorkspace, company }); setDirectoryError('');
     } catch {
       setCompanyCreationRetry(workspace ? { workspace, submissionId } : null);
       setDirectoryError('Could not reserve an idea. Try again.');
@@ -139,7 +144,7 @@ export function App({ scope }: { readonly scope: BrowserScope }) {
     <div className="workspace landing"><Atmosphere mode={portfolio.mode} /><div className="bottom-blur" aria-hidden="true" />
       <header className="topbar"><span className="wordmark"><img className="brand-logo" src="/proofseed-logo.svg" alt="" />Proofseed</span><div className="topbar-actions"><ModeToggle mode={portfolio.mode} onToggle={toggleMode} /></div></header>
       <main key={reservation ? 'intake' : 'home'} className="landing-content"><div className="landing-main">{reservation ? <Onboarding name={name.trim()} onCancel={() => setReservation(null)} onComplete={brief => create(brief, reservation)} /> : <><h1>An idea is<br />just the beginning.</h1><p className="landing-description">Your mentor for software ideas. Explore, validate, then implement.</p>
-        <OpenUICompanyName name={name} pending={startingCompany} disabled={!name.trim() || portfolio.companies.length >= 50 || startingCompany || openGuard.current.isPending()} onName={value => { setName(value); setCompanyCreationRetry(null); }} onStart={() => { void startCompany(); }} />
+        <OpenUICompanyName name={name} pending={startingCompany} disabled={!name.trim() || portfolio.companies.length >= 50 || (!directoryLoaded && !companyCreationRetry) || startingCompany || openGuard.current.isPending()} onName={value => { setName(value); setCompanyCreationRetry(null); }} onStart={() => { void startCompany(); }} />
         {scope.kind === 'user' && scope.guest && <p className="empty-note">Guest access lasts {scope.guest.sessionDays} days in this browser. Clearing cookies loses access to your ideas. Up to {scope.guest.aiSubmissionsPerDay} AI submissions per day, subject to a shared service allowance.</p>}
         {portfolio.companies.length >= 50 && <p className="empty-note">You can save up to 50 ideas in this browser.</p>}
         {directory.length > 0 && <section className="company-library" aria-label="Shared ideas"><h2>Shared ideas</h2><div className="company-grid">{directory.map(item => <div className="company-tile" key={item.company.company_id}><button onClick={() => void openShared(item)} disabled={startingCompany || openingCompanyId === item.company.company_id} aria-busy={openingCompanyId === item.company.company_id}><Building2 size={20} /><span><strong>{companyName(item.workspace, item.company)}</strong><small>{item.workspace.role === 'viewer' ? 'Viewer · Read-only' : 'Shared workspace'}</small></span><ArrowRight size={16} /></button></div>)}</div></section>}

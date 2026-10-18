@@ -22,6 +22,10 @@ does not reset the global allowance. Failed submissions consume their reservatio
 Non-AI writes use their separate write budget even if a lower AI limit is below
 the retained AI counter. Cancellation, stream reconnection and reads remain
 available after exhaustion.
+The frontend selects a writable workspace with fewer than ten ideas when starting
+an idea, or creates a new workspace when existing ones are full. Reserved ideas
+count toward capacity even before intake is completed. Existing ideas can still
+be opened when their workspace is full.
 These are request counts, not a financial ceiling: tools and the existing bounded
 retry can cause multiple Gemini calls per admitted submission. Read traffic and
 hosting costs are not capped by these counters.
