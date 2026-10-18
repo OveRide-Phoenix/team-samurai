@@ -7,17 +7,25 @@ import json
 from typing import Annotated, Final, Literal, cast
 from uuid import NAMESPACE_URL, uuid5
 
+from agno.exceptions import RetryAgentRun
 from agno.run import RunContext  # noqa: TC002 - Agno resolves tool annotations at runtime.
-from agno.tools.function import Function
-from pydantic import Field, JsonValue, TypeAdapter, model_validator
+from agno.tools.function import Function, FunctionCall
+from pydantic import Field, JsonValue, TypeAdapter, ValidationError, model_validator
 
 from samurai.contracts import Contract
 
 PANEL_MARKER = "SAMURAI_PANEL="
+PANEL_RETRY_MESSAGE: Final = (
+    "Panel was not created. Correct its arguments using the compose_panel schema. "
+    "Table rows must be arrays of strings matching the columns; list blocks use the exact "
+    "key items. Remove unsupported fields and respect the schema size limits."
+)
 MAX_PANEL_CHARS = 100_000
 MAX_PANEL_KEY_CHARS = 80
 DRAFT_NOTE = "Generated view · Working assumptions, not verified business results"
 ShortText = Annotated[str, Field(min_length=1, max_length=4000)]
+PanelKey = Annotated[str, Field(min_length=1, max_length=MAX_PANEL_KEY_CHARS)]
+PANEL_KEY_ADAPTER: Final = TypeAdapter(PanelKey)
 
 
 class TextBlock(Contract):
@@ -87,8 +95,7 @@ class CustomPanel(Contract):
 def _panel_id(context: RunContext, panel_key: str) -> str:
     if not context.user_id or not context.session_id:
         raise ValueError("Authenticated company session required")
-    if not panel_key or len(panel_key) > MAX_PANEL_KEY_CHARS:
-        raise ValueError("Panel key must contain 1 to 80 characters")
+    panel_key = PANEL_KEY_ADAPTER.validate_python(panel_key)
     identity = json.dumps(
         ("samurai-panel", context.user_id, context.session_id, panel_key), separators=(",", ":")
     )
@@ -111,14 +118,17 @@ def compose_panel(
     Text blocks have no title or detail field; put all prose in text.
     """
     # Keep ordinary views readable by existing clients during backend-first rollout.
-    panel = DeclarativePanel.model_validate(
-        {
-            "id": _panel_id(run_context, panel_key),
-            "panel_key": panel_key if panel_key.startswith("guide-") else None,
-            "title": title,
-            "blocks": blocks,
-        }
-    )
+    try:
+        panel = DeclarativePanel.model_validate(
+            {
+                "id": _panel_id(run_context, panel_key),
+                "panel_key": panel_key if panel_key.startswith("guide-") else None,
+                "title": title,
+                "blocks": blocks,
+            }
+        )
+    except ValidationError:
+        raise RetryAgentRun(PANEL_RETRY_MESSAGE) from None
     return PANEL_MARKER + panel.model_dump_json(exclude_none=True)
 
 
@@ -167,6 +177,14 @@ COMPOSE_PARAMETERS: Final = TypeAdapter(dict[str, JsonValue]).validate_python(
 )
 
 
+def _allow_panel_correction(fc: FunctionCall) -> None:
+    if fc.error == PANEL_RETRY_MESSAGE:
+        # Change this invocation only; other calls retain the successful-panel stop.
+        fc.function = fc.function.model_copy()
+        fc.function.stop_after_tool_call = False
+        fc.function.show_result = False
+
+
 def presentation_tools() -> list[Function]:
     # Agno 3.1.2 hides nested Pydantic parameters; supply the schema and validate here.
     return [
@@ -176,6 +194,7 @@ def presentation_tools() -> list[Function]:
             entrypoint=compose_panel,
             parameters=COMPOSE_PARAMETERS,
             skip_entrypoint_processing=True,
+            post_hook=_allow_panel_correction,
             stop_after_tool_call=True,
             show_result=True,
         ),
