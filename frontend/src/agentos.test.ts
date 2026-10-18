@@ -455,18 +455,18 @@ describe('AgentOS transport wire boundary', () => {
     const statuses: AgentosRun[] = [];
     const fetcher = vi.fn(async () => Response.json({}, { status: 404 }));
     vi.stubGlobal('fetch', fetcher);
-    const start = async (_input: string, _signal: AbortSignal) => new Response(new ReadableStream({ start(controller) { controller.error(new AgentosError('quota', 'Daily AI allowance reached.')); } }), { headers: { 'content-type': 'text/event-stream' } });
-    await expect(collect(createAgentosTransport('session-1', run => { statuses.push(run); }, () => [], start)('Review idea', new AbortController().signal))).rejects.toMatchObject({ code: 'quota' });
+    const start = async (_input: string, _signal: AbortSignal) => new Response(new ReadableStream({ start(controller) { controller.error(new AgentosError('admission', 'Daily AI allowance reached.')); } }), { headers: { 'content-type': 'text/event-stream' } });
+    await expect(collect(createAgentosTransport('session-1', run => { statuses.push(run); }, () => [], start)('Review idea', new AbortController().signal))).rejects.toMatchObject({ code: 'admission' });
     expect(statuses.at(-1)).toMatchObject({ status: 'failed', failureReason: 'Daily AI allowance reached.' });
     expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it('keeps an HTTP admission limit terminal instead of masking it with a missing receipt', async () => {
+  it.each([['Guest daily usage limit reached. Try again tomorrow (UTC).', '00:00 UTC'], ["Samurai's execution queue is full.", 'queue is full'], ['PRIVATE_UPSTREAM_DETAIL', 'Try again later']])('settles HTTP admission rejection: %s', async (detail, message) => {
     const statuses: AgentosRun[] = [];
-    const fetcher = vi.fn(async () => Response.json({}, { status: 429 }));
+    const fetcher = vi.fn(async () => Response.json({ detail }, { status: 429 }));
     vi.stubGlobal('fetch', fetcher);
-    await expect(collect(createAgentosTransport('session-1', run => { statuses.push(run); })('Review idea', new AbortController().signal))).rejects.toMatchObject({ code: 'quota' });
-    expect(statuses.at(-1)?.status).toBe('failed');
+    await expect(collect(createAgentosTransport('session-1', run => { statuses.push(run); })('Review idea', new AbortController().signal))).rejects.toMatchObject({ code: 'admission' });
+    expect(statuses.at(-1)).toMatchObject({ status: 'failed', failureReason: expect.stringContaining(message) });
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 

@@ -2,8 +2,8 @@
 
 ## Form-led conversation — 18 October 2026
 
-A usage-limit rejection is a settled error, not running work. Keep the saved idea
-and independent drafts. Explain the UTC retry time in the existing error treatment;
+An admission rejection is a settled error, not running work. Keep the saved idea
+and independent drafts. Explain the UTC reset for a daily limit, or a short retry for a full queue;
 an explicit “Retry idea analysis” soft button restarts a rejected first pass. Never
 automatically replay a request or clear an ambiguous durable run.
 

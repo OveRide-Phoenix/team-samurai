@@ -336,16 +336,16 @@ for (const [name, value] of Object.entries({
   assert.equal(response.status, 400);
 });
 
-test('CopilotKit carries a bounded admission rejection without leaking upstream details', async t => {
+for (const [detail, code] of [["Guest daily usage limit reached. Try again tomorrow (UTC).", 'SAMURAI_USAGE_LIMIT'], ["Samurai's execution queue is full.", 'SAMURAI_QUEUE_FULL'], ['PRIVATE_UPSTREAM_DETAIL', 'SAMURAI_RATE_LIMIT']]) test(`CopilotKit carries bounded ${code} without leaking upstream details`, async t => {
   let calls = 0;
   const app = await fixture(t, async () => {
     calls += 1;
-    return Response.json({ detail: 'PRIVATE_UPSTREAM_DETAIL' }, { status: 429 });
+    return Response.json({ detail }, { status: 429 });
   });
   const body = { method: 'agent/run', params: { agentId: 'samurai' }, body: { threadId: 'company', runId: 'run', state: {}, tools: [], context: [], messages: [{ id: 'u', role: 'user', content: 'Review idea' }] } };
   const response = await app.request('/api/copilotkit', { method: 'POST', headers: { origin: 'https://samurai.example', 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const stream = await response.text();
-  assert.ok(stream.includes('"code":"SAMURAI_USAGE_LIMIT"'), stream);
+  assert.ok(stream.includes(`"code":"${code}"`), stream);
   assert.ok(!stream.includes('PRIVATE_UPSTREAM_DETAIL'), stream);
   assert.equal(calls, 1);
 });

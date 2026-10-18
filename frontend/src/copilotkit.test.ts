@@ -18,9 +18,9 @@ it('carries one stable submission and bounded approval through CopilotKit', asyn
   expect(await response.text()).toContain('RunCompleted');
 });
 
-it('preserves the typed usage rejection through the real AG-UI client', async () => {
+it.each([['SAMURAI_USAGE_LIMIT', '00:00 UTC'], ['SAMURAI_QUEUE_FULL', 'queue is full'], ['SAMURAI_RATE_LIMIT', 'Try again later']])('preserves typed admission rejection %s through the real AG-UI client', async (code, message) => {
   const core = new CopilotKitCoreReact({ runtimeUrl: 'https://samurai.example/api/copilotkit', deferInitialConnection: true });
-  const agent = new HttpAgent({ agentId: 'samurai', url: 'https://samurai.example/agui', fetch: async () => new Response('data: '+JSON.stringify({ type: 'RUN_ERROR', code: 'SAMURAI_USAGE_LIMIT', message: 'Daily AI allowance reached.' })+'\n\n', { headers: { 'content-type': 'text/event-stream' } }) });
+  const agent = new HttpAgent({ agentId: 'samurai', url: 'https://samurai.example/agui', fetch: async () => new Response('data: '+JSON.stringify({ type: 'RUN_ERROR', code, message: 'PRIVATE_UPSTREAM_DETAIL' })+'\n\n', { headers: { 'content-type': 'text/event-stream' } }) });
   const response = await createCopilotStart(core, agent, 'company')('Review idea', new AbortController().signal);
-  await expect(response.text()).rejects.toMatchObject({ code: 'quota' });
+  await expect(response.text()).rejects.toMatchObject({ code: 'admission', message: expect.stringContaining(message) });
 });

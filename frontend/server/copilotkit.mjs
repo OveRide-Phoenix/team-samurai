@@ -59,8 +59,10 @@ export async function serveCopilot(req, res, { backend, token, origin, signal, f
     fetch: async (url, options) => {
       const response = await fetchImpl(url, { ...options, redirect: 'error', signal: options.signal ? AbortSignal.any([signal, options.signal]) : signal });
       if (response.status !== 429) return response;
-      await response.body?.cancel();
-      return new Response(`data: ${JSON.stringify({ type: 'RUN_ERROR', code: 'SAMURAI_USAGE_LIMIT', message: 'Daily AI allowance reached.' })}\n\n`, { headers: { 'content-type': 'text/event-stream' } });
+      const detail = (await response.json().catch(() => null))?.detail;
+      const code = detail === 'Guest daily usage limit reached. Try again tomorrow (UTC).' ? 'SAMURAI_USAGE_LIMIT'
+        : detail === "Samurai's execution queue is full." ? 'SAMURAI_QUEUE_FULL' : 'SAMURAI_RATE_LIMIT';
+      return new Response(`data: ${JSON.stringify({ type: 'RUN_ERROR', code, message: 'Samurai could not accept this request.' })}\n\n`, { headers: { 'content-type': 'text/event-stream' } });
     },
   });
   const runtime = new CopilotRuntime({ agents: { samurai: agent }, runner: new AgnoRunner() });
