@@ -14,13 +14,10 @@ does not recover the previous guest's workspace. Guest identities use a separate
 `guest:` namespace, while existing team identities retain their `iap:` namespace.
 The browser never receives the backend signing key or a backend JWT.
 
-For the approved temporary production test on 18 October 2026, each verified guest
-has up to 13 AI submissions and 60 write requests per UTC day. All guests combined
-have up to 53 AI submissions and 300 write requests per UTC day. Revert this
-temporary allowance after at most three additional test submissions to restore
-the baseline 10-per-guest and 50-shared AI limits. Do not reset counters or rotate
-the guest identity. AI submissions also count as writes. PostgreSQL reserves both
-counters in one transaction under a shared lock, so changing cookies or adding Cloud Run instances
+Each verified guest has up to 10 AI submissions and 60 write requests per UTC day.
+All guests combined have up to 50 AI submissions and 300 write requests per UTC
+day. AI submissions also count as writes. PostgreSQL reserves both counters in one
+transaction under a shared lock, so changing cookies or adding Cloud Run instances
 does not reset the global allowance. Failed submissions consume their reservation.
 Cancellation, stream reconnection and reads remain available after exhaustion.
 These are request counts, not a financial ceiling: tools and the existing bounded
