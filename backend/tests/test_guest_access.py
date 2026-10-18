@@ -14,7 +14,7 @@ from sqlalchemy import text
 
 from samurai.app import create_app
 from samurai.config import Settings
-from samurai.guest_access import admit_guest
+from samurai.guest_access import admit_guest, demo_quota_window_active
 from samurai.workspace_api import WorkspaceView
 
 if TYPE_CHECKING:
@@ -24,6 +24,55 @@ if TYPE_CHECKING:
     from samurai.execution_state import SamuraiPostgresDb
 
 pytest_plugins = ("tests.company_store_support",)
+
+
+@pytest.mark.parametrize(
+    ("offset", "expected"), [(-1, False), (0, True), (3599, True), (3600, False)]
+)
+def test_demo_quota_window_expires_after_one_hour(
+    monkeypatch: pytest.MonkeyPatch,
+    offset: int,
+    *,
+    expected: bool,
+) -> None:
+    start = datetime(2026, 10, 18, 17, tzinfo=UTC)
+    monkeypatch.setenv("SAMURAI_DEMO_QUOTA_STARTED_AT", start.isoformat())
+    assert demo_quota_window_active(start + timedelta(seconds=offset)) is expected
+
+
+@pytest.mark.parametrize("value", ["", "invalid", "2026-10-18T17:00:00"])
+def test_demo_quota_window_fails_closed(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    monkeypatch.setenv("SAMURAI_DEMO_QUOTA_STARTED_AT", value)
+    assert not demo_quota_window_active(datetime(2026, 10, 18, 17, tzinfo=UTC))
+
+
+def test_demo_window_lifts_both_budgets_but_keeps_usage(
+    company_store: tuple[CompanyStore, SamuraiPostgresDb, UUID],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, database, _ = company_store
+    table = f'"{database.db_schema}".samurai_guest_usage'
+    with database.db_engine.begin() as connection:
+        for actor in ("*", "guest:demo"):
+            _ = connection.execute(
+                text(
+                    f"""INSERT INTO {table} (day, actor_id, writes, ai_runs)
+                    VALUES ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date, :actor, 300, 50)"""  # noqa: S608 - generated fixture schema.
+                ),
+                {"actor": actor},
+            )
+    assert not admit_guest(database.db_engine, database.db_schema, "guest:demo", ai_run=True)
+    monkeypatch.setenv("SAMURAI_DEMO_QUOTA_STARTED_AT", datetime.now(UTC).isoformat())
+    assert admit_guest(database.db_engine, database.db_schema, "guest:demo", ai_run=True)
+    with database.db_engine.begin() as connection:
+        rows = connection.execute(
+            text(f"SELECT writes, ai_runs FROM {table}")  # noqa: S608 - generated fixture schema.
+        ).all()
+    assert [tuple(row) for row in rows] == [(301, 51), (301, 51)]
+    monkeypatch.setenv(
+        "SAMURAI_DEMO_QUOTA_STARTED_AT", (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+    )
+    assert not admit_guest(database.db_engine, database.db_schema, "guest:demo", ai_run=True)
 
 
 def test_guest_limits_are_atomic_global_and_survive_new_clients(

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from os import getenv
 from typing import TYPE_CHECKING, cast
 
 from sqlalchemy import text
@@ -15,6 +17,15 @@ from samurai.company_store_queries import valid_schema
 if TYPE_CHECKING:
     from sqlalchemy import Engine
     from starlette.types import ASGIApp, Receive, Scope, Send
+
+
+def demo_quota_window_active(now: datetime) -> bool:
+    """Allow an operator-approved demo window, never longer than one hour."""
+    try:
+        started = datetime.fromisoformat(getenv("SAMURAI_DEMO_QUOTA_STARTED_AT", ""))
+    except ValueError:
+        return False
+    return started.tzinfo is not None and started <= now < started + timedelta(hours=1)
 
 
 def admit_guest(engine: Engine, schema: str, actor_id: str, *, ai_run: bool) -> bool:
@@ -39,7 +50,7 @@ def admit_guest(engine: Engine, schema: str, actor_id: str, *, ai_run: bool) -> 
                 ),
                 {"actor": actor, "writes": writes, "ai": int(ai_run), "runs": runs},
             ).scalar_one_or_none()
-            if allowed is False:
+            if allowed is False and not demo_quota_window_active(datetime.now(UTC)):
                 return False
         for actor in ("*", actor_id):
             _ = connection.execute(

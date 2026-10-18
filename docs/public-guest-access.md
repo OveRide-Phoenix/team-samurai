@@ -136,3 +136,14 @@ covers intake and persistence, not a complete research-to-launch journey or an
 injected Redis outage/recovery drill. Basic Redis has no failover. The user accepted
 temporary outages; durable PostgreSQL state does not make every outage invisible.
 The expiry heartbeat is a cleanup follow-up, not a guaranteed billing cutoff.
+
+### One-hour operator demo allowance
+
+`SAMURAI_DEMO_QUOTA_STARTED_AT` on the backend accepts a timezone-aware ISO timestamp.
+For exactly one hour from that timestamp, guest daily AI/write budgets are not
+enforced; usage is still counted. Missing, malformed, timezone-less, future, and
+expired timestamps leave normal enforcement in place. This affects all public
+guests during that hour, so Gemini costs can increase. Authentication, membership,
+approvals, queue concurrency and company capacity remain enforced. After expiry,
+requests over the normal daily allowance are rejected automatically, without a
+restart or scheduled cleanup. Remove the expired environment variable as housekeeping.
