@@ -277,7 +277,7 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
     runAspectRef.current = uiArea;
     runQuestionRef.current = answering?.id;
     setWorkspace(current => ({ ...current, activityLog: [], drafts: answering || initialRequest ? current.drafts : { ...current.drafts, [uiArea]: '' } }));
-    if (!answering) append({ id: crypto.randomUUID(), role: 'user', text: initialRequest ? workspace.brief?.idea ?? input : input });
+    if (!answering && !(initialRequest && workspace.backendRun)) append({ id: crypto.randomUUID(), role: 'user', text: initialRequest ? workspace.brief?.idea ?? input : input });
     try {
       const initial = initialRequest && workspace.brief;
       const transport = transportRef.current;
