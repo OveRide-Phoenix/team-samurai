@@ -3,7 +3,7 @@ import { createParser } from '@openuidev/react-lang';
 import { describe, expect, it } from 'vitest';
 import { fillAspectStartingPoints, ideaAnalysisSchema } from './ideaAnalysis';
 import { applyBackendEvent, emptyWorkspace, initialCompanyPrompt, panelSchema, workspaceSchema } from './model';
-import { nextAspectQuestion, recordAspectAnswer, aspectQuestions, aspectOrder } from './aspectJourney';
+import { completeAspectReview, nextAspectQuestion, recordAspectAnswer, aspectQuestions, aspectOrder } from './aspectJourney';
 import { ideaAnalysisLibrary, OpenUIIdeaAnalysis } from './OpenUIIdeaAnalysis';
 import { aspectReadiness } from './teamAreas';
 import { aspectCatalog } from './ideaAspectCatalog';
@@ -11,14 +11,15 @@ import { aspectCatalog } from './ideaAspectCatalog';
 const analysis = ideaAnalysisSchema.parse({ summary: 'A useful hypothesis, with demand still untested.', starting_points: [{ checkpoint_id: 'customer-problem', answer: 'Tutors lose time scheduling lessons.', basis: 'inferred' }, { checkpoint_id: 'minimum-product', answer: 'Test one booking journey.', basis: 'inferred' }] });
 const panel = panelSchema.parse({ id: 'intake', kind: 'evidence', title: 'Company brief', note: '', claims: [], idea_analysis: analysis });
 describe('mentor starting points', () => {
-  it('fills drafts on a backend result, preserves edits and readiness, and resumes at a genuine gap', () => {
+  it('fills drafts on a backend result, preserves edits and readiness, and asks the founder to review inferred drafts', () => {
     let workspace = applyBackendEvent(emptyWorkspace(), 'r', { type: 'message', text: '', panel });
     expect(workspace.aspectChecks['customer-problem']).toMatchObject({ origin: 'mentor', basis: 'inferred', status: 'in-progress' });
-    expect(nextAspectQuestion(workspace)?.id).toBe('demand-evidence');
+    expect(nextAspectQuestion(workspace)?.id).toBe('customer-problem');
     expect(aspectReadiness('research', workspace)).toBe('in-progress');
-    workspace = recordAspectAnswer(workspace, aspectQuestions[0], 'A corrected founder answer', ['q', 'a']);
+    workspace = completeAspectReview(recordAspectAnswer(workspace, aspectQuestions[0], 'A corrected founder answer', ['q', 'a']), aspectQuestions[0].id);
     const restored = workspaceSchema.parse(JSON.parse(JSON.stringify(fillAspectStartingPoints(workspace, panel))));
     expect(restored.aspectChecks['customer-problem']).toMatchObject({ note: 'A corrected founder answer', origin: 'founder' });
+    expect(nextAspectQuestion(restored)?.id).toBe('demand-evidence');
     expect(restored.actions).toEqual([]);
     expect(restored.currentRevision).toBeUndefined();
   });

@@ -16,7 +16,7 @@ import { actionAreas, areaForPanel, panelChoiceAreas, panelsForAreas, selectedWo
 import { OpenUIAspectGuide } from './OpenUIAspectGuide';
 import { OpenUIIdeaAnalysis } from './OpenUIIdeaAnalysis';
 import { fillAspectStartingPoints, latestIdeaAnalysis } from './ideaAnalysis';
-import { aspectAnswersPrompt, aspectMentorPrompt, aspectQuestions, guidedAnswerPrompt, nextAspectQuestion, recordAspectAnswer, resumeAspect, type AspectGuide } from './aspectJourney';
+import { bindAspectReview, recoveredAspectReview, completeAspectReview, aspectMentorPrompt, aspectFormValue, aspectQuestions, guidedAnswerPrompt, isGuidedReview, nextAspectQuestion, recordAspectAnswer, resumeAspect, type AspectGuide, type AspectQuestion } from './aspectJourney';
 import type { IdeaArea } from './aspectState';
 import { ModeToggle, type Activity } from './ShellParts';
 import {
@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { GenerativePanelBody } from './GenerativePanelBody';
 import { presentMessages, editApprovedWorkDraft, approvedWorkForSubmission, createAgentosTransport, readAgentosRun, readAgentosReceipt, cancelAgentosRun, type CopilotStart, type ApprovedWorkDraft, type AgentosApproval, type AgentosRun } from './agentos';
-import { finishActivities, hasActiveBackendRun, toggleSavedSelection, applyBackendEvent, recordBackendRun, beginBackendRun, panelIsOutdated, currentCompanyActions, initialCompanyPrompt, eventSchema, panelSchema, latestPanels, orderedPanels, movePanel, type CompanyAction, type TeamArea, type WorkflowArea, type Agent, type Message, type Panel, type Workspace, type Portfolio }  from './model';
+import { finishActivities, hasActiveBackendRun, toggleSavedSelection, applyBackendEvent, recordBackendRun, beginBackendRun, panelIsOutdated, currentCompanyActions, initialCompanyPrompt, eventSchema, panelSchema, latestPanels, orderedPanels, movePanel, type CompanyAction, type TeamArea, type WorkflowArea, type Agent, type Message, type WorkEvent, type Panel, type Workspace, type Portfolio }  from './model';
 import { deleteWorkspaceFile, downloadWorkspaceFile, listWorkspaceFiles, uploadWorkspaceFile, type WorkspaceFile } from './files';
 import { FounderOperationsPanel } from './FounderOperationsPanel';
 import { canonicalCompanyFields, openWorkspaceCompany } from './workspaces';
@@ -181,6 +181,7 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
   const activeGuide = guide?.area === selectedAspect ? guide : undefined;
   const guidedQuestion = aspectQuestions.find(question => question.id === activeGuide?.questionId);
   const runAspectRef = useRef<IdeaArea>(workspace.backendRun?.aspect ?? uiArea);
+  const runQuestionRef = useRef<string | undefined>(undefined);
   const reduceMotion = useReducedMotion();
   const panelTransition = reduceMotion ? { duration: 0 } : { type: 'spring' as const, stiffness: 240, damping: 23, mass: .85 };
   const focused = Boolean(selectedAspect);
@@ -197,7 +198,6 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
   messagesRef.current = workspace.messages;
   const transportRef = useRef<ReturnType<typeof createAgentosTransport> | null>(null);
   const approvedDraft = useRef<ApprovedWorkDraft | undefined>(undefined);
-  const directRequest = useRef(false);
   const [workLabel, setWorkLabel] = useState('');
   const armDraft = (draft?: ApprovedWorkDraft) => { approvedDraft.current = draft; setWorkLabel(draft?.label || ''); };
   useEffect(() => {
@@ -207,7 +207,10 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
   const backendRunning = () => hasActiveBackendRun(backendRunRef.current);
   const completionRef = useRef<Promise<void> | null>(null);
   const recordRun = (run: AgentosRun) => {
-    const record = (current: Workspace) => run.status === 'submitting' && run.submissionId && current.backendRun?.submissionId !== run.submissionId ? beginBackendRun(current, run.submissionId, run.area, runAspectRef.current) : recordBackendRun(current, run);
+    const record = (current: Workspace) => {
+      const next = run.status === 'submitting' && run.submissionId && current.backendRun?.submissionId !== run.submissionId ? beginBackendRun(current, run.submissionId, run.area, runAspectRef.current) : recordBackendRun(current, run);
+      return run.status === 'submitting' && run.submissionId && runQuestionRef.current ? bindAspectReview(next, runQuestionRef.current, run.submissionId) : next;
+    };
     const checked = record({ ...workspace, backendRun: backendRunRef.current });
     backendRunRef.current = checked.backendRun;
     const update = (current: Workspace) => ({ ...record(current), activityLog: finishActivities(current.activityLog, run.status) });
@@ -215,6 +218,14 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
     setWorkspace(update);
     if (!hasActiveBackendRun(run)) setActivities(current => Object.fromEntries(finishActivities(Object.values(current).filter((activity): activity is Activity => Boolean(activity)), run.status).map(activity => [activity.agent, activity])));
     return true;
+  };
+  const restoreGuidedReview = (run: AgentosRun, events: readonly WorkEvent[]) => {
+    const review = recoveredAspectReview({ ...workspace, backendRun: backendRunRef.current }, run, events);
+    if (!review) return;
+    setWorkspace(current => completeAspectReview(current, review.questionId));
+    if (guideRef.current?.questionId !== review.questionId) return;
+    setWorkspace(current => ({ ...current, selectedAreas: [review.guide.area], selectedArea: scopeForAspect(review.guide.area) }));
+    setGuide(review.guide);
   };
   if (copilotStart && !transportRef.current) transportRef.current = createAgentosTransport(company.id, recordRun, () => messagesRef.current, copilotStart);
   const [snapshotError, setSnapshotError] = useState('');
@@ -244,35 +255,36 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
   useEffect(() => () => controllerRef.current?.abort(), []);
 
   const append = (message: Message) => setWorkspace(current => fillAspectStartingPoints({ ...current, messages: [...current.messages, { ...message, area: message.area || area, aspect: message.aspect ?? uiArea }].slice(-200), pinned: message.panel ? current.pinned.map(panel => panel.id === message.panel!.id ? message.panel! : panel) : current.pinned }, message.panel));
-  const onNew = async (message: AppendMessage) => {
-    const input = message.content.filter(part => part.type === 'text').map(part => part.text).join('\n').trim();
-    const direct = directRequest.current;
-    directRequest.current = false;
+  const sendMessage = async (input: string, answering?: AspectQuestion) => {
     if (readOnly || !input || recoveringRef.current || controllerRef.current || completionRef.current || backendRunning()) return;
-    if (input !== 'Save my idea brief') setFirstPassInFocus(false);
-    const answering = guidedQuestion && !direct && input !== 'Save my idea brief' && !approvedDraft.current ? guidedQuestion : undefined;
+    const initialRequest = !answering && input === 'Save my idea brief';
+    if (!initialRequest) {
+      setFirstPassInFocus(false);
+      setGuide(current => current ? { ...current, showFeedback: true } : current);
+      setConversationAtBottom(true);
+    }
     if (answering) {
       const ids = [crypto.randomUUID(), crypto.randomUUID()] as const;
       setWorkspace(current => recordAspectAnswer(current, answering, input, ids));
-      runtime.thread.composer.setText('');
       setConversationAtBottom(true);
     }
-    if (!answering && input !== 'Save my idea brief') setGuide(undefined);
     const controller = new AbortController();
     controllerRef.current = controller;
     let finish: (() => void) | undefined;
     completionRef.current = new Promise<void>(resolve => { finish = resolve; });
     setRunning(true); setRunError(''); setActivities({});
     runAspectRef.current = uiArea;
-    setWorkspace(current => ({ ...current, activityLog: [], drafts: { ...current.drafts, [uiArea]: '' } }));
-    if (!answering) append({ id: crypto.randomUUID(), role: 'user', text: input === 'Save my idea brief' ? workspace.brief?.idea ?? input : input });
+    runQuestionRef.current = answering?.id;
+    setWorkspace(current => ({ ...current, activityLog: [], drafts: answering ? current.drafts : { ...current.drafts, [uiArea]: '' } }));
+    if (!answering) append({ id: crypto.randomUUID(), role: 'user', text: initialRequest ? workspace.brief?.idea ?? input : input });
     try {
-      const initial = input === 'Save my idea brief' && workspace.brief;
+      const initial = initialRequest && workspace.brief;
       const transport = transportRef.current;
       if (!transport) throw new Error('The live backend transport is unavailable.');
       const approval: AgentosApproval | undefined = initial && (workspace.companyId ?? company.companyId) ? { operation: 'journey', stage: 'brief', companyId: (workspace.companyId ?? company.companyId)!, expectedRevision: workspace.currentRevision ?? company.currentRevision ?? 0 } : approvedWorkForSubmission(approvedDraft.current, input, uiArea, workspace.companyId, workspace.currentRevision);
       armDraft();
       const events = transport(initial ? initialCompanyPrompt(initial) : answering ? guidedAnswerPrompt(answering, input) : aspectMentorPrompt(input, uiArea, approval), controller.signal, approval ?? (initial ? 'overview' : area));
+      let structuredReview = false;
       for await (const raw of events) {
         const event = eventSchema.parse(raw);
         if (event.type === 'activity') {
@@ -280,14 +292,17 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
           setWorkspace(current => ({ ...current, activityLog: [...current.activityLog, event].slice(-100) }));
         }
         else {
+          if (answering && isGuidedReview(event, answering)) structuredReview = true;
           const runId = backendRunRef.current?.runId;
           if (!runId) throw new Error('The backend omitted the run identity.');
           setWorkspace(current => applyBackendEvent(current, runId, event));
         }
       }
       if (backendRunRef.current?.status === 'cancelled') append({ id: crypto.randomUUID(), role: 'assistant', text: 'The backend confirmed cancellation.' });
-      if (answering && guideRef.current?.questionId === answering.id && guideRef.current.area === answering.area && !controller.signal.aborted && backendRunRef.current?.status === 'completed') {
-        const next = nextAspectQuestion({ ...workspace, aspectChecks: { ...workspace.aspectChecks, [answering.id]: { note: input, status: workspace.aspectChecks[answering.id]?.status ?? 'in-progress' } } }, answering.id);
+      if (answering && !structuredReview && backendRunRef.current?.status === 'completed') setRunError('Your answer is saved, but the guided review is incomplete. Try Review answer again, or continue in chat.');
+      if (answering && structuredReview && !controller.signal.aborted && backendRunRef.current?.status === 'completed') setWorkspace(current => completeAspectReview(current, answering.id));
+      if (answering && structuredReview && guideRef.current?.questionId === answering.id && guideRef.current.area === answering.area && !controller.signal.aborted && backendRunRef.current?.status === 'completed') {
+        const next = nextAspectQuestion({ ...workspace, aspectChecks: { ...workspace.aspectChecks, [answering.id]: { origin: 'founder', note: input, status: workspace.aspectChecks[answering.id]?.status ?? 'in-progress' } } }, answering.id);
         const nextArea = next?.area ?? answering.area;
         setWorkspace(current => ({ ...current, selectedAreas: [nextArea], selectedArea: scopeForAspect(nextArea) }));
         setGuide({ area: nextArea, questionId: next?.id, showFeedback: true });
@@ -298,7 +313,7 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
       controllerRef.current = null;
       if (backendRunRef.current) recordRun(backendRunRef.current);
       setRunning(backendRunning()); finish?.(); completionRef.current = null;
-      if (input === 'Save my idea brief') setInitialising(false);
+      if (initialRequest) setInitialising(false);
     }
   };
   const onCancel = async () => {
@@ -312,6 +327,7 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
       const stopping = cancelAgentosRun(company.id, runId, messagesRef.current).then(recovered => {
         recordRun(recovered.run);
         for (const event of recovered.events) if (event.type === 'message') setWorkspace(current => applyBackendEvent(current, runId, event));
+        restoreGuidedReview(recovered.run, recovered.events);
         if (recovered.run.status === 'cancelled') append({ id: crypto.randomUUID(), role: 'assistant', text: 'The backend confirmed cancellation of the saved run.' });
         if (recovered.run.status === 'failed') setRunError('The saved backend run failed. You can send a new request.');
         setRunning(false);
@@ -320,10 +336,11 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
       try { await stopping; } finally { completionRef.current = null; }
     }
   };
+  const onNew = async (message: AppendMessage) => sendMessage(message.content.filter(part => part.type === 'text').map(part => part.text).join('\n').trim());
   const chatMessages = presentMessages(workspace.messages);
   const areaMessages = chatMessages;
   const runtime = useExternalStoreRuntime({ messages: areaMessages, convertMessage, isRunning: isRunning || (!activeGuide && !copilotStart && !connectionError), onNew, onCancel });
-  useEffect(() => { if (analysis && !initialising) setGuide(resumeAspect(nextAspectQuestion(workspace)?.area ?? 'research', workspace)); }, [analysis, initialising]);
+  useEffect(() => { if (analysis && !initialising) setGuide(resumeAspect(selectedAspect ?? nextAspectQuestion(workspace)?.area ?? 'research', workspace)); }, [analysis, initialising]);
   useEffect(() => {
     const saved = backendRunRef.current;
     if (!saved) return;
@@ -348,6 +365,7 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
           setWorkspace(current => ({ ...current, activityLog: finishActivities(history, recovered.run.status) }));
         }
         for (const event of recovered.events) if (event.type === 'message') setWorkspace(current => applyBackendEvent(current, recovered.run.runId!, event));
+        restoreGuidedReview(recovered.run, recovered.events);
         setRunning(hasActiveBackendRun(recovered.run));
         if (hasActiveBackendRun(recovered.run)) setRunError('The saved backend run is still running. Stop it or reopen this idea later to check its saved result.');
         if (recovered.run.status === 'failed') setRunError('The saved backend run failed. You can send a new request.');
@@ -375,7 +393,7 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
     if (window.matchMedia('(max-width: 760px)').matches) setView('chat');
     setGeneralChat(next === 'overview');
     setConversationAtBottom(true);
-    setGuide(next !== 'overview' && draft === undefined ? resumeAspect(next, workspace) : undefined);
+    setGuide(next !== 'overview' ? resumeAspect(next, workspace) : undefined);
     if (draft === undefined) armDraft();
     if (next === uiArea && draft !== undefined) runtime.thread.composer.setText(draft);
     setEditingOrder(false); setDialog(null);
@@ -390,7 +408,6 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
       armDraft(companyId && expectedRevision !== undefined ? { text, area: uiArea, label: 'Run this step', approval: { operation: 'journey', stage, companyId, expectedRevision, teamArea: area } } : undefined);
     }
     if (readOnly || isRunning) return;
-    directRequest.current = true;
     setGuide(undefined);
     setDialog(null);
     runtime.thread.composer.setText(text); runtime.thread.composer.send();
@@ -468,7 +485,7 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
       cancelAnimationFrame(frame); observer.disconnect();
       interactionEvents.forEach(name => viewport?.removeEventListener(name, stopFollowing));
     };
-  }, [activeGuide?.questionId, activeGuide?.showFeedback, view, firstPassInFocus, initialising]);
+  }, [activeGuide, view, firstPassInFocus, initialising]);
   const previousMessageCount = useRef(workspace.messages.length);
   useEffect(() => {
     if (previousMessageCount.current === workspace.messages.length) return;
@@ -510,24 +527,26 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
             <div className="conversation-content">{areaMessages.length === 0 && !activeGuide && !initialising && <div className="conversation-intro empty-conversation">{view === 'chat' && <span className="empty-company-name">{company.name}</span>}<h2>{focused ? team.goal : 'Start with your idea.'}</h2><p>What do you want this software idea to solve?</p></div>}
               {initialising && <OpenUIIdeaAnalysis pending onAspect={area => selectArea(area)} />}
               <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage }} />
-              {selectedAspect && <OpenUIAspectGuide area={selectedAspect} guide={activeGuide} workspace={workspace} disabled={readOnly || isRunning || recovering} onMap={() => selectArea('overview')} onResume={() => {
+              {selectedAspect && !initialising && <OpenUIAspectGuide area={selectedAspect} guide={activeGuide} workspace={workspace} disabled={readOnly || isRunning || recovering || !copilotStart} onResume={() => {
                 const questionId = guidedQuestion?.id ?? resumeAspect(selectedAspect, workspace).questionId ?? aspectQuestions.find(question => question.area === selectedAspect)?.id;
-                setGuide({ area: selectedAspect, questionId }); armDraft();
-                runtime.thread.composer.setText(questionId ? workspace.aspectChecks[questionId]?.note ?? '' : '');
-              }} onQuestion={id => { setGuide({ area: selectedAspect, questionId: id }); armDraft(); runtime.thread.composer.setText(workspace.aspectChecks[id]?.note ?? ''); }} onTalk={() => {
-                setGuide(undefined); armDraft();
-                if (!guidedQuestion) runtime.thread.composer.setText(aspectAnswersPrompt(workspace));
-                requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('.composer-input')?.focus());
-              }} onAssess={status => { if (!readOnly && guidedQuestion) setWorkspace(current => ({ ...current, aspectChecks: { ...current.aspectChecks, [guidedQuestion.id]: { ...current.aspectChecks[guidedQuestion.id], note: current.aspectChecks[guidedQuestion.id]?.note ?? '', status } } })); }} />}
+                setGuide({ area: selectedAspect, questionId });
+              }} onQuestion={id => {
+                const question = aspectQuestions.find(item => item.id === id);
+                if (!question) return;
+                setFirstPassInFocus(false); setGuide({ area: question.area, questionId: id });
+                setWorkspace(current => ({ ...current, selectedAreas: [question.area], selectedArea: scopeForAspect(question.area) }));
+              }} onTalk={() => { document.querySelector<HTMLTextAreaElement>('.composer-input')?.focus(); }} onChange={value => {
+                if (!readOnly && guidedQuestion) setWorkspace(current => ({ ...current, aspectFormDrafts: { ...current.aspectFormDrafts, [guidedQuestion.id]: value } }));
+              }} onSubmit={() => { if (guidedQuestion) { armDraft(); void sendMessage(aspectFormValue(workspace, guidedQuestion.id).trim(), guidedQuestion); } }} onAssess={status => { if (!readOnly && guidedQuestion) setWorkspace(current => ({ ...current, aspectChecks: { ...current.aspectChecks, [guidedQuestion.id]: { ...current.aspectChecks[guidedQuestion.id], note: current.aspectChecks[guidedQuestion.id]?.note ?? '', status } } })); }} />}
 
               {isRunning && <div className="working-message" role="status"><LoaderCircle size={15} className="spin" />{workingAgent?.detail || (recovering ? 'Recovering the saved backend run…' : 'Waiting for the backend…')}</div>}
-              {(runError || connectionError) && <div className="error-note" role="alert">Backend status: {runError || connectionError}</div>}
+              {(runError || connectionError) && <div className="error-note" role="alert">{runError || connectionError}</div>}
               {!focused && workspace.messages.length > 0 && <div className="suggestions"><button onClick={() => chooseNextStage(true)} title={nextReason || undefined} disabled={nextDisabled}>{nextStage.label} <ArrowRight size={13} /></button></div>}
             </div>
           </ThreadPrimitive.Viewport>
           <div className="composer-dock">{!conversationAtBottom && <button className="scroll-bottom" onClick={() => { setConversationAtBottom(true); viewportRef.current?.scrollTo({ top: viewportRef.current.scrollHeight, behavior: 'smooth' }); }} aria-label="Scroll to latest message"><ArrowDown size={16} /></button>}
-            <OpenUIComposer label={focused ? 'Message ' + team.name : 'Message Samurai'} placeholder={guidedQuestion ? 'Your answer…' : focused ? 'Ask about ' + team.name.toLowerCase() + '…' : 'What’s our next move?'} running={isRunning} recovering={recovering} stopLabel="Stop backend run" onExplore={() => setDialog('panels')} workLabel={workLabel} onClearWork={() => armDraft()} onInput={value => { armDraft(editApprovedWorkDraft(approvedDraft.current, value, uiArea)); setWorkspace(current => ({ ...current, drafts: { ...current.drafts, [uiArea]: value } })); }} />
-            <div className="conversation-caption">{activeGuide ? 'Guided reflection · Answers saved in this browser' : 'Live Samurai workflow · Generated artifacts need review'}</div>
+            <OpenUIComposer label={focused ? 'Message ' + team.name : 'Message Samurai'} placeholder={guidedQuestion ? 'Ask anything, or discuss this question…' : focused ? 'Ask about ' + team.name.toLowerCase() + '…' : 'What’s our next move?'} running={isRunning} recovering={recovering} stopLabel="Stop backend run" onExplore={() => setDialog('panels')} workLabel={workLabel} onClearWork={() => armDraft()} onInput={value => { armDraft(editApprovedWorkDraft(approvedDraft.current, value, uiArea)); setWorkspace(current => ({ ...current, drafts: { ...current.drafts, [uiArea]: value } })); }} />
+            <div className="conversation-caption">{activeGuide ? 'Answer in the form · Chat is always open' : 'Live Samurai workflow · Generated artifacts need review'}</div>
             {storageError && <p role="status" className="storage-warning">Browser storage is unavailable. This session won’t be saved.</p>}
           </div>
         </ThreadPrimitive.Root>

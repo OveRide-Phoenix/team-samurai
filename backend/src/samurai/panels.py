@@ -58,6 +58,7 @@ PanelBlock = Annotated[
 class DeclarativePanel(Contract):
     id: str
     kind: Literal["declarative"] = "declarative"
+    panel_key: Annotated[str, Field(min_length=1, max_length=MAX_PANEL_KEY_CHARS)] | None = None
     title: Annotated[str, Field(min_length=1, max_length=120)]
     note: Literal["Generated view · Working assumptions, not verified business results"] = (
         DRAFT_NOTE
@@ -109,10 +110,16 @@ def compose_panel(
     {"kind":"table","columns":["..."],"rows":[["..."]]}.
     Text blocks have no title or detail field; put all prose in text.
     """
+    # Keep ordinary views readable by existing clients during backend-first rollout.
     panel = DeclarativePanel.model_validate(
-        {"id": _panel_id(run_context, panel_key), "title": title, "blocks": blocks}
+        {
+            "id": _panel_id(run_context, panel_key),
+            "panel_key": panel_key if panel_key.startswith("guide-") else None,
+            "title": title,
+            "blocks": blocks,
+        }
     )
-    return PANEL_MARKER + panel.model_dump_json()
+    return PANEL_MARKER + panel.model_dump_json(exclude_none=True)
 
 
 def create_custom_panel(  # noqa: PLR0913 - typed presentation tool contract.

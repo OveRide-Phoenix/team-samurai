@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from agno.run.agent import RunOutput
 
 from agno.run import RunContext
-from pydantic import ValidationError
+from pydantic import JsonValue, TypeAdapter, ValidationError
 
 from samurai.panels import (
     COMPOSE_PARAMETERS,
@@ -64,6 +64,8 @@ def test_views_keep_stable_owner_and_company_scoped_ids() -> None:
             [{"kind": "text", "text": "Other"}],
         ).removeprefix(PANEL_MARKER)
     )
+    assert panel.panel_key is None
+    assert updated.panel_key is None
     assert panel.id == updated.id
     assert len({panel.id, other.id, another_company.id}) == 3
     assert context().session_state == {}
@@ -78,6 +80,29 @@ def test_declarative_boundary_rejects_unknown_components_and_ragged_tables() -> 
     ):
         with pytest.raises(ValidationError):
             _ = DeclarativePanel.model_validate({"id": "p", "title": "Draft", "blocks": [block]})
+
+
+def test_ordinary_panels_keep_the_legacy_wire_shape_during_rollout() -> None:
+    raw = compose_panel(context(), "pricing", "Pricing", [{"kind": "text", "text": "Hypothesis"}])
+    assert set(TypeAdapter(dict[str, JsonValue]).validate_json(raw.removeprefix(PANEL_MARKER))) == {
+        "id",
+        "kind",
+        "title",
+        "note",
+        "blocks",
+    }
+
+
+def test_review_correlation_key_is_optional_bounded_and_literal() -> None:
+    legacy = {"id": "p", "title": "Draft", "blocks": [{"kind": "text", "text": "Hypothesis"}]}
+    assert DeclarativePanel.model_validate(legacy).panel_key is None
+    assert (
+        DeclarativePanel.model_validate({**legacy, "panel_key": "guide-customer-problem"}).panel_key
+        == "guide-customer-problem"
+    )
+    for key in ("", "x" * 81):
+        with pytest.raises(ValidationError):
+            _ = DeclarativePanel.model_validate({**legacy, "panel_key": key})
 
 
 def test_custom_views_are_bounded_and_cannot_claim_verification() -> None:
@@ -105,7 +130,7 @@ def test_compose_tool_executes_through_real_agno(tmp_path: Path) -> None:
         arguments={
             "compose_panel": json.dumps(
                 {
-                    "panel_key": "comparison",
+                    "panel_key": "guide-existing-alternatives",
                     "title": "Pilot comparison",
                     "blocks": [
                         {"kind": "text", "text": "Working hypothesis"},
@@ -126,6 +151,7 @@ def test_compose_tool_executes_through_real_agno(tmp_path: Path) -> None:
     assert output.status.value == "COMPLETED"
     assert isinstance(output.content, str)
     panel = DeclarativePanel.model_validate_json(output.content.removeprefix(PANEL_MARKER))
+    assert panel.panel_key == "guide-existing-alternatives"
     assert panel.title == "Pilot comparison"
     assert panel.blocks[1].kind == "table"
 

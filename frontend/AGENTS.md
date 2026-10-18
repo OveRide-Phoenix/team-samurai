@@ -1,5 +1,21 @@
 # Frontend contributor guide
 
+## Form-led validation walkthrough — 18 October 2026
+
+Guided questions are actual OpenUI forms inside the conversation. Answer and submit
+there; never prefill the chat composer or treat ordinary chat as a form answer.
+Keep a separate saved form draft and free-chat draft. Sending a free message keeps
+the current form available and must not save, confirm or advance its question.
+Follow Problem → Market → Sales → Product → Budget → Validation after successful
+form reviews, while the explicit mentor picker can jump to any aspect. Map clicks
+still only highlight. Mentor autofill is a suggested starting point, not a completed
+walkthrough answer. Let founders explicitly use or correct that suggestion in the
+form. Preserve manual readiness, evidence gaps and existing execution approvals.
+Guided reviews should return useful typed OpenUI feedback through compose_panel;
+comparisons must contain actual table rows, not promises to provide a table later.
+Ordinary conversation may still use text, UI or both. This supersedes the composer-
+answered guided-question instructions below. Desktop only.
+
 ## Latest local app and responses — 17 October 2026
 
 The user explicitly removed preview modes. Localhost must run the actual app and
