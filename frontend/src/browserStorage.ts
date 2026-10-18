@@ -6,7 +6,7 @@ const identity = z.object({ guest: guest.optional(), configured: z.literal(true)
 export type BrowserScope = { readonly kind: 'development' } | { readonly kind: 'user'; readonly namespace: z.infer<typeof identity>['storageNamespace']; readonly guest?: z.infer<typeof guest> };
 export class BrowserIdentityError extends Error {
   readonly name = 'BrowserIdentityError';
-  constructor() { super('Your session could not be opened. Reload Samurai to try again.'); }
+  constructor() { super('Your session could not be opened. Reload Proofseed to try again.'); }
 }
 
 export async function resolveBrowserScope(production: boolean, request: typeof fetch = fetch): Promise<BrowserScope> {
