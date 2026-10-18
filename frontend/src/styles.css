@@ -49,7 +49,7 @@ h1,h2,h3,p { margin: 0; }
 .topbar-brand,.topbar-actions { display: flex; align-items: center; gap: 15px; }
 .home-button { width: 43px; height: 43px; border-radius: 50%; display: grid; place-items: center; background: var(--surface); }
 .home-button.active { background: var(--primary); color: var(--primary-foreground); }
-.brand-logo { width: 30px; height: 32px; object-fit: contain; vertical-align: middle; margin-right: 9px; }
+.brand-logo { display: inline-block; width: 30px; height: 32px; object-fit: contain; vertical-align: middle; margin-right: 9px; }
 .wordmark { font-size: 25px; letter-spacing: -.8px; font-weight: 650; }
 .view-switch { position: absolute; left: calc(var(--home-width) + (100% - var(--home-width)) / 2); transform: translateX(-50%); display: flex; padding: 3px; border-radius: 40px; background: var(--surface); backdrop-filter: blur(14px); }
 .view-switch button { padding: 11px 26px; border-radius: 40px; font-size: 14px; font-weight: 500; color: var(--secondary-text); }
