@@ -6,11 +6,12 @@ from typing import TYPE_CHECKING, Never
 import anyio
 import pytest
 from agno.db.sqlite import SqliteDb
+from agno.run import RunContext
 from agno.run.agent import RunOutput
 from agno.run.base import RunStatus
 
 from samurai.config import Settings
-from samurai.panels import PANEL_MARKER, DeclarativePanel
+from samurai.panels import PANEL_MARKER, DeclarativePanel, compose_panel
 from samurai.parent import create_parent_agent
 from tests.test_parent import ToolSequenceModel
 
@@ -21,10 +22,10 @@ if TYPE_CHECKING:
     from agno.models.response import ModelResponse
 
 
-def panel_arguments(*, corrected: bool) -> str:
+def panel_arguments(*, corrected: bool, panel_key: str | int = "validation-budget") -> str:
     return json.dumps(
         {
-            "panel_key": "validation-budget",
+            "panel_key": panel_key,
             "title": "Validation budget estimates",
             "blocks": [
                 {
@@ -47,8 +48,9 @@ def panel_arguments(*, corrected: bool) -> str:
 
 
 @pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("invalid_key", [None, "", "x" * 81, 123])
 def test_malformed_panel_is_corrected_within_the_same_run(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, stream: bool
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, stream: bool, invalid_key: str | int | None
 ) -> None:
     original = ToolSequenceModel.ainvoke
 
@@ -57,7 +59,14 @@ def test_malformed_panel_is_corrected_within_the_same_run(
         messages: list[Message],
         **kwargs: Never,
     ) -> ModelResponse:
-        current.arguments["compose_panel"] = panel_arguments(corrected=current.calls > 0)
+        current.arguments["compose_panel"] = panel_arguments(
+            corrected=current.calls > 0 or invalid_key is not None,
+            panel_key=(
+                invalid_key
+                if current.calls == 0 and invalid_key is not None
+                else "validation-budget"
+            ),
+        )
         if current.calls:
             assert any(message.tool_call_error for message in messages)
         return await original(current, messages, **kwargs)
@@ -125,6 +134,15 @@ def test_repeated_invalid_panels_still_stop_at_the_existing_model_budget(tmp_pat
     output = anyio.run(scenario)
     assert output.status == RunStatus.error
     assert model.calls == settings.agent_tool_call_limit + 1
+
+
+@pytest.mark.parametrize(("user_id", "session_id"), [(None, "session"), ("founder", "")])
+def test_invalid_panel_key_does_not_hide_missing_identity(
+    user_id: str | None, session_id: str
+) -> None:
+    context = RunContext(run_id="identity-test", user_id=user_id, session_id=session_id)
+    with pytest.raises(ValueError, match="Authenticated company session required"):
+        _ = compose_panel(context, "", "Draft", [{"kind": "text", "text": "Hypothesis"}])
 
 
 def test_unrepaired_panel_error_is_not_reported_as_success(tmp_path: Path) -> None:

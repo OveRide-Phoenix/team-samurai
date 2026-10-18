@@ -24,6 +24,8 @@ MAX_PANEL_CHARS = 100_000
 MAX_PANEL_KEY_CHARS = 80
 DRAFT_NOTE = "Generated view · Working assumptions, not verified business results"
 ShortText = Annotated[str, Field(min_length=1, max_length=4000)]
+PanelKey = Annotated[str, Field(min_length=1, max_length=MAX_PANEL_KEY_CHARS)]
+PANEL_KEY_ADAPTER: Final = TypeAdapter(PanelKey)
 
 
 class TextBlock(Contract):
@@ -93,8 +95,7 @@ class CustomPanel(Contract):
 def _panel_id(context: RunContext, panel_key: str) -> str:
     if not context.user_id or not context.session_id:
         raise ValueError("Authenticated company session required")
-    if not panel_key or len(panel_key) > MAX_PANEL_KEY_CHARS:
-        raise ValueError("Panel key must contain 1 to 80 characters")
+    panel_key = PANEL_KEY_ADAPTER.validate_python(panel_key)
     identity = json.dumps(
         ("samurai-panel", context.user_id, context.session_id, panel_key), separators=(",", ":")
     )
