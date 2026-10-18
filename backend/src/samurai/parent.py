@@ -123,7 +123,7 @@ if TYPE_CHECKING:
     from agno.workflow.step import StepExecutor
 
 PARENT_AGENT_ID: Final = "samurai"
-PARENT_AGENT_NAME: Final = "Samurai"
+PARENT_AGENT_NAME: Final = "Proofseed"
 PARENT_DESCRIPTION: Final = "Explore and validate a software idea with evidence-linked mentoring."
 REGISTRY_EXECUTION_ERROR: Final = "registered parent cannot execute"
 PARENT_COPY_UPDATE_ERROR: Final = "Samurai parent copy does not accept updates"
