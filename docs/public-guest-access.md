@@ -19,7 +19,9 @@ All guests combined have up to 50 AI submissions and 300 write requests per UTC
 day. AI submissions also count as writes. PostgreSQL reserves both counters in one
 transaction under a shared lock, so changing cookies or adding Cloud Run instances
 does not reset the global allowance. Failed submissions consume their reservation.
-Cancellation, stream reconnection and reads remain available after exhaustion.
+Non-AI writes use their separate write budget even if a lower AI limit is below
+the retained AI counter. Cancellation, stream reconnection and reads remain
+available after exhaustion.
 These are request counts, not a financial ceiling: tools and the existing bounded
 retry can cause multiple Gemini calls per admitted submission. Read traffic and
 hosting costs are not capped by these counters.

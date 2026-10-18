@@ -34,7 +34,7 @@ def admit_guest(engine: Engine, schema: str, actor_id: str, *, ai_run: bool) -> 
         for actor, writes, runs in (("*", 300, 50), (actor_id, 60, 10)):
             allowed = connection.execute(
                 text(
-                    f"""SELECT writes < :writes AND ai_runs + :ai <= :runs
+                    f"""SELECT writes < :writes AND (:ai = 0 OR ai_runs + :ai <= :runs)
                         FROM {table} WHERE day = {today} AND actor_id = :actor"""  # noqa: S608 - validated schema.
                 ),
                 {"actor": actor, "writes": writes, "ai": int(ai_run), "runs": runs},
