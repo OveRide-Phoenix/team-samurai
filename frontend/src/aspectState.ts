@@ -13,6 +13,7 @@ export const aspectChecksSchema = z.record(z.string().min(1).max(80), z.strictOb
   note: z.string().max(4000),
   origin: z.enum(['mentor', 'founder']).optional(),
   reviewPending: z.boolean().optional(),
+  reviewSubmissionId: z.string().uuid().optional(),
   basis: z.enum(['provided', 'inferred']).optional(),
 })).refine(checks => Object.keys(checks).length <= 18, 'At most eighteen checkpoints can be saved').default({});
 

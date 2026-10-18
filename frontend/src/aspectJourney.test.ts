@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { completeAspectReview, aspectAnswersPrompt, aspectFormValue, aspectMentorPrompt, aspectOrder, aspectQuestions, guidedAnswerPrompt, isGuidedReview, nextAspectQuestion, recordAspectAnswer, resumeAspect } from './aspectJourney';
-import { emptyWorkspace, workspaceSchema } from './model';
+import { bindAspectReview, recoveredAspectReview, completeAspectReview, aspectAnswersPrompt, aspectFormValue, aspectMentorPrompt, aspectOrder, aspectQuestions, guidedAnswerPrompt, isGuidedReview, nextAspectQuestion, recordAspectAnswer, resumeAspect } from './aspectJourney';
+import { beginBackendRun, recordBackendRun, emptyWorkspace, workspaceSchema, type WorkEvent } from './model';
 import { aspectReadiness, messagesForArea } from './teamAreas';
 
 describe('chat-first aspect journey', () => {
@@ -22,6 +22,25 @@ describe('chat-first aspect journey', () => {
     expect(resumeAspect(question.area, reviewed).questionId).toBe('demand-evidence');
     expect(reviewed.aspectChecks[question.id].note).toBe(restored.aspectChecks[question.id].note);
     expect(completeAspectReview(restored, 'missing')).toBe(restored);
+  });
+
+  it('recovers a completed guided review after reload without resubmitting the answer', () => {
+    const question = aspectQuestions[0];
+    const submissionId = crypto.randomUUID();
+    let submitted = recordAspectAnswer(emptyWorkspace(), question, 'A saved founder answer', ['q', 'a']);
+    submitted = bindAspectReview(beginBackendRun(submitted, submissionId, 'research', 'research'), question.id, submissionId);
+    submitted = recordBackendRun(submitted, { runId: 'saved-review', status: 'running' });
+    const restored = workspaceSchema.parse(JSON.parse(JSON.stringify(submitted)));
+    const event: WorkEvent = { type: 'message', text: '', panel: { id: crypto.randomUUID(), kind: 'declarative', panel_key: 'guide-customer-problem', title: 'Review', note: 'Generated view · Working assumptions, not verified business results', blocks: [{ kind: 'text', text: 'The demand assumption remains unproven.' }] } };
+    const recovery = recoveredAspectReview(restored, { runId: 'saved-review', status: 'completed' }, [event]);
+    expect(recovery?.questionId).toBe(question.id);
+    expect(recovery?.guide.questionId).toBe('demand-evidence');
+    expect(completeAspectReview(restored, question.id).aspectChecks[question.id].note).toBe('A saved founder answer');
+    for (const status of ['running', 'cancelled', 'failed'] as const) expect(recoveredAspectReview(restored, { runId: 'saved-review', status }, [event])).toBeUndefined();
+    expect(recoveredAspectReview(restored, { runId: 'different-review', status: 'completed' }, [event])).toBeUndefined();
+    expect(recoveredAspectReview(restored, { runId: 'saved-review', status: 'completed' }, [])).toBeUndefined();
+    const freeChat = beginBackendRun(recordBackendRun(restored, { runId: 'saved-review', status: 'completed' }), crypto.randomUUID(), 'research', 'research');
+    expect(recoveredAspectReview(recordBackendRun(freeChat, { runId: 'free-chat', status: 'completed' }), { runId: 'free-chat', status: 'completed' }, [event])).toBeUndefined();
   });
 
   it('submits a form without consuming the independent chat draft', () => {

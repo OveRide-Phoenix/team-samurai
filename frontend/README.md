@@ -79,3 +79,5 @@ retains the CSS fallback when WebGL2 is unavailable.
 Guided reviews match the question using the bounded `panel_key` returned by `compose_panel`. Legacy panels still render, but cannot advance the guide. For backward-compatible backend-first rollout, only guide-prefixed compositions carry correlation metadata; ordinary panels retain their previous shape.
 
 Submitted answers stay pending until their matching review completes. Cancellation, failed requests and incomplete output keep that question resumable after reload; its full answer remains in chat and in the form draft.
+
+A guided answer is bound to its existing frontend submission ID before dispatch. Recovering a completed saved run accepts only that submission’s matching structured review and resumes the next open question; free-chat or stale results cannot finish another pending answer.

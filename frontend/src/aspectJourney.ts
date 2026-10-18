@@ -1,6 +1,6 @@
 import { aspectCatalog } from './ideaAspectCatalog';
 import { scopeForAspect } from './teamAreas';
-import type { WorkEvent, WorkflowArea, Workspace } from './model';
+import type { BackendRun, WorkEvent, WorkflowArea, Workspace } from './model';
 import type { IdeaArea } from './aspectState';
 import type { AgentosApproval } from './agentos';
 
@@ -56,6 +56,19 @@ export function recordAspectAnswer(workspace: Workspace, question: AspectQuestio
       { id: ids[1], role: 'user' as const, text, area, aspect: question.area },
     ].slice(-200),
   };
+}
+export function bindAspectReview(workspace: Workspace, id: string, submissionId: string): Workspace {
+  const check = workspace.aspectChecks[id];
+  if (!check?.reviewPending) return workspace;
+  return { ...workspace, aspectChecks: { ...workspace.aspectChecks, [id]: { ...check, reviewSubmissionId: submissionId } } };
+}
+export function recoveredAspectReview(workspace: Workspace, run: BackendRun, events: readonly WorkEvent[]): { readonly questionId: string; readonly guide: AspectGuide } | undefined {
+  const saved = workspace.backendRun;
+  if (run.status !== 'completed' || !run.runId || saved?.runId !== run.runId || !saved.submissionId) return;
+  const question = aspectQuestions.find(item => workspace.aspectChecks[item.id]?.reviewPending && workspace.aspectChecks[item.id]?.reviewSubmissionId === saved.submissionId);
+  if (!question || !events.some(event => isGuidedReview(event, question))) return;
+  const next = nextAspectQuestion(completeAspectReview(workspace, question.id), question.id);
+  return { questionId: question.id, guide: { area: next?.area ?? question.area, questionId: next?.id, showFeedback: true } };
 }
 export function completeAspectReview(workspace: Workspace, id: string): Workspace {
   const check = workspace.aspectChecks[id];

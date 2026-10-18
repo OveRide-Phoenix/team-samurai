@@ -16,7 +16,7 @@ import { actionAreas, areaForPanel, panelChoiceAreas, panelsForAreas, selectedWo
 import { OpenUIAspectGuide } from './OpenUIAspectGuide';
 import { OpenUIIdeaAnalysis } from './OpenUIIdeaAnalysis';
 import { fillAspectStartingPoints, latestIdeaAnalysis } from './ideaAnalysis';
-import { completeAspectReview, aspectMentorPrompt, aspectFormValue, aspectQuestions, guidedAnswerPrompt, isGuidedReview, nextAspectQuestion, recordAspectAnswer, resumeAspect, type AspectGuide, type AspectQuestion } from './aspectJourney';
+import { bindAspectReview, recoveredAspectReview, completeAspectReview, aspectMentorPrompt, aspectFormValue, aspectQuestions, guidedAnswerPrompt, isGuidedReview, nextAspectQuestion, recordAspectAnswer, resumeAspect, type AspectGuide, type AspectQuestion } from './aspectJourney';
 import type { IdeaArea } from './aspectState';
 import { ModeToggle, type Activity } from './ShellParts';
 import {
@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { GenerativePanelBody } from './GenerativePanelBody';
 import { presentMessages, editApprovedWorkDraft, approvedWorkForSubmission, createAgentosTransport, readAgentosRun, readAgentosReceipt, cancelAgentosRun, type CopilotStart, type ApprovedWorkDraft, type AgentosApproval, type AgentosRun } from './agentos';
-import { finishActivities, hasActiveBackendRun, toggleSavedSelection, applyBackendEvent, recordBackendRun, beginBackendRun, panelIsOutdated, currentCompanyActions, initialCompanyPrompt, eventSchema, panelSchema, latestPanels, orderedPanels, movePanel, type CompanyAction, type TeamArea, type WorkflowArea, type Agent, type Message, type Panel, type Workspace, type Portfolio }  from './model';
+import { finishActivities, hasActiveBackendRun, toggleSavedSelection, applyBackendEvent, recordBackendRun, beginBackendRun, panelIsOutdated, currentCompanyActions, initialCompanyPrompt, eventSchema, panelSchema, latestPanels, orderedPanels, movePanel, type CompanyAction, type TeamArea, type WorkflowArea, type Agent, type Message, type WorkEvent, type Panel, type Workspace, type Portfolio }  from './model';
 import { deleteWorkspaceFile, downloadWorkspaceFile, listWorkspaceFiles, uploadWorkspaceFile, type WorkspaceFile } from './files';
 import { FounderOperationsPanel } from './FounderOperationsPanel';
 import { canonicalCompanyFields, openWorkspaceCompany } from './workspaces';
@@ -181,6 +181,7 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
   const activeGuide = guide?.area === selectedAspect ? guide : undefined;
   const guidedQuestion = aspectQuestions.find(question => question.id === activeGuide?.questionId);
   const runAspectRef = useRef<IdeaArea>(workspace.backendRun?.aspect ?? uiArea);
+  const runQuestionRef = useRef<string | undefined>(undefined);
   const reduceMotion = useReducedMotion();
   const panelTransition = reduceMotion ? { duration: 0 } : { type: 'spring' as const, stiffness: 240, damping: 23, mass: .85 };
   const focused = Boolean(selectedAspect);
@@ -206,7 +207,10 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
   const backendRunning = () => hasActiveBackendRun(backendRunRef.current);
   const completionRef = useRef<Promise<void> | null>(null);
   const recordRun = (run: AgentosRun) => {
-    const record = (current: Workspace) => run.status === 'submitting' && run.submissionId && current.backendRun?.submissionId !== run.submissionId ? beginBackendRun(current, run.submissionId, run.area, runAspectRef.current) : recordBackendRun(current, run);
+    const record = (current: Workspace) => {
+      const next = run.status === 'submitting' && run.submissionId && current.backendRun?.submissionId !== run.submissionId ? beginBackendRun(current, run.submissionId, run.area, runAspectRef.current) : recordBackendRun(current, run);
+      return run.status === 'submitting' && run.submissionId && runQuestionRef.current ? bindAspectReview(next, runQuestionRef.current, run.submissionId) : next;
+    };
     const checked = record({ ...workspace, backendRun: backendRunRef.current });
     backendRunRef.current = checked.backendRun;
     const update = (current: Workspace) => ({ ...record(current), activityLog: finishActivities(current.activityLog, run.status) });
@@ -214,6 +218,14 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
     setWorkspace(update);
     if (!hasActiveBackendRun(run)) setActivities(current => Object.fromEntries(finishActivities(Object.values(current).filter((activity): activity is Activity => Boolean(activity)), run.status).map(activity => [activity.agent, activity])));
     return true;
+  };
+  const restoreGuidedReview = (run: AgentosRun, events: readonly WorkEvent[]) => {
+    const review = recoveredAspectReview({ ...workspace, backendRun: backendRunRef.current }, run, events);
+    if (!review) return;
+    setWorkspace(current => completeAspectReview(current, review.questionId));
+    if (guideRef.current?.questionId !== review.questionId) return;
+    setWorkspace(current => ({ ...current, selectedAreas: [review.guide.area], selectedArea: scopeForAspect(review.guide.area) }));
+    setGuide(review.guide);
   };
   if (copilotStart && !transportRef.current) transportRef.current = createAgentosTransport(company.id, recordRun, () => messagesRef.current, copilotStart);
   const [snapshotError, setSnapshotError] = useState('');
@@ -262,6 +274,7 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
     completionRef.current = new Promise<void>(resolve => { finish = resolve; });
     setRunning(true); setRunError(''); setActivities({});
     runAspectRef.current = uiArea;
+    runQuestionRef.current = answering?.id;
     setWorkspace(current => ({ ...current, activityLog: [], drafts: answering ? current.drafts : { ...current.drafts, [uiArea]: '' } }));
     if (!answering) append({ id: crypto.randomUUID(), role: 'user', text: initialRequest ? workspace.brief?.idea ?? input : input });
     try {
@@ -314,6 +327,7 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
       const stopping = cancelAgentosRun(company.id, runId, messagesRef.current).then(recovered => {
         recordRun(recovered.run);
         for (const event of recovered.events) if (event.type === 'message') setWorkspace(current => applyBackendEvent(current, runId, event));
+        restoreGuidedReview(recovered.run, recovered.events);
         if (recovered.run.status === 'cancelled') append({ id: crypto.randomUUID(), role: 'assistant', text: 'The backend confirmed cancellation of the saved run.' });
         if (recovered.run.status === 'failed') setRunError('The saved backend run failed. You can send a new request.');
         setRunning(false);
@@ -351,6 +365,7 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
           setWorkspace(current => ({ ...current, activityLog: finishActivities(history, recovered.run.status) }));
         }
         for (const event of recovered.events) if (event.type === 'message') setWorkspace(current => applyBackendEvent(current, recovered.run.runId!, event));
+        restoreGuidedReview(recovered.run, recovered.events);
         setRunning(hasActiveBackendRun(recovered.run));
         if (hasActiveBackendRun(recovered.run)) setRunError('The saved backend run is still running. Stop it or reopen this idea later to check its saved result.');
         if (recovered.run.status === 'failed') setRunError('The saved backend run failed. You can send a new request.');
