@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { bindAspectReview, recoveredAspectReview, completeAspectReview, aspectAnswersPrompt, aspectFormValue, aspectMentorPrompt, aspectOrder, aspectQuestions, guidedAnswerPrompt, isGuidedReview, nextAspectQuestion, recordAspectAnswer, resumeAspect } from './aspectJourney';
-import { beginBackendRun, recordBackendRun, emptyWorkspace, workspaceSchema, type WorkEvent } from './model';
+import { applyBackendEvent, beginBackendRun, recordBackendRun, emptyWorkspace, workspaceSchema, type WorkEvent } from './model';
 import { aspectReadiness, messagesForArea } from './teamAreas';
 
 describe('chat-first aspect journey', () => {
@@ -39,6 +39,10 @@ describe('chat-first aspect journey', () => {
     for (const status of ['running', 'cancelled', 'failed'] as const) expect(recoveredAspectReview(restored, { runId: 'saved-review', status }, [event])).toBeUndefined();
     expect(recoveredAspectReview(restored, { runId: 'different-review', status: 'completed' }, [event])).toBeUndefined();
     expect(recoveredAspectReview(restored, { runId: 'saved-review', status: 'completed' }, [])).toBeUndefined();
+    const savedPanel = applyBackendEvent(restored, 'saved-review', event);
+    expect(recoveredAspectReview(savedPanel, { runId: 'saved-review', status: 'completed' }, [])?.questionId).toBe(question.id);
+    expect(recoveredAspectReview(completeAspectReview(savedPanel, question.id), { runId: 'saved-review', status: 'completed' }, [])).toBeUndefined();
+    expect(recoveredAspectReview(applyBackendEvent(restored, 'older-review', event), { runId: 'saved-review', status: 'completed' }, [])).toBeUndefined();
     const freeChat = beginBackendRun(recordBackendRun(restored, { runId: 'saved-review', status: 'completed' }), crypto.randomUUID(), 'research', 'research');
     expect(recoveredAspectReview(recordBackendRun(freeChat, { runId: 'free-chat', status: 'completed' }), { runId: 'free-chat', status: 'completed' }, [event])).toBeUndefined();
   });

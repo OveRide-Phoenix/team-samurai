@@ -66,7 +66,9 @@ export function recoveredAspectReview(workspace: Workspace, run: BackendRun, eve
   const saved = workspace.backendRun;
   if (run.status !== 'completed' || !run.runId || saved?.runId !== run.runId || !saved.submissionId) return;
   const question = aspectQuestions.find(item => workspace.aspectChecks[item.id]?.reviewPending && workspace.aspectChecks[item.id]?.reviewSubmissionId === saved.submissionId);
-  if (!question || !events.some(event => isGuidedReview(event, question))) return;
+  if (!question) return;
+  const reviewed = events.some(event => isGuidedReview(event, question)) || workspace.messages.some(message => message.role === 'assistant' && message.backendRunId === run.runId && isGuidedReview({ type: 'message', text: message.text, panel: message.panel }, question));
+  if (!reviewed) return;
   const next = nextAspectQuestion(completeAspectReview(workspace, question.id), question.id);
   return { questionId: question.id, guide: { area: next?.area ?? question.area, questionId: next?.id, showFeedback: true } };
 }
