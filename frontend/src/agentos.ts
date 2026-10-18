@@ -178,7 +178,13 @@ export type CopilotStart = (input: string, signal: AbortSignal, area?: TeamArea,
 type AgentosRunResult = { readonly run: AgentosRun; readonly events: readonly WorkEvent[] };
 export class AgentosError extends Error {
   readonly name = 'AgentosError';
-  constructor(readonly code: 'http' | 'protocol' | 'scope' | 'stream' | 'cancel' | 'storage', message: string) { super(message); }
+  constructor(readonly code: 'http' | 'protocol' | 'scope' | 'stream' | 'cancel' | 'storage' | 'admission', message: string) { super(message); }
+}
+
+export function admissionError(reason: 'daily' | 'queue' | 'rate'): AgentosError {
+  const message = reason === 'daily' ? 'Daily AI allowance reached. Try again after 00:00 UTC.'
+    : reason === 'queue' ? "Samurai's queue is full. Try again in a few minutes." : 'Samurai is receiving too many requests. Try again later.';
+  return new AgentosError('admission', `${message} Your idea and answers are saved.`);
 }
 
 function json(value: string): unknown {
@@ -347,6 +353,11 @@ async function* frames(body: ReadableStream<Uint8Array>): AsyncIterable<string> 
 }
 async function request(url: string, options: RequestInit): Promise<Response> {
   const response = await fetch(url, { ...options, credentials: 'same-origin', headers: { ...headers, ...options.headers } });
+  if (response.status === 429) {
+    const result = z.object({ detail: z.string() }).safeParse(await response.json().catch(() => null));
+    const detail = result.success ? result.data.detail : '';
+    throw admissionError(detail === 'Guest daily usage limit reached. Try again tomorrow (UTC).' ? 'daily' : detail === "Samurai's execution queue is full." ? 'queue' : 'rate');
+  }
   if (!response.ok) throw new AgentosError('http', `AgentOS request failed (${response.status}).`);
   return response;
 }
@@ -492,9 +503,9 @@ export function createAgentosTransport(
     let status: AgentosRun['status'] = 'submitting';
     let terminal = false;
     let cancellation: Promise<AgentosRunResult> | undefined;
-    const notify = (nextStatus: AgentosRun['status']) => {
+    const notify = (nextStatus: AgentosRun['status'], failureReason?: string) => {
       status = nextStatus;
-      onRun?.({ submissionId, status, area: area ?? 'overview', ...(runId ? { runId } : {}), ...(companyId ? { companyId } : {}), ...(revision !== undefined ? { revision } : {}), ...(lastEventIndex !== undefined ? { lastEventIndex } : {}) });
+      onRun?.({ submissionId, status, area: area ?? 'overview', ...(failureReason ? { failureReason } : {}), ...(runId ? { runId } : {}), ...(companyId ? { companyId } : {}), ...(revision !== undefined ? { revision } : {}), ...(lastEventIndex !== undefined ? { lastEventIndex } : {}) });
     };
     const cancel = () => {
       if (!runId || terminal || cancellation) return;
@@ -523,7 +534,8 @@ export function createAgentosTransport(
         runHeaders['X-Samurai-Expected-Revision'] = String(approval.expectedRevision);
       }
       try { response = start ? await start(text.parse(input), controller.signal, area, approval, submissionId) : await request(base, { method: 'POST', body: form, signal: controller.signal, headers: runHeaders }); }
-      catch {
+      catch (error) {
+        if (error instanceof AgentosError && error.code === 'admission') throw error;
         const receipt = await readAgentosReceipt(sessionId, submissionId, controller.signal);
         runId = receipt.runId; companyId = receipt.companyId; revision = receipt.revision; status = receipt.status; onRun?.(receipt);
         if (!runId) throw new AgentosError('protocol', 'The work receipt omitted the run identity.');
@@ -599,6 +611,7 @@ export function createAgentosTransport(
       if (cancellation) { for (const output of (await cancellation).events) yield output; return; }
     } catch (error) {
       if (cancellation) { for (const output of (await cancellation).events) yield output; return; }
+      if (error instanceof AgentosError && error.code === 'admission' && !runId) { terminal = true; notify('failed', error.message); }
       if (!terminal) notify('recovering');
       throw error;
     } finally {

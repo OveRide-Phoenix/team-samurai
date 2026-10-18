@@ -2,6 +2,11 @@
 
 ## Form-led conversation — 18 October 2026
 
+An admission rejection is a settled error, not running work. Keep the saved idea
+and independent drafts. Explain the UTC reset for a daily limit, or a short retry for a full queue;
+an explicit “Retry idea analysis” soft button restarts a rejected first pass. Never
+automatically replay a request or clear an ambiguous durable run.
+
 One registered OpenUI form follows the mentor reply in the same conversation pane.
 Use the existing 24px surface, 12/13/14px type, 8/12/16/24px rhythm, themed textarea,
 44px buttons and visible focus treatment in both desktop themes. Label the answer

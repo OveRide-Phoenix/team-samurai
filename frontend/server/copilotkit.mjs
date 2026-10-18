@@ -56,7 +56,14 @@ export async function serveCopilot(req, res, { backend, token, origin, signal, f
   const agent = new HttpAgent({
     agentId: 'samurai', url: `${backend}/agentos/agents/samurai/agui`,
     headers: { authorization: `Bearer ${token}`, 'x-samurai-client': '1' },
-    fetch: (url, options) => fetchImpl(url, { ...options, redirect: 'error', signal: options.signal ? AbortSignal.any([signal, options.signal]) : signal }),
+    fetch: async (url, options) => {
+      const response = await fetchImpl(url, { ...options, redirect: 'error', signal: options.signal ? AbortSignal.any([signal, options.signal]) : signal });
+      if (response.status !== 429) return response;
+      const detail = (await response.json().catch(() => null))?.detail;
+      const code = detail === 'Guest daily usage limit reached. Try again tomorrow (UTC).' ? 'SAMURAI_USAGE_LIMIT'
+        : detail === "Samurai's execution queue is full." ? 'SAMURAI_QUEUE_FULL' : 'SAMURAI_RATE_LIMIT';
+      return new Response(`data: ${JSON.stringify({ type: 'RUN_ERROR', code, message: 'Samurai could not accept this request.' })}\n\n`, { headers: { 'content-type': 'text/event-stream' } });
+    },
   });
   const runtime = new CopilotRuntime({ agents: { samurai: agent }, runner: new AgnoRunner() });
   const handler = createCopilotRuntimeHandler({ runtime, basePath: '/api/copilotkit', mode: 'single-route', activateChannels: false });

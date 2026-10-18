@@ -113,6 +113,15 @@ describe('live workspace state', () => {
     expect(hasActiveBackendRun(accepted.backendRun)).toBe(true);
     expect(hasActiveBackendRun({ ...accepted.backendRun, status: 'completed' })).toBe(false);
   });
+  it('persists a rejected submission without inventing an accepted run', () => {
+    const pending = beginBackendRun(emptyCompanyView(), '00000000-0000-4000-8000-000000000099');
+    const failed = recordBackendRun(pending, { status: 'failed', failureReason: 'Daily AI allowance reached.' });
+    const restored = companyViewSchema.parse(JSON.parse(JSON.stringify(failed)));
+    expect(restored.backendRun).toMatchObject({ status: 'failed', failureReason: 'Daily AI allowance reached.' });
+    expect(hasActiveBackendRun(restored.backendRun)).toBe(false);
+    expect(beginBackendRun(restored, '00000000-0000-4000-8000-000000000098').backendRun?.status).toBe('submitting');
+  });
+
   it('rejects a backend receipt for a different logical submission', () => {
     const pending = beginBackendRun(emptyCompanyView(), '00000000-0000-4000-8000-000000000099');
     expect(() => recordBackendRun(pending, {

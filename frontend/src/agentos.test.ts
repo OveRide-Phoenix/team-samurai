@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cancelAgentosRun, editApprovedWorkDraft, approvedWorkForSubmission, companyResultSchema, companySnapshotEvents, companySnapshotSchema, createAgentosTransport, readAgentosRun, resumeAgentosRun, presentMessages, type AgentosRun } from './agentos';
+import { AgentosError, cancelAgentosRun, editApprovedWorkDraft, approvedWorkForSubmission, companyResultSchema, companySnapshotEvents, companySnapshotSchema, createAgentosTransport, readAgentosRun, resumeAgentosRun, presentMessages, type AgentosRun } from './agentos';
 import { loadPortfolio, persistPortfolio, portfolioStorageKey } from './browserStorage';
 import { emptyCompanyView, type Message, type WorkEvent } from './model';
 
@@ -449,6 +449,25 @@ describe('AgentOS transport wire boundary', () => {
     expect(event.panel.claims.map(claim => claim.claim)).toEqual(['landing page: Draft landing page', 'ads: Draft ad', 'emails: Draft email']);
     expect(event.panel.provenance).toEqual(marketing);
     expect(event.text).not.toContain('artifact_id');
+  });
+
+  it('settles an explicit pre-run usage rejection without looking for a receipt', async () => {
+    const statuses: AgentosRun[] = [];
+    const fetcher = vi.fn(async () => Response.json({}, { status: 404 }));
+    vi.stubGlobal('fetch', fetcher);
+    const start = async (_input: string, _signal: AbortSignal) => new Response(new ReadableStream({ start(controller) { controller.error(new AgentosError('admission', 'Daily AI allowance reached.')); } }), { headers: { 'content-type': 'text/event-stream' } });
+    await expect(collect(createAgentosTransport('session-1', run => { statuses.push(run); }, () => [], start)('Review idea', new AbortController().signal))).rejects.toMatchObject({ code: 'admission' });
+    expect(statuses.at(-1)).toMatchObject({ status: 'failed', failureReason: 'Daily AI allowance reached.' });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it.each([['Guest daily usage limit reached. Try again tomorrow (UTC).', '00:00 UTC'], ["Samurai's execution queue is full.", 'queue is full'], ['PRIVATE_UPSTREAM_DETAIL', 'Try again later']])('settles HTTP admission rejection: %s', async (detail, message) => {
+    const statuses: AgentosRun[] = [];
+    const fetcher = vi.fn(async () => Response.json({ detail }, { status: 429 }));
+    vi.stubGlobal('fetch', fetcher);
+    await expect(collect(createAgentosTransport('session-1', run => { statuses.push(run); })('Review idea', new AbortController().signal))).rejects.toMatchObject({ code: 'admission' });
+    expect(statuses.at(-1)).toMatchObject({ status: 'failed', failureReason: expect.stringContaining(message) });
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
   it('does not replay run creation while checking a receipt after HTTP failure', async () => {
