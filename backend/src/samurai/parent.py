@@ -106,7 +106,7 @@ from samurai.launch_workflows import (
     run_launch_drafts,
 )
 from samurai.learning import LearningContext, LearningStore
-from samurai.panels import presentation_tools
+from samurai.panels import PANEL_RETRY_MESSAGE, presentation_tools
 from samurai.team_areas import (
     TeamArea,
     journey_handoff,
@@ -717,7 +717,19 @@ def _sanitize_workflow(workflow: Workflow, *, max_model_calls: int) -> Workflow:
 
 def _fail_closed_tool_errors(run_output: RunOutput) -> None:
     content = run_output.content
-    failed_tool = any(tool.tool_call_error for tool in run_output.tools or ())
+    corrected_panel = any(
+        tool.tool_name == "compose_panel" and not tool.tool_call_error and tool.result == content
+        for tool in run_output.tools or ()
+    )
+    failed_tool = any(
+        tool.tool_call_error
+        and not (
+            corrected_panel
+            and tool.tool_name == "compose_panel"
+            and tool.result == PANEL_RETRY_MESSAGE
+        )
+        for tool in run_output.tools or ()
+    )
     if isinstance(content, str) and content.startswith(TOOL_ERROR_MARKER):
         failed_tool = True
     if failed_tool:

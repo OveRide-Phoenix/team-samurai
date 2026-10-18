@@ -164,6 +164,9 @@ class _ToolSequenceModel(Model):
         return response
 
 
+ToolSequenceModel = _ToolSequenceModel
+
+
 @final
 class StaticRoleModel(Model):
     def __init__(self, content: BaseModel | str) -> None:
