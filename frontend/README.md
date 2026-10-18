@@ -29,7 +29,11 @@ transport. See [GCP deployment](../docs/gcp-deployment.md) for the production bo
 
 ## Experience and boundaries
 
-- One software idea, six independently discussable aspects, eighteen guided questions.
+- One software idea, six independently discussable aspects, eighteen OpenUI question forms.
+  Submit the form for a structured mentor review and the next question. Mentor drafts
+  remain suggestions until reviewed; they do not complete the walkthrough.
+- Free chat stays independent: sending a message does not answer or advance a form.
+  Unsent form and chat drafts persist separately in the current browser account.
 - Desktop Mentor/Idea map views, pinned panels, themed menus and accessible controls.
 - One continuous transcript with explicit mentor invocation and retained drafts.
 - OpenUI renders guided controls and typed business views. Generated panels can be
@@ -71,3 +75,7 @@ use permissive licenses; Inter uses SIL Open Font License. Versions are locked i
 `package-lock.json`. OpenUI renders the typed catalog; direct model-native OpenUI
 streaming is not implemented. The atmospheric shader respects reduced motion and
 retains the CSS fallback when WebGL2 is unavailable.
+
+Guided reviews match the question using the bounded `panel_key` returned by `compose_panel`. Legacy panels still render, but cannot advance the guide. For backward-compatible backend-first rollout, only guide-prefixed compositions carry correlation metadata; ordinary panels retain their previous shape.
+
+Submitted answers stay pending until their matching review completes. Cancellation, failed requests and incomplete output keep that question resumable after reload; its full answer remains in chat and in the form draft.

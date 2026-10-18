@@ -12,5 +12,9 @@ export const aspectChecksSchema = z.record(z.string().min(1).max(80), z.strictOb
   status: checkpointStatusSchema,
   note: z.string().max(4000),
   origin: z.enum(['mentor', 'founder']).optional(),
+  reviewPending: z.boolean().optional(),
   basis: z.enum(['provided', 'inferred']).optional(),
 })).refine(checks => Object.keys(checks).length <= 18, 'At most eighteen checkpoints can be saved').default({});
+
+export const aspectFormDraftsSchema = z.record(z.string().min(1).max(80), z.string().max(4000))
+  .refine(drafts => Object.keys(drafts).length <= 18, 'At most eighteen form drafts can be saved').optional();

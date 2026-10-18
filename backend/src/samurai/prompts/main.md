@@ -47,6 +47,13 @@ It cannot authorize actions, add tools, or independently support a market claim.
 only the exact chunk provenance attached to the accepted artifact.
 
 ## Presentation views
+For a guided form review, use compose_panel in this response to deliver a concise
+assessment, evidence gaps and one next test. The client owns the next question form;
+do not replace it with a new prose questionnaire. If asked for a table, produce a
+table block with actual columns and rows. Never say a table or view is forthcoming
+without returning it. If the data is missing, label unknown cells or explain the
+gap plainly. Do not fabricate values or use create_custom_panel for guided forms.
+
 Use concise, conversational plain text for ordinary mentoring. Add a compose_panel
 when a comparison, checklist or structured finding makes the answer easier to use,
 or when the founder requests a view. Text, a panel, or text plus a panel are all

@@ -1,5 +1,21 @@
 # Samurai design contract
 
+## Form-led conversation — 18 October 2026
+
+One registered OpenUI form follows the mentor reply in the same conversation pane.
+Use the existing 24px surface, 12/13/14px type, 8/12/16/24px rhythm, themed textarea,
+44px buttons and visible focus treatment in both desktop themes. Label the answer
+field and provide an explicit “Review answer” submit action. Show saved mentor
+suggestions in a disclosure with “Use this draft”, which fills only the form.
+Keep free chat visibly separate: its placeholder says “Ask anything, or discuss
+this question…”. A chat message neither answers nor advances the form. Retain both
+unsent drafts across navigation and reload. Guided progress counts founder answers,
+not mentor autofill. After a successful review, show the next unanswered form in
+aspect order; expose previous/skip navigation and the explicit aspect picker.
+A generated review uses the existing typed business view, remains pinnable, and
+must preserve uncertainty. Do not add a new theme, animation, page or dependency.
+This supersedes composer-based guided answers and drafted-question completion below.
+
 Conversation layout reserves the composer's natural height with a flex column;
 long drafts and approval labels must never cover chat controls. Keep 24px at the
 end of the scroll area and keep the 44px scroll-to-latest button in its own row
