@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cancelAgentosRun, editApprovedWorkDraft, approvedWorkForSubmission, companyResultSchema, companySnapshotEvents, companySnapshotSchema, createAgentosTransport, readAgentosRun, resumeAgentosRun, presentMessages, type AgentosRun } from './agentos';
+import { AgentosError, cancelAgentosRun, editApprovedWorkDraft, approvedWorkForSubmission, companyResultSchema, companySnapshotEvents, companySnapshotSchema, createAgentosTransport, readAgentosRun, resumeAgentosRun, presentMessages, type AgentosRun } from './agentos';
 import { loadPortfolio, persistPortfolio, portfolioStorageKey } from './browserStorage';
 import { emptyCompanyView, type Message, type WorkEvent } from './model';
 
@@ -449,6 +449,25 @@ describe('AgentOS transport wire boundary', () => {
     expect(event.panel.claims.map(claim => claim.claim)).toEqual(['landing page: Draft landing page', 'ads: Draft ad', 'emails: Draft email']);
     expect(event.panel.provenance).toEqual(marketing);
     expect(event.text).not.toContain('artifact_id');
+  });
+
+  it('settles an explicit pre-run usage rejection without looking for a receipt', async () => {
+    const statuses: AgentosRun[] = [];
+    const fetcher = vi.fn(async () => Response.json({}, { status: 404 }));
+    vi.stubGlobal('fetch', fetcher);
+    const start = async (_input: string, _signal: AbortSignal) => new Response(new ReadableStream({ start(controller) { controller.error(new AgentosError('quota', 'Daily AI allowance reached.')); } }), { headers: { 'content-type': 'text/event-stream' } });
+    await expect(collect(createAgentosTransport('session-1', run => { statuses.push(run); }, () => [], start)('Review idea', new AbortController().signal))).rejects.toMatchObject({ code: 'quota' });
+    expect(statuses.at(-1)).toMatchObject({ status: 'failed', failureReason: 'Daily AI allowance reached.' });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('keeps an HTTP admission limit terminal instead of masking it with a missing receipt', async () => {
+    const statuses: AgentosRun[] = [];
+    const fetcher = vi.fn(async () => Response.json({}, { status: 429 }));
+    vi.stubGlobal('fetch', fetcher);
+    await expect(collect(createAgentosTransport('session-1', run => { statuses.push(run); })('Review idea', new AbortController().signal))).rejects.toMatchObject({ code: 'quota' });
+    expect(statuses.at(-1)?.status).toBe('failed');
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
   it('does not replay run creation while checking a receipt after HTTP failure', async () => {

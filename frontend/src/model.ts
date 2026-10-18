@@ -88,7 +88,7 @@ export const backendRunSchema = z.object({
   submissionId: z.string().uuid().optional(), runId: z.string().min(1).optional(), status: backendRunStatusSchema,
   companyId: z.string().uuid().optional(), revision: z.number().int().min(0).optional(), lastEventIndex: z.number().int().min(0).optional(),
   attempt: z.number().int().min(0).optional(), maxAttempts: z.number().int().min(1).optional(), failureReason: z.string().min(1).max(2000).optional(), area: teamAreaSchema.optional(), aspect: ideaAreaSchema.optional(),
-}).refine(run => Boolean(run.runId) || (['submitting', 'recovering'].includes(run.status) && Boolean(run.submissionId)), 'A backend run needs a run or submission ID');
+}).refine(run => Boolean(run.runId) || (['submitting', 'recovering', 'failed'].includes(run.status) && Boolean(run.submissionId)), 'A backend run needs a run or submission ID');
 export type BackendRun = z.infer<typeof backendRunSchema>;
 export const workspaceSchema = z.object({
   executionMode: z.enum(['preview', 'live']).default('preview'), backendRun: backendRunSchema.optional(),

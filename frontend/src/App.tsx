@@ -160,7 +160,7 @@ export function CompanyWorkspace(props: CompanyProps) {
   return <Suspense fallback={<CompanyWorkspaceContent {...props} />}><CopilotCompany companyId={props.company.id}>{(start, error) => <CompanyWorkspaceContent {...props} copilotStart={start} connectionError={error} />}</CopilotCompany></Suspense>;
 }
 function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWorkspace, initialView, mode, toggleMode, onOpen, storageError, readOnly = false, copilotStart, connectionError }: CompanyProps & { copilotStart?: CopilotStart; connectionError?: string }) {
-  const recoveringRef = useRef(Boolean(workspace.backendRun));
+  const recoveringRef = useRef(Boolean(workspace.backendRun && (workspace.backendRun.status !== 'failed' || workspace.backendRun.runId)));
   const [recovering, setRecovering] = useState(recoveringRef.current);
   const [isRunning, setRunning] = useState(recoveringRef.current);
   const [activities, setActivities] = useState<Partial<Record<Agent, Activity>>>(() => Object.fromEntries(workspace.activityLog.map(activity => [activity.agent, activity])));
@@ -258,6 +258,7 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
   const sendMessage = async (input: string, answering?: AspectQuestion) => {
     if (readOnly || !input || recoveringRef.current || controllerRef.current || completionRef.current || backendRunning()) return;
     const initialRequest = !answering && input === 'Save my idea brief';
+    if (initialRequest) { setInitialising(true); setFirstPassInFocus(true); }
     if (!initialRequest) {
       setFirstPassInFocus(false);
       setGuide(current => current ? { ...current, showFeedback: true } : current);
@@ -275,7 +276,7 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
     setRunning(true); setRunError(''); setActivities({});
     runAspectRef.current = uiArea;
     runQuestionRef.current = answering?.id;
-    setWorkspace(current => ({ ...current, activityLog: [], drafts: answering ? current.drafts : { ...current.drafts, [uiArea]: '' } }));
+    setWorkspace(current => ({ ...current, activityLog: [], drafts: answering || initialRequest ? current.drafts : { ...current.drafts, [uiArea]: '' } }));
     if (!answering) append({ id: crypto.randomUUID(), role: 'user', text: initialRequest ? workspace.brief?.idea ?? input : input });
     try {
       const initial = initialRequest && workspace.brief;
@@ -344,6 +345,7 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
   useEffect(() => {
     const saved = backendRunRef.current;
     if (!saved) return;
+    if (saved.status === 'failed' && !saved.runId) { setRunError(saved.failureReason ?? 'The request was not accepted. You can try again.'); return; }
     let runId = saved.runId;
     const controller = new AbortController();
     const timer = setTimeout(() => {
@@ -541,6 +543,7 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
 
               {isRunning && <div className="working-message" role="status"><LoaderCircle size={15} className="spin" />{workingAgent?.detail || (recovering ? 'Recovering the saved backend run…' : 'Waiting for the backend…')}</div>}
               {(runError || connectionError) && <div className="error-note" role="alert">{runError || connectionError}</div>}
+              {workspace.brief && !analysis && workspace.backendRun?.status === 'failed' && <button className="soft-button" disabled={readOnly || isRunning || recovering || !copilotStart} onClick={() => { void sendMessage('Save my idea brief'); }}>Retry idea analysis<ArrowRight size={14} /></button>}
               {!focused && workspace.messages.length > 0 && <div className="suggestions"><button onClick={() => chooseNextStage(true)} title={nextReason || undefined} disabled={nextDisabled}>{nextStage.label} <ArrowRight size={13} /></button></div>}
             </div>
           </ThreadPrimitive.Viewport>

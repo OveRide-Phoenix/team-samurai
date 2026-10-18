@@ -81,3 +81,5 @@ Guided reviews match the question using the bounded `panel_key` returned by `com
 Submitted answers stay pending until their matching review completes. Cancellation, failed requests and incomplete output keep that question resumable after reload; its full answer remains in chat and in the form draft.
 
 A guided answer is bound to its existing frontend submission ID before dispatch. Recovering a completed saved run accepts only that submission’s matching structured review and resumes the next open question; free-chat or stale results cannot finish another pending answer.
+
+Guest AI admission limits remain enforced on the backend. A rejected submission carries a bounded `SAMURAI_USAGE_LIMIT` AG-UI error, settles without a fabricated run or missing-receipt lookup, and retains its explanation across reload. An explicit Retry idea analysis action can repeat the initial analysis after allowance is available. Ambiguous transport failures retain durable recovery.
