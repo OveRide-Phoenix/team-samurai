@@ -47,7 +47,7 @@ export function Onboarding({ name, onCancel, onComplete }: { name: string; onCan
       <OpenUIAnswers questions={page.questions.filter(question => question.id === 'idea')} answers={answers} error={Boolean(error)} onAnswer={(id, value) => { setAnswers(current => ({ ...current, [id]: value })); setError(''); }} />
       {error && <p id="intake-error" className="intake-error" role="alert">{error}</p>}
       <div className="onboarding-actions"><button className="primary-button" type="submit">Meet my mentor<ArrowRight size={17} /></button></div>
-      <p className="intake-note">Live Samurai workflow · Nothing is sent or published</p>
+      <p className="intake-note">Live Proofseed workflow · Nothing is sent or published</p>
     </form>
   </div>;
 }

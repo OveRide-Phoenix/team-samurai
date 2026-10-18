@@ -199,7 +199,7 @@ export function createProductionServer(config, { verifyIdentity = createIapVerif
           }
           if (selected.kind === 'founder_operation' && upstream.status < 500) return json(res, upstream.status, { detail: await founderOperationsError(upstream) });
           await upstream.body?.cancel();
-          return json(res, upstream.status >= 500 ? 503 : upstream.status, { detail: upstream.status >= 500 ? 'Samurai AgentOS is unavailable.' : 'AgentOS request denied.' });
+          return json(res, upstream.status >= 500 ? 503 : upstream.status, { detail: upstream.status >= 500 ? 'Proofseed AgentOS is unavailable.' : 'AgentOS request denied.' });
         }
         const headers = { 'Content-Type': upstream.headers.get('content-type') ?? 'application/json', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' };
         if (selected.kind === 'file_download') {
@@ -227,7 +227,7 @@ export function createProductionServer(config, { verifyIdentity = createIapVerif
       if (res.destroyed) return;
       if (res.headersSent) return res.destroy();
       const multipartError = error instanceof MultipartFileError ? error : error instanceof TypeError && error.cause instanceof MultipartFileError ? error.cause : undefined;
-      json(res, error instanceof RequestError || error instanceof FounderOperationsRequestError ? error.status : multipartError?.status ?? 502, { detail: error instanceof RequestError || error instanceof FounderOperationsRequestError ? error.message : multipartError?.message ?? 'Samurai is unavailable.' });
+      json(res, error instanceof RequestError || error instanceof FounderOperationsRequestError ? error.status : multipartError?.status ?? 502, { detail: error instanceof RequestError || error instanceof FounderOperationsRequestError ? error.message : multipartError?.message ?? 'Proofseed is unavailable.' });
     }
   });
   server.requestTimeout = 30_000;

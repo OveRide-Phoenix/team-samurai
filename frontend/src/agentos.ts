@@ -183,7 +183,7 @@ export class AgentosError extends Error {
 
 export function admissionError(reason: 'daily' | 'queue' | 'rate'): AgentosError {
   const message = reason === 'daily' ? 'Daily AI allowance reached. Try again after 00:00 UTC.'
-    : reason === 'queue' ? "Samurai's queue is full. Try again in a few minutes." : 'Samurai is receiving too many requests. Try again later.';
+    : reason === 'queue' ? "Proofseed's queue is full. Try again in a few minutes." : 'Proofseed is receiving too many requests. Try again later.';
   return new AgentosError('admission', `${message} Your idea and answers are saved.`);
 }
 
@@ -451,7 +451,7 @@ export async function* resumeAgentosRun(
       }
       const next: AgentosRun = { ...run, runId, status: event.event === 'RunCompleted' ? 'completed' : event.event === 'RunCancelled' ? 'cancelled' : event.event === 'RunError' ? 'failed' : 'running', ...(companyId ? { companyId } : {}), ...(revision !== undefined ? { revision } : {}), ...(lastEventIndex !== undefined ? { lastEventIndex } : {}) };
       run = next; onRun?.(next);
-      if (event.event === 'RunError') throw new AgentosError('stream', 'Samurai could not complete this run.');
+      if (event.event === 'RunError') throw new AgentosError('stream', 'Proofseed could not complete this run.');
       if (event.event === 'RunCompleted' || event.event === 'RunCancelled') return;
     }
     if (lastEventIndex === startingIndex) throw new AgentosError('stream', 'AgentOS disconnected without new recoverable events.');
@@ -589,7 +589,7 @@ export function createAgentosTransport(
               }
             } else if (!view && !handoff && event.event === 'RunCompleted' && typeof event.content === 'string' && event.content.trim()) yield { type: 'message', text: event.content };
           }
-          if (event.event === 'RunError') { terminal = true; notify('failed'); throw new AgentosError('stream', 'Samurai could not complete this run.'); }
+          if (event.event === 'RunError') { terminal = true; notify('failed'); throw new AgentosError('stream', 'Proofseed could not complete this run.'); }
           if (event.event === 'RunCompleted' || event.event === 'RunCancelled') { terminal = true; notify(event.event === 'RunCancelled' ? 'cancelled' : 'completed'); return; }
         }
         if (!runId) {

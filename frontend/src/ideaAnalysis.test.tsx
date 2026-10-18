@@ -34,7 +34,7 @@ describe('mentor starting points', () => {
     const parsed = createParser(ideaAnalysisLibrary.toJSONSchema(), ideaAnalysisLibrary.root).parse('root = IdeaFirstPass({"pending":true})');
     expect(parsed.meta.errors).toEqual([]);
     const welcome = renderToStaticMarkup(<OpenUIIdeaAnalysis pending onAspect={() => undefined} />);
-    expect(welcome).toContain('I’m Samurai');
+    expect(welcome).toContain('I’m Proofseed');
     const html = renderToStaticMarkup(<OpenUIIdeaAnalysis analysis={analysis} pending={false} onAspect={() => undefined} />);
     expect(html.match(/<details>/g)).toHaveLength(6);
     expect(html).toContain('Mentor assumption');

@@ -22,7 +22,7 @@ export function createCopilotStart(core: CopilotKitCoreReact, agent: AbstractAge
           if (value.event === 'RunCompleted' || value.event === 'RunCancelled') terminal = event.value;
           else controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(event.value)}\n\n`));
         },
-        onRunErrorEvent({ event }) { if (!closed) { closed = true; controller.error(event.code === 'SAMURAI_USAGE_LIMIT' ? admissionError('daily') : event.code === 'SAMURAI_QUEUE_FULL' ? admissionError('queue') : event.code === 'SAMURAI_RATE_LIMIT' ? admissionError('rate') : new Error('Samurai could not complete this run.')); } },
+        onRunErrorEvent({ event }) { if (!closed) { closed = true; controller.error(event.code === 'SAMURAI_USAGE_LIMIT' ? admissionError('daily') : event.code === 'SAMURAI_QUEUE_FULL' ? admissionError('queue') : event.code === 'SAMURAI_RATE_LIMIT' ? admissionError('rate') : new Error('Proofseed could not complete this run.')); } },
       });
       unsubscribe = () => subscription.unsubscribe();
       void core.runAgent({ agent, runId: submissionId, forwardedProps: { team_area: area, ...(approval ? { work_approval: { operation: approval.operation, stage: approval.stage, expected_revision: approval.expectedRevision, company_id: approval.companyId } } : {}) } }).then(() => {
@@ -31,7 +31,7 @@ export function createCopilotStart(core: CopilotKitCoreReact, agent: AbstractAge
           closed = true; controller.close();
         }
       }).catch(() => {
-        if (!closed) { closed = true; controller.error(new Error('Samurai could not complete this run.')); }
+        if (!closed) { closed = true; controller.error(new Error('Proofseed could not complete this run.')); }
       }).finally(() => { signal.removeEventListener('abort', abort); unsubscribe?.(); });
     }, cancel() { unsubscribe?.(); agent.abortRun(); } });
     return new Response(stream, { headers: { 'Content-Type': 'text/event-stream' } });

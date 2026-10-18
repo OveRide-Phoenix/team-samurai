@@ -11,7 +11,7 @@ type Answers = { answers: CompanyBrief; error: boolean; onAnswer: (id: Question[
 const AnswerContext = createContext<Answers | null>(null);
 const limits = { idea: 1500, customer: 300, location: 120, budget: 120, goal: 500, founderSkills: 500 };
 const AnswerFields = defineComponent({
-  name: 'AnswerFields', description: 'Validated founder questions using Samurai answer controls', props: z.object({ questions: z.array(fieldSchema).min(1).max(6) }),
+  name: 'AnswerFields', description: 'Validated founder questions using Proofseed answer controls', props: z.object({ questions: z.array(fieldSchema).min(1).max(6) }),
   component: ({ props }) => {
     const controls = useContext(AnswerContext);
     if (!controls) return null;

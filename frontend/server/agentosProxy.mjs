@@ -190,19 +190,19 @@ export function agentosProxy(root, fetchImpl = fetch) {
     const url = new URL(req.url, 'http://127.0.0.1:4173');
     let operation;
     try { operation = founderOperationsRoute(url, req.method); }
-    catch (error) { return error instanceof FounderOperationsRequestError ? reject(res, error.status, error.message) : reject(res, 502, 'Samurai AgentOS is unavailable.'); }
+    catch (error) { return error instanceof FounderOperationsRequestError ? reject(res, error.status, error.message) : reject(res, 502, 'Proofseed AgentOS is unavailable.'); }
     const { token, configured } = config(root);
     if (url.pathname === '/api/agentos/connection' && req.method === 'GET' && !url.search) {
       res.statusCode = configured ? 200 : 503;
       res.setHeader('Content-Type', 'application/json');
       return res.end(JSON.stringify({ backend: BACKEND, configured, auth: 'jwt' }));
     }
-    if (!configured) return reject(res, 503, 'Samurai AgentOS is not configured.');
+    if (!configured) return reject(res, 503, 'Proofseed AgentOS is not configured.');
     if (copilot) {
       const controller = new AbortController();
       res.once('close', () => { if (!res.writableFinished) controller.abort(); });
       try { return await serveCopilot(req, res, { backend: BACKEND, token, origin: `http://${req.headers.host}`, signal: controller.signal, fetchImpl }); }
-      catch { if (!res.headersSent) return reject(res, 502, 'Samurai AgentOS is unavailable.'); return res.destroy(); }
+      catch { if (!res.headersSent) return reject(res, 502, 'Proofseed AgentOS is unavailable.'); return res.destroy(); }
     }
     const isIntake = url.pathname === '/api/agentos/intake' && req.method === 'GET' && !url.search;
     const fileRoute = !url.search ? FILES.exec(url.pathname) : null;
@@ -248,7 +248,7 @@ export function agentosProxy(root, fetchImpl = fetch) {
       if (!upstream.ok && (upstream.status === 401 || upstream.status >= 500)) {
         res.statusCode = upstream.status >= 500 ? 503 : 401;
         res.setHeader('Content-Type', 'application/json');
-        return res.end(JSON.stringify({ detail: upstream.status === 401 ? 'AgentOS authentication failed.' : 'Samurai AgentOS is unavailable.' }));
+        return res.end(JSON.stringify({ detail: upstream.status === 401 ? 'AgentOS authentication failed.' : 'Proofseed AgentOS is unavailable.' }));
       }
       if (fileKind === 'file_download' && upstream.ok) {
         const allowed = {
@@ -272,7 +272,7 @@ export function agentosProxy(root, fetchImpl = fetch) {
       if (res.headersSent) return res.destroy();
       const multipartError = error instanceof MultipartFileError ? error : error instanceof TypeError && error.cause instanceof MultipartFileError ? error.cause : undefined;
       if (error instanceof DirectoryRequestError || error instanceof FounderOperationsRequestError || multipartError) return reject(res, error instanceof DirectoryRequestError || error instanceof FounderOperationsRequestError ? error.status : multipartError.status, error instanceof DirectoryRequestError || error instanceof FounderOperationsRequestError ? error.message : multipartError.message);
-      return reject(res, 502, 'Samurai AgentOS is unavailable.');
+      return reject(res, 502, 'Proofseed AgentOS is unavailable.');
     }
   };
 }

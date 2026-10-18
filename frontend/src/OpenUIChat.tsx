@@ -9,7 +9,7 @@ import { OpenUIRender } from './OpenUIRender';
 type ComposerControls = { workLabel?: string; onClearWork?: () => void; running: boolean; recovering: boolean; stopLabel: string; onExplore: () => void; onInput: (value: string) => void };
 const ComposerContext = createContext<ComposerControls | null>(null);
 const MessageText = defineComponent({
-  name: 'MessageText', description: 'Literal founder or Samurai message; never executable markup', props: z.object({ text: z.string() }),
+  name: 'MessageText', description: 'Literal founder or Proofseed message; never executable markup', props: z.object({ text: z.string() }),
   component: ({ props }) => <p className="chat-message-copy">{props.text}</p>,
 });
 const ReplyComposer = defineComponent({

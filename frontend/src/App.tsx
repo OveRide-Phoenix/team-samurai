@@ -88,7 +88,7 @@ function AssistantMessage() {
   const { workspace, selectArea } = useWorkspace();
   const message = workspace.messages.find(item => item.id === id);
   const analysis = message?.panel && 'idea_analysis' in message.panel ? message.panel.idea_analysis : undefined;
-  return <MessagePrimitive.Root className="assistant-message" data-message-id={id}><div className="message-author"><span className="author-mark"><Leaf size={12} /></span>Samurai</div><MessagePrimitive.Parts components={{ Text: OpenUIMessageText, tools: { by_name: { business_panel: BusinessPanelTool } } }} />{analysis && <OpenUIIdeaAnalysis analysis={analysis} pending={false} onAspect={selectArea} />}{message?.handoff && <button className="soft-button team-handoff" onClick={() => selectArea(message.handoff!, message.handoffPrerequisite ? message.handoff === 'overview' ? 'Save my idea brief' : teamAreas.find(item => item.id === message.handoff)!.prompt : workspace.messages.slice(0, workspace.messages.indexOf(message)).reverse().find(item => item.role === 'user' && item.area === message.area)?.text)}>Open {teamAreas.find(item => item.id === message.handoff)!.name}<ArrowRight size={14} /></button>}</MessagePrimitive.Root>;
+  return <MessagePrimitive.Root className="assistant-message" data-message-id={id}><div className="message-author"><span className="author-mark"><Leaf size={12} /></span>Proofseed</div><MessagePrimitive.Parts components={{ Text: OpenUIMessageText, tools: { by_name: { business_panel: BusinessPanelTool } } }} />{analysis && <OpenUIIdeaAnalysis analysis={analysis} pending={false} onAspect={selectArea} />}{message?.handoff && <button className="soft-button team-handoff" onClick={() => selectArea(message.handoff!, message.handoffPrerequisite ? message.handoff === 'overview' ? 'Save my idea brief' : teamAreas.find(item => item.id === message.handoff)!.prompt : workspace.messages.slice(0, workspace.messages.indexOf(message)).reverse().find(item => item.role === 'user' && item.area === message.area)?.text)}>Open {teamAreas.find(item => item.id === message.handoff)!.name}<ArrowRight size={14} /></button>}</MessagePrimitive.Root>;
 }
 function UserMessage() {
   const id = useAuiState(state => state.message.id);
@@ -309,7 +309,7 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
         setGuide({ area: nextArea, questionId: next?.id, showFeedback: true });
       }
     } catch (error) {
-      setRunError(error instanceof Error ? error.message : 'Samurai could not complete this request.');
+      setRunError(error instanceof Error ? error.message : 'Proofseed could not complete this request.');
     } finally {
       controllerRef.current = null;
       if (backendRunRef.current) recordRun(backendRunRef.current);
@@ -499,7 +499,7 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
     <div className={['workspace company-workspace', view === 'company' ? 'mentor-map-layout' : 'mentor-panels-layout', view === 'chat' && focused ? 'aspect-chat-open' : ''].join(' ')}>
       <Atmosphere mode={mode} /><TransitionGrain key={view} /><div className="bottom-blur" aria-hidden="true" />
       <header className="topbar">
-        <div className="topbar-brand"><button className="home-button" onClick={() => onOpen(null)} aria-label="All ideas"><Home size={19} /></button><span className="wordmark">Samurai</span></div>
+        <div className="topbar-brand"><button className="home-button" onClick={() => onOpen(null)} aria-label="All ideas"><Home size={19} /></button><span className="wordmark"><img className="brand-logo" src="/favicon.svg" alt="" />Proofseed</span></div>
         <Tabs className="view-switch" value={view} onValueChange={value => setView(value === 'company' ? 'company' : 'chat')}><LiquidBackdrop /><TabsList aria-label="Workspace view"><TabsTrigger value="chat">Mentor</TabsTrigger><TabsTrigger value="company">Idea map</TabsTrigger></TabsList></Tabs>
         <div className="topbar-actions"><ModeToggle mode={mode} onToggle={toggleMode} /><DropdownMenu.Root><DropdownMenu.Trigger asChild><button className="account-button" aria-label="Workspace settings"><SlidersHorizontal size={17} /></button></DropdownMenu.Trigger><DropdownMenu.Portal><DropdownMenu.Content className="workspace-menu" align="end" sideOffset={8} collisionPadding={14}>
           <DropdownMenu.Item className="workspace-menu-item" disabled={view !== 'chat' || renderedPanels.length < 2} onSelect={() => setEditingOrder(!editingOrder)}><GripVertical size={16} />{editingOrder ? 'Done editing' : 'Edit pinned panel order'}</DropdownMenu.Item>
@@ -548,8 +548,8 @@ function CompanyWorkspaceContent({ company, workspace, setWorkspace, persistWork
             </div>
           </ThreadPrimitive.Viewport>
           <div className="composer-dock">{!conversationAtBottom && <button className="scroll-bottom" onClick={() => { setConversationAtBottom(true); viewportRef.current?.scrollTo({ top: viewportRef.current.scrollHeight, behavior: 'smooth' }); }} aria-label="Scroll to latest message"><ArrowDown size={16} /></button>}
-            <OpenUIComposer label={focused ? 'Message ' + team.name : 'Message Samurai'} placeholder={guidedQuestion ? 'Ask anything, or discuss this question…' : focused ? 'Ask about ' + team.name.toLowerCase() + '…' : 'What’s our next move?'} running={isRunning} recovering={recovering} stopLabel="Stop backend run" onExplore={() => setDialog('panels')} workLabel={workLabel} onClearWork={() => armDraft()} onInput={value => { armDraft(editApprovedWorkDraft(approvedDraft.current, value, uiArea)); setWorkspace(current => ({ ...current, drafts: { ...current.drafts, [uiArea]: value } })); }} />
-            <div className="conversation-caption">{activeGuide ? 'Answer in the form · Chat is always open' : 'Live Samurai workflow · Generated artifacts need review'}</div>
+            <OpenUIComposer label={focused ? 'Message ' + team.name : 'Message Proofseed'} placeholder={guidedQuestion ? 'Ask anything, or discuss this question…' : focused ? 'Ask about ' + team.name.toLowerCase() + '…' : 'What’s our next move?'} running={isRunning} recovering={recovering} stopLabel="Stop backend run" onExplore={() => setDialog('panels')} workLabel={workLabel} onClearWork={() => armDraft()} onInput={value => { armDraft(editApprovedWorkDraft(approvedDraft.current, value, uiArea)); setWorkspace(current => ({ ...current, drafts: { ...current.drafts, [uiArea]: value } })); }} />
+            <div className="conversation-caption">{activeGuide ? 'Answer in the form · Chat is always open' : 'Live Proofseed workflow · Generated artifacts need review'}</div>
             {storageError && <p role="status" className="storage-warning">Browser storage is unavailable. This session won’t be saved.</p>}
           </div>
         </ThreadPrimitive.Root>

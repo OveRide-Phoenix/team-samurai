@@ -12,10 +12,10 @@ function Connection({ companyId, children }: Props) {
   const { copilotkit } = useCopilotKit();
   const { agent, isReady } = useAgent({ agentId: 'samurai' });
   const start = useMemo(() => createCopilotStart(copilotkit, agent, companyId), [copilotkit, agent, companyId]);
-  return children(isReady ? start : undefined, copilotkit.runtimeConnectionStatus === 'error' ? 'Samurai could not connect. Reload to try again.' : undefined);
+  return children(isReady ? start : undefined, copilotkit.runtimeConnectionStatus === 'error' ? 'Proofseed could not connect. Reload to try again.' : undefined);
 }
 export default function CopilotCompany(props: Props) {
-  // The public headless context preserves Samurai's existing chat without loading a second chat UI.
+  // The public headless context preserves Proofseed's existing chat without loading a second chat UI.
   const copilotkit = useMemo(() => new CopilotKitCoreReact({ runtimeUrl: '/api/copilotkit', headers, credentials: 'same-origin', runtimeTransport: 'single', deferInitialConnection: true }), []);
   useEffect(() => { copilotkit.connect(); }, [copilotkit]);
   const context = useMemo(() => ({ copilotkit, executingToolCallIds, showIntelligenceIndicator: false }), [copilotkit]);

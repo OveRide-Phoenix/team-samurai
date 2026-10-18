@@ -1,4 +1,4 @@
-# Team Samurai — Software idea mentor
+# Proofseed — Software idea mentor
 
 An AI mentor for validating and improving software ideas before implementation,
 developed for Google AI Builder Cup 2026. Describe an app, website or software

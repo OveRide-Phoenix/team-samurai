@@ -47,7 +47,7 @@ const MeasurementAnswers = defineComponent({
       <p className="panel-note">{step + 1} of 2 · {step === 0 ? 'Your result' : 'Its source and time period'}</p>
       <div className="onboarding-fields">{fields.map(field => <div key={field.key}><label htmlFor={`measurement-${field.key}`}>{field.label}</label><input id={`measurement-${field.key}`} className="intake-input" type={field.type} step={field.type === 'number' ? 'any' : undefined} required maxLength={field.maxLength} placeholder={field.placeholder} value={answer[field.key]} disabled={controls.disabled} aria-describedby={error ? 'measurement-error' : undefined} onChange={event => { setError(''); setAnswer(current => ({ ...current, [field.key]: event.target.value })); }} /></div>)}</div>
       {error && <p id="measurement-error" className="error-note" role="alert">{error}</p>}
-      <p className="panel-note">Your own measurement · Samurai will review it as supplied.</p>
+      <p className="panel-note">Your own measurement · Proofseed will review it as supplied.</p>
       <div className="brief-step-actions">{step > 0 && <button type="button" className="soft-button" disabled={controls.disabled} onClick={() => { setStep(0); setError(''); }}><ArrowLeft size={14} />Back</button>}<button type="submit" className="soft-button" disabled={controls.disabled}>{step === 0 ? 'Next' : 'Review in chat'}<ArrowRight size={14} /></button></div>
     </form>;
   },

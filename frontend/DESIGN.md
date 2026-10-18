@@ -1,3 +1,10 @@
+## Proofseed identity — 18 October 2026
+
+The visible product name is Proofseed. Use the supplied seed emblem for the logo.
+Preserve the existing palette, typography, layout and motion; the user explicitly
+requested name and logo only. Keep samurai API identifiers, auth headers, storage
+keys and cloud resource names stable for compatibility.
+
 # Samurai design contract
 
 ## Form-led conversation — 18 October 2026

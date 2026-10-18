@@ -62,7 +62,7 @@ export async function serveCopilot(req, res, { backend, token, origin, signal, f
       const detail = (await response.json().catch(() => null))?.detail;
       const code = detail === 'Guest daily usage limit reached. Try again tomorrow (UTC).' ? 'SAMURAI_USAGE_LIMIT'
         : detail === "Samurai's execution queue is full." ? 'SAMURAI_QUEUE_FULL' : 'SAMURAI_RATE_LIMIT';
-      return new Response(`data: ${JSON.stringify({ type: 'RUN_ERROR', code, message: 'Samurai could not accept this request.' })}\n\n`, { headers: { 'content-type': 'text/event-stream' } });
+      return new Response(`data: ${JSON.stringify({ type: 'RUN_ERROR', code, message: 'Proofseed could not accept this request.' })}\n\n`, { headers: { 'content-type': 'text/event-stream' } });
     },
   });
   const runtime = new CopilotRuntime({ agents: { samurai: agent }, runner: new AgnoRunner() });

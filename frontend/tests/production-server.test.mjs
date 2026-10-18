@@ -288,7 +288,7 @@ test('sanitizes upstream failures', async t => {
   const app = await fixture(t, async () => new Response('private credential', { status: 500 }));
   const response = await app.request('/api/agentos/intake');
   assert.equal(response.status, 503);
-  assert.equal((await response.json()).detail, 'Samurai AgentOS is unavailable.');
+  assert.equal((await response.json()).detail, 'Proofseed AgentOS is unavailable.');
 });
 
 test('serves authenticated deep links and public liveness', async t => {

@@ -22,7 +22,7 @@ export function guestIdentity(req, res, key, now = Math.floor(Date.now() / 1000)
     }
   }
   // Establish identity on page navigation, before parallel API calls can race to mint cookies.
-  if (req.method !== 'GET' || req.url.startsWith('/api')) throw new RequestError(401, 'Open Samurai to start a guest session.');
+  if (req.method !== 'GET' || req.url.startsWith('/api')) throw new RequestError(401, 'Open Proofseed to start a guest session.');
   const id = randomUUID();
   const data = `${id}.${now}`;
   const signature = sign('RSA-SHA256', Buffer.from(`samurai-guest-v1:${data}`), key).toString('base64url');

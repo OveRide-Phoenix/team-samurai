@@ -16,7 +16,7 @@ async function start() {
     );
   } catch {
     root.setAttribute("role", "alert");
-    root.textContent = "Your session could not be opened. Reload Samurai to try again.";
+    root.textContent = "Your session could not be opened. Reload Proofseed to try again.";
   }
 }
 void start();

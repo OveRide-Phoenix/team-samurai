@@ -18,7 +18,7 @@ const IdeaFirstPass = defineComponent({
     const analysis = data.analysis;
     return <section className="idea-first-pass" aria-label="Mentor first pass">
       <span className="guide-kicker"><Leaf size={14} />YOUR IDEA MENTOR</span>
-      <h2>{analysis ? 'Here’s how I’m understanding your idea.' : 'I’m Samurai. Let’s explore your idea.'}</h2>
+      <h2>{analysis ? 'Here’s how I’m understanding your idea.' : 'I’m Proofseed. Let’s explore your idea.'}</h2>
       <p>{analysis?.summary ?? (data.pending ? 'I’m making a first pass across the problem, market, sales, product, budget and validation. I’ll fill what I can and ask you about the gaps.' : 'We can work through all six aspects together. Start with what you know; we’ll make the assumptions clear.')}</p>
       {analysis && <>
         <p>I’ve drafted {analysis.starting_points.length} of 18 starting points across your six aspects. Here’s my starting view of each. “From your idea” is what you shared; “Mentor assumption” is my inference. These drafts still need validation.</p>
