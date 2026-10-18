@@ -11,6 +11,13 @@ This supersedes all historical preview/demo instructions below.
 
 ## Latest mentor entry and layout — 17 October 2026
 
+After idea submission, explain the prefilled aspects in the first mentor reply.
+Show a useful, idea-specific starting point for all six aspects without requiring
+six disclosure clicks. Say what was drafted, distinguish founder context from
+mentor assumptions and missing input, and invite corrections through chat.
+Keep full draft notes expandable and reuse the existing intake response; no extra
+model call or automatic readiness change is needed for this explanation.
+
 Keep readiness lights inside the aspect boxes, without visible status words.
 Place the filled-question count at the top right. The user rejected separate
 1–2–3 question buttons above graph nodes. Questions stay in the mentor conversation.

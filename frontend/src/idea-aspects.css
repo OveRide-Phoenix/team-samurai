@@ -61,17 +61,21 @@
 .idea-first-pass { margin:16px 0 24px; padding:24px 0; }
 .idea-first-pass h2 { font-size:24px; line-height:1.3; letter-spacing:-.7px; margin:16px 0 12px; }
 .idea-first-pass > p { font-size:13px; line-height:1.7; color:var(--muted-foreground); }
+.idea-first-pass > p + p { margin-top:12px; }
 .analysis-aspects { margin-block:20px; border-block:1px solid var(--border); }
-.analysis-aspects > details + details { border-top:1px solid var(--border); }
-.analysis-aspects summary { display:flex; align-items:center; gap:10px; min-height:56px; cursor:pointer; font-size:12px; }
-.analysis-aspects summary strong { flex:1; font-weight:550; }
-.analysis-aspects summary > span:last-child { color:var(--muted-foreground); font-size:11px; white-space:nowrap; }
+.analysis-aspect { padding-block:24px 16px; }
+.analysis-aspect + .analysis-aspect { border-top:1px solid var(--border); }
+.analysis-aspect-heading { display:flex; align-items:center; gap:12px; }
+.analysis-aspect-heading h3 { flex:1; font-size:14px; font-weight:550; margin:0; }
+.analysis-aspect-heading > span:last-child { color:var(--muted-foreground); font-size:11px; white-space:nowrap; }
+.analysis-aspects summary { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:44px; cursor:pointer; font-size:12px; color:var(--secondary-text); }
 .analysis-number { display:grid; place-items:center; width:24px; height:24px; flex-shrink:0; background:var(--accent-soft); border-radius:8px; font-size:11px; }
 .analysis-aspect-body { padding:0 8px 20px; }
-.analysis-starting-point { padding-block:14px; }
+.analysis-starting-point { padding-block:16px; }
 .analysis-starting-point > span { display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; font-size:12px; font-weight:550; }
 .analysis-starting-point small { font-size:10px; font-weight:400; color:var(--muted-foreground); }
 .analysis-starting-point p { font-size:12px; line-height:1.7; color:var(--muted-foreground); margin-top:8px; white-space:pre-wrap; overflow-wrap:anywhere; }
+.analysis-aspect > .analysis-starting-point p { font-size:13px; color:var(--foreground); }
 .mentor-pane-heading { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:20px 24px; min-height:64px; border-bottom:1px solid var(--border); }
 .mentor-pane-heading > span { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:550; }
 .mentor-pane-heading small { color:var(--muted-foreground); font-size:11px; }
