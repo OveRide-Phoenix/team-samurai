@@ -10,7 +10,7 @@ dependencies = [
     "google-genai==2.29.0",
     "psycopg[binary]==3.3.6",
     "pydantic==2.14.0",
-    "pydantic-settings==2.15.0",
+    "pydantic-settings==2.16.0",
     "python-multipart==0.0.32",
     "redis>=8.1.0",
     "sqlalchemy[asyncio]==2.1.4",
