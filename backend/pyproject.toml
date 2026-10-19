@@ -46,5 +46,5 @@ dev = [
     "basedpyright==1.40.2",
     "httpx2[brotli,http2,zstd]==2.13.1",
     "pytest==9.1.1",
-    "ruff==0.17.0",
+    "ruff==0.17.1",
 ]
