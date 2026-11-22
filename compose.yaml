@@ -1,7 +1,7 @@
 name: ${SAMURAI_COMPOSE_PROJECT:-team-samurai}
 services:
   postgres:
-    image: public.ecr.aws/docker/library/postgres:18
+    image: public.ecr.aws/docker/library/postgres:19
     environment:
       POSTGRES_USER: samurai
       POSTGRES_DB: samurai
